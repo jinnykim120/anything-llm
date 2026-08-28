@@ -310,10 +310,28 @@ class LanceDb extends VectorDatabase {
   ) {
     const { DocumentVectors } = require("../../../models/vectors");
     try {
-      // [auto-docu P1a] `blocks` is a large per-parse array — keep it out of the
-      // per-chunk metadata (it drives block-aware chunking only). parse_path /
-      // parse_confidence are small and useful downstream, so they stay in metadata.
-      const { pageContent, docId, blocks, ...metadata } = documentData;
+      // [auto-docu] Strip fields that are per-document, not per-chunk: `blocks`
+      // (large), and the P1a' ingest metadata (`file_hash`/`content_hash`/
+      // `original_path`) which lives on the workspace_documents record. Leaving
+      // `original_path` (string on some docs, null on text files) in per-chunk
+      // metadata also corrupts LanceDB's inferred Arrow schema. `sensitivity` /
+      // `parse_path` / `parse_confidence` DO stay — needed at query time.
+      const {
+        pageContent,
+        docId,
+        blocks,
+        file_hash,
+        content_hash,
+        original_path,
+        ...rest
+      } = documentData;
+      const metadata = {
+        ...rest,
+        sensitivity: rest.sensitivity || "unclassified",
+        parse_path: rest.parse_path || "",
+        parse_confidence:
+          typeof rest.parse_confidence === "number" ? rest.parse_confidence : 0,
+      };
       if (!pageContent || pageContent.length == 0) return false;
 
       this.logger("Adding new vectorized document into namespace", namespace);
