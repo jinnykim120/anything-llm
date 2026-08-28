@@ -56,6 +56,46 @@ const SUPPORTED_NATIVE_EMBEDDING_MODELS = {
       modelCard: "https://huggingface.co/intfloat/multilingual-e5-small",
     },
   },
+  // [auto-docu P0a] Primary embedder for this project: strong Korean/CJK retrieval.
+  // BGE-M3 is XLM-RoBERTa based; 8192-token context. No instruction prefix needed.
+  // Later (P0b, WSL/Linux) we run the full FlagEmbedding BGE-M3 for dense+sparse (D7);
+  // here we use the ONNX dense-only weights via transformers.js.
+  "Xenova/bge-m3": {
+    maxConcurrentChunks: 5,
+    // Model hard limit is 8192 tokens. Korean tokenizes densely (often ~1 char/token
+    // with this XLM-R sentencepiece), so cap chars well under that to avoid silent
+    // truncation, and to keep chunks retrieval-sized.
+    embeddingMaxChunkLength: 8_000,
+    chunkPrefix: "",
+    queryPrefix: "",
+    apiInfo: {
+      id: "Xenova/bge-m3",
+      name: "bge-m3 (multilingual, Korean-strong)",
+      description:
+        "BAAI BGE-M3 multilingual embedding model. Strong Korean/CJK retrieval, 8k context. Larger download & slower than the small models.",
+      lang: "100+ languages",
+      size: "~600MB (quantized)",
+      modelCard: "https://huggingface.co/Xenova/bge-m3",
+    },
+  },
+  // [auto-docu P0a] Fallback if transformers.js v2 cannot load bge-m3's ONNX graph.
+  // multilingual-e5-large is well-proven with transformers.js v2 (also XLM-RoBERTa).
+  "Xenova/multilingual-e5-large": {
+    maxConcurrentChunks: 5,
+    // e5 max sequence length is 512 tokens.
+    embeddingMaxChunkLength: 1_000,
+    chunkPrefix: "passage: ",
+    queryPrefix: "query: ",
+    apiInfo: {
+      id: "Xenova/multilingual-e5-large",
+      name: "multilingual-e5-large",
+      description:
+        "Multilingual E5 large. Solid Korean retrieval, 512-token context. Proven with transformers.js v2.",
+      lang: "100+ languages",
+      size: "~1.1GB",
+      modelCard: "https://huggingface.co/intfloat/multilingual-e5-large",
+    },
+  },
 };
 
 module.exports = {

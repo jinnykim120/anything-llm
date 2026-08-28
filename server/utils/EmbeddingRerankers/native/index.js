@@ -17,10 +17,16 @@ class NativeEmbeddingReranker {
   // and may go offline at any time at Mintplex Labs's discretion.
   #fallbackHost = "https://cdn.anythingllm.com/support/models/";
 
+  // [auto-docu P0a] The upstream default (Xenova/ms-marco-MiniLM-L-6-v2) is an
+  // English-only MS-MARCO cross-encoder and measurably wrecks Korean reranking
+  // (eval/FINDINGS.md: MRR 0.97 -> 0.64). Default to a multilingual reranker.
+  // Overridable via RERANKER_MODEL_PREF. Both are XLM-R SequenceClassification
+  // with num_labels=1, so the rerank() logic below is unchanged.
+  static defaultModel = "onnx-community/bge-reranker-v2-m3-ONNX";
+
   constructor() {
-    // An alternative model to the mixedbread-ai/mxbai-rerank-xsmall-v1 model (speed on CPU is much slower for this model @ 18docs = 6s)
-    // Model Card: https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2 (speed on CPU is much faster @ 18docs = 1.6s)
-    this.model = "Xenova/ms-marco-MiniLM-L-6-v2";
+    this.model =
+      process.env.RERANKER_MODEL_PREF || NativeEmbeddingReranker.defaultModel;
     this.cacheDir = path.resolve(
       process.env.STORAGE_DIR
         ? path.resolve(process.env.STORAGE_DIR, `models`)
