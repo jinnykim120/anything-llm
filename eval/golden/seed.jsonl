@@ -1,0 +1,18 @@
+{"id": "budget-01", "question": "2026년도 예산요구서 제출 기한은 언제인가?", "expect_docs": ["01_budget_guideline_2026.md"], "answer_contains": ["2025년 5월 31일"], "domain": "예산"}
+{"id": "budget-02", "question": "성과평가에서 미흡 등급을 받은 사업은 예산을 얼마나 삭감하나?", "expect_docs": ["01_budget_guideline_2026.md"], "answer_contains": ["10퍼센트"], "domain": "예산"}
+{"id": "budget-03", "question": "R&D 예산이 집중되는 3대 게임체인저 분야는?", "expect_docs": ["01_budget_guideline_2026.md"], "answer_contains": ["인공지능", "첨단바이오", "양자"], "domain": "예산"}
+{"id": "budget-04", "question": "생계급여 기준 중위소득 비율은 어떻게 바뀌나?", "expect_docs": ["01_budget_guideline_2026.md"], "answer_contains": ["32", "33"], "domain": "복지"}
+{"id": "disaster-01", "question": "풍수해 대응 인프라에 향후 5년간 투자하는 총 금액은?", "expect_docs": ["02_disaster_safety_plan.md"], "answer_contains": ["12조"], "domain": "재난안전"}
+{"id": "disaster-02", "question": "국가하천 홍수방어 목표는 몇 년 빈도로 상향되나?", "expect_docs": ["02_disaster_safety_plan.md"], "answer_contains": ["200년"], "domain": "재난안전"}
+{"id": "disaster-03", "question": "재정자립도가 낮은 기초지자체의 국비 지원 비율은?", "expect_docs": ["02_disaster_safety_plan.md"], "answer_contains": ["85퍼센트"], "domain": "재난안전"}
+{"id": "ai-01", "question": "AI안전연구소는 언제 설립되며 연간 예산은 얼마인가?", "expect_docs": ["03_rnd_strategy_ai.md"], "answer_contains": ["2025년 11월", "300억"], "domain": "과학기술"}
+{"id": "ai-02", "question": "AI 반도체 팹리스 기업에 적용되는 세액공제 최대 비율은?", "expect_docs": ["03_rnd_strategy_ai.md"], "answer_contains": ["40퍼센트"], "domain": "과학기술"}
+{"id": "ai-03", "question": "국가인공지능위원회의 위원장은 누구인가?", "expect_docs": ["03_rnd_strategy_ai.md"], "answer_contains": ["국무총리"], "domain": "과학기술"}
+{"id": "welfare-01", "question": "노인 돌봄 통합지원 사업의 2026년 목표 인원은?", "expect_docs": ["04_welfare_elderly_care.md"], "answer_contains": ["35만"], "domain": "복지"}
+{"id": "welfare-02", "question": "차상위계층의 노인 돌봄 본인부담금 비율은?", "expect_docs": ["04_welfare_elderly_care.md"], "answer_contains": ["6퍼센트"], "domain": "복지"}
+{"id": "env-01", "question": "2035년 석탄화력발전 비중 목표치는?", "expect_docs": ["05_environment_carbon.md"], "answer_contains": ["5퍼센트"], "domain": "환경"}
+{"id": "env-02", "question": "배출권 유상할당 비율은 2030년까지 몇 퍼센트로 확대되나?", "expect_docs": ["05_environment_carbon.md"], "answer_contains": ["50퍼센트"], "domain": "환경"}
+{"id": "edu-01", "question": "AI 디지털교과서 도입에서 국어 교과는 왜 유보되었나?", "expect_docs": ["06_education_digital.md"], "answer_contains": ["문해력"], "domain": "교육"}
+{"id": "edu-02", "question": "학습 데이터는 어디에 저장되며 상업적 활용은 가능한가?", "expect_docs": ["06_education_digital.md"], "answer_contains": ["한국교육학술정보원", "금지"], "domain": "교육"}
+{"id": "cross-01", "question": "인공지능과 관련된 정부 계획에서 예산이나 투자 규모를 모두 알려줘", "expect_docs": ["01_budget_guideline_2026.md", "03_rnd_strategy_ai.md"], "answer_contains": ["65조"], "domain": "교차"}
+{"id": "cross-02", "question": "제로에너지건축 인증 의무화와 관련된 건물 기준 면적은?", "expect_docs": ["05_environment_carbon.md"], "answer_contains": ["500제곱미터"], "domain": "환경"}
