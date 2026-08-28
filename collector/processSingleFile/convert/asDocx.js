@@ -1,12 +1,10 @@
-const { v4 } = require("uuid");
 const { DocxLoader } = require("langchain/document_loaders/fs/docx");
+const { trashFile } = require("../../utils/files");
 const {
-  createdDate,
-  trashFile,
-  writeToServerDocuments,
-} = require("../../utils/files");
-const { tokenizeString } = require("../../utils/tokenizer");
-const { default: slugify } = require("slugify");
+  plainTextToBlocks,
+  finalizeBlocksDoc,
+} = require("../../utils/blocks");
+const { parseWithDocling } = require("./asDoclingDoc");
 
 async function asDocX({
   fullFilePath = "",
@@ -14,18 +12,32 @@ async function asDocX({
   options = {},
   metadata = {},
 }) {
-  const loader = new DocxLoader(fullFilePath);
-
   console.log(`-- Working ${filename} --`);
-  let pageContent = [];
-  const docs = await loader.load();
-  for (const doc of docs) {
-    console.log(`-- Parsing content from docx page --`);
-    if (!doc.pageContent.length) continue;
-    pageContent.push(doc.pageContent);
+
+  // [auto-docu P1b] Prefer Docling — it gives section_path, block_type and table
+  // structure for Word docs. Fall back to LangChain's text-only loader (blocks =
+  // paragraph-indexed anchors) when docling-serve is unavailable.
+  let blocks = [];
+  let parsePath = null;
+  let parseConfidence = null;
+
+  const docling = await parseWithDocling(fullFilePath);
+  if (docling.ok) {
+    blocks = docling.blocks;
+    parsePath = docling.parsePath || "docling";
+    parseConfidence = docling.confidence ?? 0.9;
+  } else {
+    const docs = await new DocxLoader(fullFilePath).load();
+    const text = docs
+      .map((d) => d.pageContent)
+      .filter((t) => t && t.length)
+      .join("\n\n");
+    blocks = plainTextToBlocks(text);
+    parsePath = "docx-text";
+    parseConfidence = blocks.length ? 0.7 : 0;
   }
 
-  if (!pageContent.length) {
+  if (!blocks.length) {
     console.error(`Resulting text content was empty for ${filename}.`);
     if (!options.absolutePath) trashFile(fullFilePath);
     return {
@@ -35,29 +47,16 @@ async function asDocX({
     };
   }
 
-  const content = pageContent.join("");
-  const data = {
-    id: v4(),
-    url: "file://" + fullFilePath,
-    title: metadata.title || filename,
-    docAuthor: metadata.docAuthor || "no author found",
-    description: metadata.description || "No description found.",
-    docSource: metadata.docSource || "docx file uploaded by the user.",
-    chunkSource: metadata.chunkSource || "",
-    published: createdDate(fullFilePath),
-    wordCount: content.split(" ").length,
-    pageContent: content,
-    token_count_estimate: tokenizeString(content),
-  };
-
-  const document = writeToServerDocuments({
-    data,
-    filename: `${slugify(filename)}-${data.id}`,
-    options: { parseOnly: options.parseOnly },
+  return finalizeBlocksDoc({
+    blocks,
+    parsePath,
+    parseConfidence,
+    fullFilePath,
+    filename,
+    metadata,
+    options,
+    extra: { docSource: "docx file uploaded by the user." },
   });
-  if (!options.absolutePath) trashFile(fullFilePath);
-  console.log(`[SUCCESS]: ${filename} converted & ready for embedding.\n`);
-  return { success: true, reason: null, documents: [document] };
 }
 
 module.exports = asDocX;

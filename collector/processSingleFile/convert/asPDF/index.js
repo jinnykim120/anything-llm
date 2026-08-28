@@ -30,12 +30,14 @@ async function asPdf({
   //   3. OCR fallback         — page-level text, no bbox               [scanned/empty]
   let blocks = [];
   let parsePath = null;
+  let doclingConfidence = null;
   let pdfInfo = null;
 
   const docling = await parseWithDocling(fullFilePath);
   if (docling.ok) {
     blocks = docling.blocks;
-    parsePath = "docling";
+    parsePath = docling.parsePath || "docling";
+    doclingConfidence = docling.confidence ?? null;
   } else {
     const pdfLoader = new PDFLoader(fullFilePath, { splitPages: true });
     let pages = await pdfLoader.load();
@@ -90,7 +92,10 @@ async function asPdf({
   }
 
   const content = blocksToText(blocks);
-  const parseConfidence = estimateConfidence(parsePath, blocks, content);
+  const parseConfidence =
+    doclingConfidence != null
+      ? doclingConfidence
+      : estimateConfidence(parsePath, blocks, content);
 
   const data = {
     id: v4(),
@@ -104,7 +109,7 @@ async function asPdf({
     wordCount: content.split(" ").length,
     pageContent: content, // backward-compatible flat text
     blocks, // [auto-docu P1a] location-aware units for block-aware chunking
-    parse_path: parsePath, // "docling" | "pdfjs" | "ocr"
+    parse_path: parsePath, // "docling" | "docling-partial" | "pdfjs" | "ocr"
     parse_confidence: parseConfidence,
     token_count_estimate: tokenizeString(content),
   };
@@ -124,7 +129,6 @@ async function asPdf({
 // Rough 0..1 signal for "how trustworthy is this parse" — drives the P1b re-parse
 // queue later. pdfjs with real bboxes is solid; ocr and text-only are shakier.
 function estimateConfidence(parsePath, blocks, content) {
-  if (parsePath === "docling") return 0.95;
   if (parsePath === "ocr") return 0.55;
   const withBbox = blocks.filter((b) => Array.isArray(b.bbox)).length;
   const ratio = blocks.length ? withBbox / blocks.length : 0;

@@ -114,10 +114,65 @@ function blocksToText(blocks = []) {
     .join("\n\n");
 }
 
+/**
+ * Shared tail for any converter that has produced `blocks`: assemble the document
+ * record (with the flat pageContent kept for back-compat) and write it. Used by
+ * asPDF / asDocx / (later) asOffice so the block plumbing lives in one place.
+ */
+function finalizeBlocksDoc({
+  blocks,
+  parsePath,
+  parseConfidence,
+  fullFilePath,
+  filename,
+  metadata = {},
+  options = {},
+  extra = {},
+}) {
+  const { v4 } = require("uuid");
+  const { default: slugify } = require("slugify");
+  const { tokenizeString } = require("../tokenizer");
+  const {
+    createdDate,
+    trashFile,
+    writeToServerDocuments,
+  } = require("../files");
+
+  const content = blocksToText(blocks);
+  const data = {
+    id: v4(),
+    url: "file://" + fullFilePath,
+    title: metadata.title || filename,
+    docAuthor: metadata.docAuthor || extra.docAuthor || "no author found",
+    description: metadata.description || extra.description || "No description found.",
+    docSource: metadata.docSource || extra.docSource || "file uploaded by the user.",
+    chunkSource: metadata.chunkSource || "",
+    published: createdDate(fullFilePath),
+    wordCount: content.split(" ").length,
+    pageContent: content,
+    blocks,
+    parse_path: parsePath,
+    parse_confidence: parseConfidence,
+    token_count_estimate: tokenizeString(content),
+  };
+
+  const document = writeToServerDocuments({
+    data,
+    filename: `${slugify(filename)}-${data.id}`,
+    options: { parseOnly: options.parseOnly },
+  });
+  if (!options.absolutePath) trashFile(fullFilePath);
+  console.log(
+    `[SUCCESS]: ${filename} converted (${parsePath}, ${blocks.length} blocks) & ready for embedding.\n`
+  );
+  return { success: true, reason: null, documents: [document] };
+}
+
 module.exports = {
   linesToBlocks,
   pageTextToBlock,
   plainTextToBlocks,
   blocksToText,
   mergeBbox,
+  finalizeBlocksDoc,
 };
