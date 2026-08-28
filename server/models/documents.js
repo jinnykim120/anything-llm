@@ -117,7 +117,10 @@ const Document = {
       }
 
       const docId = uuidv4();
-      const { pageContent: _pageContent, ...metadata } = data;
+      // [auto-docu P1a] `blocks` (parse-time page/bbox units) is large and only
+      // needed for chunking — keep it out of the workspace_documents metadata row.
+      // parse_path / parse_confidence are small and kept (drive the P1b re-parse queue).
+      const { pageContent: _pageContent, blocks: _blocks, ...metadata } = data;
       const newDoc = {
         docId,
         filename: path.split(/[/\\]/).pop(),

@@ -167,6 +167,130 @@ class TextSplitter {
   async splitText(documentText) {
     return this.#splitter._splitText(documentText);
   }
+
+  /**
+   * [auto-docu P1a] Block-aware split. When the parsed document carries `blocks`
+   * (page/bbox/section-tagged units from pdf.js or Docling), pack consecutive
+   * blocks into retrieval-sized chunks WITHOUT splitting across a block, and
+   * carry each chunk's location metadata. Falls back to the flat splitText when
+   * there are no blocks (other file types not yet upgraded).
+   *
+   * @param {{pageContent?: string, blocks?: Array<object>}} documentData
+   * @returns {Promise<{chunks: string[], metas: object[]}>}
+   */
+  async splitDocument(documentData = {}) {
+    const blocks = Array.isArray(documentData.blocks)
+      ? documentData.blocks.filter((b) => b?.text?.trim())
+      : [];
+
+    if (!blocks.length) {
+      const chunks = await this.splitText(documentData.pageContent || "");
+      return { chunks, metas: chunks.map(() => TextSplitter.emptyChunkMeta()) };
+    }
+
+    // Block-aware chunks stay paragraph-sized (not filled to the embedder max) so
+    // each chunk maps to a tight bbox for citation highlighting and retrieves
+    // precisely. Never exceed the configured/embedder limit. Overridable via
+    // BLOCK_CHUNK_TARGET_CHARS.
+    const configuredMax = isNaN(this.config?.chunkSize)
+      ? 1_000
+      : Number(this.config.chunkSize);
+    const target = Number(process.env.BLOCK_CHUNK_TARGET_CHARS) || 1_200;
+    const maxSize = Math.min(configuredMax, Math.max(target, 400));
+    const header = this.stringifyHeader();
+
+    const out = { chunks: [], metas: [] };
+    let buf = [];
+    let bufLen = 0;
+
+    const flush = () => {
+      if (!buf.length) return;
+      const text = buf.map((b) => b.text).join("\n\n");
+      out.chunks.push(`${header}${text}`);
+      out.metas.push(TextSplitter.#chunkMetaFromBlocks(buf));
+      buf = [];
+      bufLen = 0;
+    };
+
+    for (const block of blocks) {
+      const blockText = block.text.trim();
+      // A single oversized block: split it, each piece keeps this block's meta.
+      if (blockText.length > maxSize) {
+        flush();
+        const pieces = await this.#splitter.rawSplit(blockText);
+        for (const piece of pieces) {
+          out.chunks.push(`${header}${piece}`);
+          out.metas.push(TextSplitter.#chunkMetaFromBlocks([block]));
+        }
+        continue;
+      }
+      // Keep a chunk on a single page so its bbox is unambiguous.
+      const crossesPage =
+        buf.length &&
+        block.page != null &&
+        buf[buf.length - 1].page != null &&
+        block.page !== buf[buf.length - 1].page;
+      if (crossesPage || bufLen + blockText.length > maxSize) flush();
+      buf.push(block);
+      bufLen += blockText.length + 2;
+    }
+    flush();
+    return out;
+  }
+
+  /**
+   * The chunk-location fields, as STABLE SCALAR TYPES that every chunk carries
+   * (0 / "" = unknown). Vector DBs infer a fixed column type from the first row,
+   * and a workspace mixes doc types (PDF with bbox, txt without) — so the shape
+   * must be identical for every chunk regardless of parser. `bbox` is a JSON
+   * string so the column is always a string; the frontend JSON.parses it.
+   */
+  static emptyChunkMeta() {
+    return {
+      page: 0,
+      page_end: 0,
+      bbox: "",
+      anchor: "",
+      page_width: 0,
+      page_height: 0,
+      section_path: "",
+      block_type: "",
+    };
+  }
+
+  /** Collapse a run of blocks into one chunk's location metadata. */
+  static #chunkMetaFromBlocks(blocks = []) {
+    const meta = TextSplitter.emptyChunkMeta();
+    if (!blocks.length) return meta;
+    const firstPage = blocks.find((b) => b.page != null)?.page ?? 0;
+    const lastPage =
+      [...blocks].reverse().find((b) => b.page != null)?.page ?? firstPage;
+    const boxes = blocks
+      .filter(
+        (b) =>
+          Array.isArray(b.bbox) && b.bbox.length === 4 && b.page === firstPage
+      )
+      .map((b) => b.bbox);
+    if (boxes.length) {
+      meta.bbox = JSON.stringify(
+        [
+          Math.min(...boxes.map((x) => x[0])),
+          Math.min(...boxes.map((x) => x[1])),
+          Math.max(...boxes.map((x) => x[2])),
+          Math.max(...boxes.map((x) => x[3])),
+        ].map((n) => Math.round(n * 100) / 100)
+      );
+    }
+    const types = [...new Set(blocks.map((b) => b.block_type).filter(Boolean))];
+    meta.page = firstPage || 0;
+    meta.page_end = lastPage && lastPage !== firstPage ? lastPage : 0;
+    meta.anchor = blocks[0].anchor ?? "";
+    meta.page_width = blocks[0].page_width || 0;
+    meta.page_height = blocks[0].page_height || 0;
+    meta.section_path = blocks.find((b) => b.section_path)?.section_path ?? "";
+    meta.block_type = types.length === 1 ? types[0] : types.length ? "mixed" : "";
+    return meta;
+  }
 }
 
 // Wrapper for Langchain default RecursiveCharacterTextSplitter class.
@@ -200,6 +324,14 @@ class RecursiveSplitter {
     return documents
       .filter((doc) => !!doc.pageContent)
       .map((doc) => doc.pageContent);
+  }
+
+  /**
+   * [auto-docu P1a] Split raw text with no header applied — the caller (splitDocument)
+   * prepends the header itself so it can pair chunks with block metadata.
+   */
+  async rawSplit(text) {
+    return this.engine.splitText(text);
   }
 }
 

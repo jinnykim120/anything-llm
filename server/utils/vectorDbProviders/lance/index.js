@@ -310,7 +310,10 @@ class LanceDb extends VectorDatabase {
   ) {
     const { DocumentVectors } = require("../../../models/vectors");
     try {
-      const { pageContent, docId, ...metadata } = documentData;
+      // [auto-docu P1a] `blocks` is a large per-parse array — keep it out of the
+      // per-chunk metadata (it drives block-aware chunking only). parse_path /
+      // parse_confidence are small and useful downstream, so they stay in metadata.
+      const { pageContent, docId, blocks, ...metadata } = documentData;
       if (!pageContent || pageContent.length == 0) return false;
 
       this.logger("Adding new vectorized document into namespace", namespace);
@@ -356,7 +359,10 @@ class LanceDb extends VectorDatabase {
         chunkHeaderMeta: TextSplitter.buildHeaderMeta(metadata),
         chunkPrefix: EmbedderEngine?.embeddingPrefix,
       });
-      const textChunks = await textSplitter.splitText(pageContent);
+      // [auto-docu P1a] block-aware split: chunks carry page/bbox/section when the
+      // parser produced blocks; identical to splitText otherwise.
+      const { chunks: textChunks, metas: chunkMetas } =
+        await textSplitter.splitDocument({ pageContent, blocks });
 
       this.logger("Snippets created from document:", textChunks.length);
       const documentVectors = [];
@@ -366,13 +372,14 @@ class LanceDb extends VectorDatabase {
 
       if (!!vectorValues && vectorValues.length > 0) {
         for (const [i, vector] of vectorValues.entries()) {
+          const locationMeta = chunkMetas[i] || {};
           const vectorRecord = {
             id: uuidv4(),
             values: vector,
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: { ...metadata, ...locationMeta, text: textChunks[i] },
           };
 
           vectors.push(vectorRecord);
