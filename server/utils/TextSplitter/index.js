@@ -199,6 +199,18 @@ class TextSplitter {
     const maxSize = Math.min(configuredMax, Math.max(target, 400));
     const header = this.stringifyHeader();
 
+    // [auto-docu P1a'] Cheap Contextual Retrieval: prepend the chunk's own
+    // section path + page to what gets embedded, so a chunk ranks for queries
+    // about its section even when the section title isn't in the chunk body.
+    // (The LLM-generated version — Anthropic's method — is a later upgrade once a
+    // fast LLM is available; the local one is too slow per-chunk at ingest.)
+    const contextLine = (meta) => {
+      const bits = [];
+      if (meta.section_path) bits.push(meta.section_path);
+      if (meta.page) bits.push(`p.${meta.page}`);
+      return bits.length ? `context: ${bits.join(" — ")}\n\n` : "";
+    };
+
     const out = { chunks: [], metas: [] };
     let buf = [];
     let bufLen = 0;
@@ -206,8 +218,9 @@ class TextSplitter {
     const flush = () => {
       if (!buf.length) return;
       const text = buf.map((b) => b.text).join("\n\n");
-      out.chunks.push(`${header}${text}`);
-      out.metas.push(TextSplitter.#chunkMetaFromBlocks(buf));
+      const meta = TextSplitter.#chunkMetaFromBlocks(buf);
+      out.chunks.push(`${header}${contextLine(meta)}${text}`);
+      out.metas.push(meta);
       buf = [];
       bufLen = 0;
     };
@@ -217,10 +230,11 @@ class TextSplitter {
       // A single oversized block: split it, each piece keeps this block's meta.
       if (blockText.length > maxSize) {
         flush();
+        const meta = TextSplitter.#chunkMetaFromBlocks([block]);
         const pieces = await this.#splitter.rawSplit(blockText);
         for (const piece of pieces) {
-          out.chunks.push(`${header}${piece}`);
-          out.metas.push(TextSplitter.#chunkMetaFromBlocks([block]));
+          out.chunks.push(`${header}${contextLine(meta)}${piece}`);
+          out.metas.push(meta);
         }
         continue;
       }

@@ -114,6 +114,61 @@ function blocksToText(blocks = []) {
     .join("\n\n");
 }
 
+const crypto = require("crypto");
+
+// [auto-docu P1a'] Keep the original file for types the citation viewer (P2) needs
+// to render visually. Plain text / data files don't need it — the parsed text IS
+// the document. Extension list, lowercase, no dot.
+const KEEP_ORIGINAL_EXTS = new Set([
+  "pdf",
+  "docx",
+  "doc",
+  "pptx",
+  "ppt",
+  "xlsx",
+  "xls",
+  "hwp",
+  "hwpx",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "tiff",
+]);
+
+/** Normalize text for a content hash that ignores whitespace/parser noise. */
+function normalizeForHash(text) {
+  return String(text || "")
+    .replace(/<document_metadata>[\s\S]*?<\/document_metadata>/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Copy the source file into storage/documents/originals/<slug>-<id>.<ext> so the
+ * viewer can fetch it later. Returns the repo-relative path or null.
+ */
+function keepOriginal({ fullFilePath, id, slug, options }) {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const { documentsFolder } = require("../files");
+    const ext = path.extname(fullFilePath).replace(/^\./, "").toLowerCase();
+    if (!KEEP_ORIGINAL_EXTS.has(ext)) return null;
+    if (options?.parseOnly) return null; // direct uploads aren't in the library
+
+    const dir = path.resolve(documentsFolder, "originals");
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const dest = path.resolve(dir, `${slug}-${id}.${ext}`);
+    fs.copyFileSync(fullFilePath, dest);
+    return `originals/${slug}-${id}.${ext}`;
+  } catch (e) {
+    console.error("[keepOriginal] failed:", e.message);
+    return null;
+  }
+}
+
 /**
  * Shared tail for any converter that has produced `blocks`: assemble the document
  * record (with the flat pageContent kept for back-compat) and write it. Used by
@@ -129,6 +184,7 @@ function finalizeBlocksDoc({
   options = {},
   extra = {},
 }) {
+  const fs = require("fs");
   const { v4 } = require("uuid");
   const { default: slugify } = require("slugify");
   const { tokenizeString } = require("../tokenizer");
@@ -139,8 +195,25 @@ function finalizeBlocksDoc({
   } = require("../files");
 
   const content = blocksToText(blocks);
+  const id = v4();
+  const slug = slugify(filename);
+
+  // [auto-docu P1a'] ingest-time metadata — cheap now, a full re-ingest later.
+  let fileHash = null;
+  try {
+    fileHash = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(fullFilePath))
+      .digest("hex");
+  } catch { /* file may already be gone on retry */ }
+  const contentHash = crypto
+    .createHash("sha256")
+    .update(normalizeForHash(content))
+    .digest("hex");
+  const originalPath = keepOriginal({ fullFilePath, id, slug, options });
+
   const data = {
-    id: v4(),
+    id,
     url: "file://" + fullFilePath,
     title: metadata.title || filename,
     docAuthor: metadata.docAuthor || extra.docAuthor || "no author found",
@@ -153,17 +226,23 @@ function finalizeBlocksDoc({
     blocks,
     parse_path: parsePath,
     parse_confidence: parseConfidence,
+    file_hash: fileHash,
+    content_hash: contentHash,
+    original_path: originalPath, // repo-relative, or null for text/data files
+    sensitivity: metadata.sensitivity || "unclassified", // conservative — treated as confidential until a human confirms otherwise
     token_count_estimate: tokenizeString(content),
   };
 
   const document = writeToServerDocuments({
     data,
-    filename: `${slugify(filename)}-${data.id}`,
+    filename: `${slug}-${id}`,
     options: { parseOnly: options.parseOnly },
   });
   if (!options.absolutePath) trashFile(fullFilePath);
   console.log(
-    `[SUCCESS]: ${filename} converted (${parsePath}, ${blocks.length} blocks) & ready for embedding.\n`
+    `[SUCCESS]: ${filename} converted (${parsePath}, ${blocks.length} blocks${
+      originalPath ? ", original kept" : ""
+    }) & ready for embedding.\n`
   );
   return { success: true, reason: null, documents: [document] };
 }
@@ -175,4 +254,6 @@ module.exports = {
   blocksToText,
   mergeBbox,
   finalizeBlocksDoc,
+  keepOriginal,
+  normalizeForHash,
 };

@@ -1,17 +1,11 @@
-const { v4 } = require("uuid");
-const {
-  createdDate,
-  trashFile,
-  writeToServerDocuments,
-} = require("../../../utils/files");
-const { tokenizeString } = require("../../../utils/tokenizer");
-const { default: slugify } = require("slugify");
+const { trashFile } = require("../../../utils/files");
 const PDFLoader = require("./PDFLoader");
 const OCRLoader = require("../../../utils/OCRLoader");
 const {
   linesToBlocks,
   pageTextToBlock,
   blocksToText,
+  finalizeBlocksDoc,
 } = require("../../../utils/blocks");
 const { parseWithDocling } = require("../asDoclingDoc");
 
@@ -97,33 +91,20 @@ async function asPdf({
       ? doclingConfidence
       : estimateConfidence(parsePath, blocks, content);
 
-  const data = {
-    id: v4(),
-    url: "file://" + fullFilePath,
-    title: metadata.title || filename,
-    docAuthor: metadata.docAuthor || pdfInfo?.Creator || "no author found",
-    description: metadata.description || pdfInfo?.Title || "No description found.",
-    docSource: metadata.docSource || "pdf file uploaded by the user.",
-    chunkSource: metadata.chunkSource || "",
-    published: createdDate(fullFilePath),
-    wordCount: content.split(" ").length,
-    pageContent: content, // backward-compatible flat text
-    blocks, // [auto-docu P1a] location-aware units for block-aware chunking
-    parse_path: parsePath, // "docling" | "docling-partial" | "pdfjs" | "ocr"
-    parse_confidence: parseConfidence,
-    token_count_estimate: tokenizeString(content),
-  };
-
-  const document = writeToServerDocuments({
-    data,
-    filename: `${slugify(filename)}-${data.id}`,
-    options: { parseOnly: options.parseOnly },
+  return finalizeBlocksDoc({
+    blocks,
+    parsePath,
+    parseConfidence,
+    fullFilePath,
+    filename,
+    metadata,
+    options,
+    extra: {
+      docAuthor: pdfInfo?.Creator,
+      description: pdfInfo?.Title,
+      docSource: "pdf file uploaded by the user.",
+    },
   });
-  if (!options.absolutePath) trashFile(fullFilePath);
-  console.log(
-    `[SUCCESS]: ${filename} converted (${parsePath}, ${blocks.length} blocks) & ready for embedding.\n`
-  );
-  return { success: true, reason: null, documents: [document] };
 }
 
 // Rough 0..1 signal for "how trustworthy is this parse" — drives the P1b re-parse
