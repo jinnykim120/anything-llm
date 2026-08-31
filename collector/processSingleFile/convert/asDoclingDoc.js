@@ -63,63 +63,9 @@ function tableToText(tbl) {
     .join(" | ");
 }
 
-// --- Korean legal / regulatory structure ------------------------------------
-// Statutes, 시행령·시행규칙, 고시·예규·지침 are organised 편 > 장 > 절 > 관 > 조.
-// The layout model reliably tags 장/절 as headings but NOT the 조 lines
-// ("제7조(상품대금 감액의 금지) ① …") — those open an ordinary text/list block —
-// so without help a citation can't say which article it came from. Detect them.
-const KO_UNIT_LEVEL = { 편: 1, 장: 2, 절: 3, 관: 4 };
-const KO_CONTAINER_RE = /^제\s*\d+\s*(편|장|절|관)(?:\s|의|$)/;
-const KO_ARTICLE_RE = /^(제\s*\d+\s*조(?:\s*의\s*\d+)?)\s*\(([^)]{1,80})\)/;
-const KO_FOOTER_RE = /^법제처\s+\d+\s+국가법령정보센터$/;
-// "headings" the layout model emits that are really annotations, not sections.
-const KO_HEADING_JUNK_RE =
-  /^(\[[^\]]*\]|<[^>]*>|\d{4}\s*\.\s*\d+\s*\.\s*\d+\s*\.?\s*>?)$/;
-
-/** Classify a block's leading text as a Korean legal structural marker. */
-function koStructOf(rawText) {
-  const s = String(rawText || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const c = s.match(KO_CONTAINER_RE);
-  if (c) return { level: KO_UNIT_LEVEL[c[1]], label: s.slice(0, 60).trim() };
-  if (/^부칙(\s|<|$)/.test(s)) return { level: 2, label: "부칙" };
-  const a = s.match(KO_ARTICLE_RE);
-  if (a) {
-    const after = s.slice(a[0].length).trim();
-    // A run of "제N조(제목) 제M조(제목) …" is a table-of-contents line, not an
-    // article body. (An in-text reference like "제20조부터 제26조까지" is a body —
-    // it has no parenthesised article title right after the 조 number.)
-    if (/^제\s*\d+\s*조(?:\s*의\s*\d+)?\s*\(/.test(after)) return { toc: true };
-    return {
-      article: true,
-      level: 5,
-      label: `${a[1].replace(/\s+/g, "")}(${a[2].replace(/\s+/g, " ").trim()})`,
-      hasBody: after.length > 0,
-    };
-  }
-  return null;
-}
-
-// --- Outline-numbered headings ---------------------------------------------
-// 예규·지침·고시·가이드라인 use "I. / Ⅱ. / 1. / 1.1. / 1.2.1." outlines. The layout
-// model tags them as headings but gives no depth, so a length heuristic
-// flattens the hierarchy. Derive the depth from the number itself.
-const OUTLINE_ROMAN_RE = /^([IVXLC]{1,5}|[Ⅰ-Ⅻ])\.\s+\S/;
-const OUTLINE_NUM_RE = /^(\d{1,2}(?:\.\d{1,2}){0,4})\.?\s+\S/;
-const OUTLINE_KO_ORD_RE = /^([가-힣])\.\s+\S/; // 가. 나. 다.
-
-/** Heading depth from an outline number, or null if the text isn't one. */
-function outlineLevel(rawText) {
-  const s = String(rawText || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (OUTLINE_ROMAN_RE.test(s)) return 1;
-  const n = s.match(OUTLINE_NUM_RE);
-  if (n) return 1 + n[1].split(".").length; // "1."→2, "1.1."→3, "1.2.1."→4
-  if (OUTLINE_KO_ORD_RE.test(s)) return 6;
-  return null;
-}
+// Korean government-document structure (법령 조 단위 · 예규/지침 아웃라인) lives in
+// a shared module so the HWP/HWPX converter reuses it.
+const { buildSectionPaths } = require("../../utils/blocks/koStructure");
 
 function bboxFrom(prov, pageHeight) {
   if (!prov?.bbox) return null;
@@ -247,79 +193,8 @@ function doclingToBlocks(doc) {
     }
   }
 
-  // Rebuild section_path. A Korean legal document (>= 3 real article bodies)
-  // gets a 편/장/절/관/조-aware hierarchy; anything else keeps the generic
-  // heading stack. Both drop annotation "headings" (<개정 …>, [본조신설 …]).
-  const structs = merged.map((b) => koStructOf(b.text));
-  const koLegal = structs.filter((k) => k?.article && k.hasBody).length >= 3;
-
-  if (koLegal) {
-    const stack = [];
-    const cleaned = [];
-    let seenBody = false; // past the table of contents?
-    for (let i = 0; i < merged.length; i += 1) {
-      const b = merged[i];
-      const s = b.text.replace(/\s+/g, " ").trim();
-      if (KO_FOOTER_RE.test(s)) continue; // running footer — pure noise
-      const k = structs[i];
-      if (k?.toc) {
-        if (b.block_type === "heading") b.block_type = "paragraph";
-      } else if (k && (!k.article || k.hasBody)) {
-        while (stack.length && stack[stack.length - 1].level >= k.level)
-          stack.pop();
-        stack.push({ level: k.level, text: k.label });
-        if (k.article) {
-          b.block_type = "heading";
-          seenBody = true;
-        }
-      } else if (b.block_type === "heading" && KO_HEADING_JUNK_RE.test(s)) {
-        b.block_type = "paragraph"; // annotation, not a section
-      } else if (!seenBody) {
-        // ToC entries + page boilerplate ahead of the first article — the stack
-        // still holds ToC chapter headers that don't apply here.
-        b.section_path = null;
-        cleaned.push(b);
-        continue;
-      }
-      b.section_path = stack.map((x) => x.text).join(" > ") || null;
-      cleaned.push(b);
-    }
-    return cleaned;
-  }
-
-  const stack = [];
-  const anyOutline = merged.some(
-    (b) => b.block_type === "heading" && outlineLevel(b.text) != null
-  );
-  for (const b of merged) {
-    if (b.block_type === "heading") {
-      const t = b.text.replace(/\s+/g, " ").trim();
-      if (KO_HEADING_JUNK_RE.test(t)) {
-        b.block_type = "paragraph";
-      } else {
-        // Prefer the outline number's own depth; fall back to a length heuristic
-        // (a doc with an outline still has a non-numbered title/appendix).
-        const level =
-          outlineLevel(t) ?? (anyOutline ? 1 : b.text.length <= 24 ? 1 : 2);
-        const num = t.match(OUTLINE_NUM_RE)?.[1] ?? null;
-        // Numbered headings pop by number prefix ("2.1" clears a stale "1"),
-        // since intermediate levels ("2.") are often missing from the parse;
-        // everything else pops by level.
-        while (stack.length) {
-          const top = stack[stack.length - 1];
-          if (num && top.num) {
-            if (num !== top.num && `${num}.`.startsWith(`${top.num}.`)) break;
-          } else if (top.level < level) {
-            break;
-          }
-          stack.pop();
-        }
-        stack.push({ level, text: b.text, num });
-      }
-    }
-    b.section_path = stack.map((s) => s.text).join(" > ") || null;
-  }
-  return merged;
+  // 법령 조 단위 / 예규 아웃라인 / 일반 헤딩 스택 — 공유 모듈.
+  return buildSectionPaths(merged);
 }
 
 /**

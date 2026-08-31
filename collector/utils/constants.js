@@ -25,6 +25,13 @@ const ACCEPTED_MIMES = {
   "application/pdf": [".pdf"],
   "application/mbox": [".mbox"],
 
+  // [auto-docu P1c] 한글 (Hancom Office)
+  "application/x-hwp": [".hwp"],
+  "application/haansofthwp": [".hwp"],
+  "application/vnd.hancom.hwp": [".hwp"],
+  "application/hwp+zip": [".hwpx"],
+  "application/vnd.hancom.hwpx": [".hwpx"],
+
   "audio/wav": [".wav"],
   "audio/mpeg": [".mp3"],
   "audio/ogg": [".ogg", ".oga"],
@@ -53,6 +60,9 @@ const SUPPORTED_FILETYPE_CONVERTERS = {
 
   ".html": "./convert/asTxt.js",
   ".pdf": "./convert/asPDF/index.js",
+
+  ".hwp": "./convert/asHwp.js",
+  ".hwpx": "./convert/asHwp.js",
 
   ".docx": "./convert/asDocx.js",
   // TODO: Create asDoc.js that works for standard MS Word files.
