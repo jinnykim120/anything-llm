@@ -101,6 +101,26 @@ function koStructOf(rawText) {
   return null;
 }
 
+// --- Outline-numbered headings ---------------------------------------------
+// 예규·지침·고시·가이드라인 use "I. / Ⅱ. / 1. / 1.1. / 1.2.1." outlines. The layout
+// model tags them as headings but gives no depth, so a length heuristic
+// flattens the hierarchy. Derive the depth from the number itself.
+const OUTLINE_ROMAN_RE = /^([IVXLC]{1,5}|[Ⅰ-Ⅻ])\.\s+\S/;
+const OUTLINE_NUM_RE = /^(\d{1,2}(?:\.\d{1,2}){0,4})\.?\s+\S/;
+const OUTLINE_KO_ORD_RE = /^([가-힣])\.\s+\S/; // 가. 나. 다.
+
+/** Heading depth from an outline number, or null if the text isn't one. */
+function outlineLevel(rawText) {
+  const s = String(rawText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (OUTLINE_ROMAN_RE.test(s)) return 1;
+  const n = s.match(OUTLINE_NUM_RE);
+  if (n) return 1 + n[1].split(".").length; // "1."→2, "1.1."→3, "1.2.1."→4
+  if (OUTLINE_KO_ORD_RE.test(s)) return 6;
+  return null;
+}
+
 function bboxFrom(prov, pageHeight) {
   if (!prov?.bbox) return null;
   const { l, t: top, r, b } = prov.bbox;
@@ -268,17 +288,33 @@ function doclingToBlocks(doc) {
   }
 
   const stack = [];
+  const anyOutline = merged.some(
+    (b) => b.block_type === "heading" && outlineLevel(b.text) != null
+  );
   for (const b of merged) {
     if (b.block_type === "heading") {
       const t = b.text.replace(/\s+/g, " ").trim();
       if (KO_HEADING_JUNK_RE.test(t)) {
         b.block_type = "paragraph";
       } else {
-        // shallow heuristic: shorter / all-caps-ish headings are higher level
-        const level = b.text.length <= 24 ? 1 : 2;
-        while (stack.length && stack[stack.length - 1].level >= level)
+        // Prefer the outline number's own depth; fall back to a length heuristic
+        // (a doc with an outline still has a non-numbered title/appendix).
+        const level =
+          outlineLevel(t) ?? (anyOutline ? 1 : b.text.length <= 24 ? 1 : 2);
+        const num = t.match(OUTLINE_NUM_RE)?.[1] ?? null;
+        // Numbered headings pop by number prefix ("2.1" clears a stale "1"),
+        // since intermediate levels ("2.") are often missing from the parse;
+        // everything else pops by level.
+        while (stack.length) {
+          const top = stack[stack.length - 1];
+          if (num && top.num) {
+            if (num !== top.num && `${num}.`.startsWith(`${top.num}.`)) break;
+          } else if (top.level < level) {
+            break;
+          }
           stack.pop();
-        stack.push({ level, text: b.text });
+        }
+        stack.push({ level, text: b.text, num });
       }
     }
     b.section_path = stack.map((s) => s.text).join(" > ") || null;
