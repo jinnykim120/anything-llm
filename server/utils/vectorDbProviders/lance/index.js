@@ -323,12 +323,13 @@ class LanceDb extends VectorDatabase {
         file_hash,
         content_hash,
         original_path,
+        render_path,
         ...rest
       } = documentData;
       const metadata = {
         ...rest,
         doc_id: docId || "", // [auto-docu P2] so a citation can fetch its original file
-        has_original: original_path ? 1 : 0, // viewer shows "open original" only when true
+        has_original: original_path || render_path ? 1 : 0, // viewer shows "open original" only when true
         sensitivity: rest.sensitivity || "unclassified",
         parse_path: rest.parse_path || "",
         parse_confidence:

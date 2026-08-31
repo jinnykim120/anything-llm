@@ -35,7 +35,10 @@ function mergeBbox(boxes) {
  * @param {{page:number, pageWidth:number, pageHeight:number}} ctx
  * @returns {object[]} blocks
  */
-function linesToBlocks(lines = [], { page, pageWidth = 0, pageHeight = 0 } = {}) {
+function linesToBlocks(
+  lines = [],
+  { page, pageWidth = 0, pageHeight = 0 } = {}
+) {
   const valid = lines.filter((l) => l?.text?.trim() && Array.isArray(l.bbox));
   if (!valid.length) return [];
 
@@ -48,9 +51,7 @@ function linesToBlocks(lines = [], { page, pageWidth = 0, pageHeight = 0 } = {})
   const maxGap = positive.length ? Math.max(...positive) : 0;
   const spread = maxGap - minGap;
   const gapThreshold =
-    spread >= MIN_GAP_SPREAD
-      ? minGap + spread * PARA_SPLIT_FRACTION
-      : Infinity; // no real paragraph spacing on this page -> keep as one block
+    spread >= MIN_GAP_SPREAD ? minGap + spread * PARA_SPLIT_FRACTION : Infinity; // no real paragraph spacing on this page -> keep as one block
 
   const groups = [[valid[0]]];
   for (let i = 1; i < valid.length; i += 1) {
@@ -59,7 +60,10 @@ function linesToBlocks(lines = [], { page, pageWidth = 0, pageHeight = 0 } = {})
   }
 
   return groups.map((g) => ({
-    text: g.map((l) => l.text).join("\n").trim(),
+    text: g
+      .map((l) => l.text)
+      .join("\n")
+      .trim(),
     page,
     bbox: mergeBbox(g.map((l) => l.bbox)),
     page_width: pageWidth,
@@ -205,20 +209,35 @@ function finalizeBlocksDoc({
       .createHash("sha256")
       .update(fs.readFileSync(fullFilePath))
       .digest("hex");
-  } catch { /* file may already be gone on retry */ }
+  } catch {
+    /* file may already be gone on retry */
+  }
   const contentHash = crypto
     .createHash("sha256")
     .update(normalizeForHash(content))
     .digest("hex");
   const originalPath = keepOriginal({ fullFilePath, id, slug, options });
+  // [auto-docu P3] a viewable PDF render of a non-PDF source (HWP→PDF via
+  // LibreOffice). The citation viewer fetches this so HWP citations get the
+  // same page + bbox highlight as native PDFs; the true original is still kept.
+  const renderPath = extra.renderFilePath
+    ? keepOriginal({
+        fullFilePath: extra.renderFilePath,
+        id,
+        slug,
+        options,
+      })
+    : null;
 
   const data = {
     id,
     url: "file://" + fullFilePath,
     title: metadata.title || filename,
     docAuthor: metadata.docAuthor || extra.docAuthor || "no author found",
-    description: metadata.description || extra.description || "No description found.",
-    docSource: metadata.docSource || extra.docSource || "file uploaded by the user.",
+    description:
+      metadata.description || extra.description || "No description found.",
+    docSource:
+      metadata.docSource || extra.docSource || "file uploaded by the user.",
     chunkSource: metadata.chunkSource || "",
     published: createdDate(fullFilePath),
     wordCount: content.split(" ").length,
@@ -229,6 +248,7 @@ function finalizeBlocksDoc({
     file_hash: fileHash,
     content_hash: contentHash,
     original_path: originalPath, // repo-relative, or null for text/data files
+    render_path: renderPath, // repo-relative PDF render, or null
     sensitivity: metadata.sensitivity || "unclassified", // conservative — treated as confidential until a human confirms otherwise
     token_count_estimate: tokenizeString(content),
   };

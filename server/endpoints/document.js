@@ -47,7 +47,9 @@ function documentEndpoints(app) {
         if (!doc) return response.sendStatus(404);
 
         const parsed = await fileData(doc.docpath);
-        const rel = parsed?.original_path;
+        // Prefer a PDF render (HWP→PDF) so the viewer can page + highlight it;
+        // fall back to the true original.
+        const rel = parsed?.render_path || parsed?.original_path;
         if (!rel) return response.sendStatus(404); // no kept original (text file)
 
         const originalsRoot = path.resolve(documentsPath, "originals");
