@@ -320,8 +320,8 @@ class LanceDb extends VectorDatabase {
         pageContent,
         docId,
         blocks,
-        file_hash,
-        content_hash,
+        file_hash: _file_hash,
+        content_hash: _content_hash,
         original_path,
         render_path,
         ...rest

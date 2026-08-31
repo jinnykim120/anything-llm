@@ -132,7 +132,10 @@ class PDFLoader {
     const textChunks = [];
     for (const row of rows) {
       row.parts.sort((a, b) => a.x0 - b.x0);
-      const lineText = row.parts.map((p) => p.str).join("").trim();
+      const lineText = row.parts
+        .map((p) => p.str)
+        .join("")
+        .trim();
       if (!lineText) continue;
       const bbox = [
         Math.min(...row.parts.map((p) => p.x0)),

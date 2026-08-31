@@ -160,7 +160,11 @@ function buildSectionPaths(blocks = []) {
   const anyOutline = blocks.some(
     (b) => b.block_type === "heading" && outlineLevel(b.text) != null
   );
+  const kept = [];
   for (const b of blocks) {
+    // Drop the running page footer ("법제처  N  국가법령정보센터") here too —
+    // the koLegal branch already does, but 예규/지침/고시 take this branch.
+    if (KO_FOOTER_RE.test(b.text.replace(/\s+/g, " ").trim())) continue;
     if (b.block_type === "heading") {
       const t = b.text.replace(/\s+/g, " ").trim();
       if (KO_HEADING_JUNK_RE.test(t)) {
@@ -182,8 +186,9 @@ function buildSectionPaths(blocks = []) {
       }
     }
     b.section_path = stack.map((s) => s.text).join(" > ") || null;
+    kept.push(b);
   }
-  return blocks;
+  return kept;
 }
 
 module.exports = {

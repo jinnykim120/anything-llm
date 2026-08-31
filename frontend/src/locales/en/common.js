@@ -35,7 +35,8 @@ const TRANSLATIONS = {
     },
     survey: {
       title: "Welcome to Document Expansion LLM",
-      description: "Help us make Document Expansion LLM built for your needs. Optional.",
+      description:
+        "Help us make Document Expansion LLM built for your needs. Optional.",
       email: "What's your email?",
       useCase: "What will you use Document Expansion LLM for?",
       useCaseWork: "For work",
@@ -1660,7 +1661,8 @@ const TRANSLATIONS = {
           'Memories should be a single, concise statement. e.g. "User prefers Python over JavaScript"',
         edit_description: "Update the content of this memory.",
         label: "Memory",
-        placeholder: "e.g. User's name is Joe, User works on Document Expansion LLM, etc.",
+        placeholder:
+          "e.g. User's name is Joe, User works on Document Expansion LLM, etc.",
         create: "Create",
         save: "Save",
         cancel: "Cancel",

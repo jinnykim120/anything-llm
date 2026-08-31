@@ -17,9 +17,7 @@ export default function SourceItem({ source, onClick, active = false }) {
       type="button"
       onClick={onClick}
       className={`flex flex-col gap-[2px] items-start w-full text-left rounded-md p-1 -m-1 transition-colors ${
-        active
-          ? "bg-amber-500/10 ring-1 ring-amber-500/40"
-          : "hover:opacity-75"
+        active ? "bg-amber-500/10 ring-1 ring-amber-500/40" : "hover:opacity-75"
       }`}
     >
       <div className="flex gap-[6px] items-start w-full">

@@ -1,9 +1,6 @@
 const { DocxLoader } = require("langchain/document_loaders/fs/docx");
 const { trashFile } = require("../../utils/files");
-const {
-  plainTextToBlocks,
-  finalizeBlocksDoc,
-} = require("../../utils/blocks");
+const { plainTextToBlocks, finalizeBlocksDoc } = require("../../utils/blocks");
 const { parseWithDocling } = require("./asDoclingDoc");
 
 async function asDocX({

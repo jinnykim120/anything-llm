@@ -778,7 +778,8 @@ const TRANSLATIONS = {
     },
     chat: {
       title: "채팅",
-      description: "Document Expansion LLM의 채팅 환경을 원하는 대로 설정하세요.",
+      description:
+        "Document Expansion LLM의 채팅 환경을 원하는 대로 설정하세요.",
       auto_submit: {
         title: "음성 입력 자동 전송",
         description:
