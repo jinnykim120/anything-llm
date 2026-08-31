@@ -11,21 +11,33 @@ import { API_BASE } from "@/utils/constants";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
-function parseBbox(bbox) {
-  if (!bbox) return null;
+/**
+ * A chunk's `bbox` is a JSON string holding either a list of rects
+ * `[[x0,y0,x1,y1], ...]` (current) or a single rect `[x0,y0,x1,y1]` (legacy).
+ * Always returns an array of numeric rects (possibly empty).
+ */
+function parseRects(bbox) {
+  if (!bbox) return [];
   try {
     const a = typeof bbox === "string" ? JSON.parse(bbox) : bbox;
-    return Array.isArray(a) && a.length === 4 ? a.map(Number) : null;
+    if (!Array.isArray(a) || a.length === 0) return [];
+    const rects = Array.isArray(a[0]) ? a : [a];
+    return rects
+      .filter((r) => Array.isArray(r) && r.length === 4)
+      .map((r) => r.map(Number));
   } catch {
-    return null;
+    return [];
   }
 }
 
-/** One PDF page rendered to canvas with any number of highlight rectangles. */
-function PdfPage({ pdf, pageNumber, highlights, active }) {
+/**
+ * One PDF page rendered to canvas with any number of highlight rectangles.
+ * `highlights` is `[{ box:[x0,y0,x1,y1], id }]`; rects whose id matches
+ * `activeChunkId` are drawn solid, the rest are dimmed for context.
+ */
+function PdfPage({ pdf, pageNumber, highlights = [], activeChunkId, active }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
-  const [scale, setScale] = useState(1);
   const [viewport, setViewport] = useState(null);
 
   useEffect(() => {
@@ -41,7 +53,6 @@ function PdfPage({ pdf, pageNumber, highlights, active }) {
       const ctx = canvas.getContext("2d");
       canvas.width = vp.width;
       canvas.height = vp.height;
-      setScale(s);
       setViewport({ w: base.width, h: base.height });
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
     })();
@@ -59,20 +70,27 @@ function PdfPage({ pdf, pageNumber, highlights, active }) {
     <div ref={wrapRef} className="relative mx-auto my-2 w-full">
       <canvas ref={canvasRef} className="w-full h-auto rounded shadow-sm" />
       {viewport &&
-        highlights.map((box, i) => {
-          const sx = (canvasRef.current?.width || 0) / viewport.w;
-          const sy = (canvasRef.current?.height || 0) / viewport.h;
+        highlights.map(({ box, id }, i) => {
+          // box is in PDF points (scale 1); viewport.{w,h} are the page's point
+          // size — so a plain %-of-page position tracks the canvas at any zoom.
+          const isActive = !activeChunkId || id === activeChunkId;
           return (
             <div
               key={i}
-              className="absolute rounded-[2px] pointer-events-none animate-pulse"
+              className={`absolute rounded-[2px] pointer-events-none ${
+                isActive ? "animate-pulse" : ""
+              }`}
               style={{
-                left: `${(box[0] * sx * 100) / (canvasRef.current?.width || 1)}%`,
-                top: `${(box[1] * sy * 100) / (canvasRef.current?.height || 1)}%`,
-                width: `${((box[2] - box[0]) * sx * 100) / (canvasRef.current?.width || 1)}%`,
-                height: `${((box[3] - box[1]) * sy * 100) / (canvasRef.current?.height || 1)}%`,
-                background: "rgba(250, 204, 21, 0.28)",
-                border: "1.5px solid rgba(202, 138, 4, 0.9)",
+                left: `${(box[0] / viewport.w) * 100}%`,
+                top: `${(box[1] / viewport.h) * 100}%`,
+                width: `${((box[2] - box[0]) / viewport.w) * 100}%`,
+                height: `${((box[3] - box[1]) / viewport.h) * 100}%`,
+                background: isActive
+                  ? "rgba(250, 204, 21, 0.28)"
+                  : "rgba(148, 163, 184, 0.14)",
+                border: isActive
+                  ? "1.5px solid rgba(202, 138, 4, 0.9)"
+                  : "1px solid rgba(148, 163, 184, 0.5)",
               }}
             />
           );
@@ -124,15 +142,15 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
     };
   }, [rawUrl]);
 
-  // group highlights by page for the PDF view
+  // group highlight rects by page for the PDF view
   const pages = useMemo(() => {
     const byPage = new Map();
     for (const c of source?.chunks || []) {
-      const box = parseBbox(c.bbox);
       const p = Number(c.page) || 0;
       if (!p) continue;
       if (!byPage.has(p)) byPage.set(p, []);
-      if (box) byPage.get(p).push({ box, id: c.id });
+      for (const box of parseRects(c.bbox))
+        byPage.get(p).push({ box, id: c.id });
     }
     return [...byPage.entries()].sort((a, b) => a[0] - b[0]);
   }, [source]);
@@ -222,7 +240,8 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
                 key={pageNo}
                 pdf={pdf}
                 pageNumber={pageNo}
-                highlights={hs.map((h) => h.box)}
+                highlights={hs}
+                activeChunkId={activeChunkId}
                 active={pageNo === activePage}
               />
             ))}

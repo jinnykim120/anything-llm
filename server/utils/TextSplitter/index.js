@@ -244,7 +244,16 @@ class TextSplitter {
         block.page != null &&
         buf[buf.length - 1].page != null &&
         block.page !== buf[buf.length - 1].page;
-      if (crossesPage || bufLen + blockText.length > maxSize) flush();
+      // [auto-docu] Start a fresh chunk at each section/article heading so a
+      // chunk maps to one 조/절/outline node — tighter citations and a tighter
+      // highlight. The bufLen gate lets a bare chapter/section heading fold into
+      // the first article beneath it instead of becoming its own stub chunk.
+      const startsSection =
+        bufLen > 40 &&
+        block.block_type === "heading" &&
+        (block.section_path || "") !== (buf[0].section_path || "");
+      if (crossesPage || startsSection || bufLen + blockText.length > maxSize)
+        flush();
       buf.push(block);
       bufLen += blockText.length + 2;
     }
@@ -258,6 +267,11 @@ class TextSplitter {
    * and a workspace mixes doc types (PDF with bbox, txt without) — so the shape
    * must be identical for every chunk regardless of parser. `bbox` is a JSON
    * string so the column is always a string; the frontend JSON.parses it.
+   *
+   * `bbox` holds a JSON array of per-region rects — `[[x0,y0,x1,y1], ...]` — on
+   * the chunk's first page. Usually one rect (the blocks form a single column
+   * run); more when there's a vertical gap. The frontend also accepts the legacy
+   * single-rect `[x0,y0,x1,y1]` shape.
    */
   static emptyChunkMeta() {
     return {
@@ -270,6 +284,43 @@ class TextSplitter {
       section_path: "",
       block_type: "",
     };
+  }
+
+  /**
+   * Fold a page's block rects into the fewest rects that still bound them
+   * tightly: sort top-to-bottom, then merge any rect that starts within a line's
+   * gap of the running bottom AND overlaps horizontally. A chunk that stays in
+   * one section collapses to a single rect; a vertical gap yields two.
+   */
+  static #mergeRects(boxes = []) {
+    const GAP = 9; // pt — a little more than a line's leading
+    const round = (r) => r.map((n) => Math.round(n * 100) / 100);
+    const sorted = [...boxes].sort((a, b) => a[1] - b[1]);
+    const out = [];
+    for (const b of sorted) {
+      const cur = out[out.length - 1];
+      const overlapX = cur && b[0] < cur[2] && b[2] > cur[0];
+      if (cur && overlapX && b[1] <= cur[3] + GAP) {
+        cur[0] = Math.min(cur[0], b[0]);
+        cur[1] = Math.min(cur[1], b[1]);
+        cur[2] = Math.max(cur[2], b[2]);
+        cur[3] = Math.max(cur[3], b[3]);
+      } else {
+        out.push([...b]);
+      }
+    }
+    // A chunk broken into many disjoint pieces (a long section the parser
+    // didn't sub-divide) is effectively "this whole region" — collapse it.
+    if (out.length > 6)
+      return [
+        round([
+          Math.min(...out.map((r) => r[0])),
+          Math.min(...out.map((r) => r[1])),
+          Math.max(...out.map((r) => r[2])),
+          Math.max(...out.map((r) => r[3])),
+        ]),
+      ];
+    return out.map(round);
   }
 
   /** Collapse a run of blocks into one chunk's location metadata. */
@@ -286,14 +337,7 @@ class TextSplitter {
       )
       .map((b) => b.bbox);
     if (boxes.length) {
-      meta.bbox = JSON.stringify(
-        [
-          Math.min(...boxes.map((x) => x[0])),
-          Math.min(...boxes.map((x) => x[1])),
-          Math.max(...boxes.map((x) => x[2])),
-          Math.max(...boxes.map((x) => x[3])),
-        ].map((n) => Math.round(n * 100) / 100)
-      );
+      meta.bbox = JSON.stringify(TextSplitter.#mergeRects(boxes));
     }
     const types = [...new Set(blocks.map((b) => b.block_type).filter(Boolean))];
     meta.page = firstPage || 0;
@@ -301,8 +345,16 @@ class TextSplitter {
     meta.anchor = blocks[0].anchor ?? "";
     meta.page_width = blocks[0].page_width || 0;
     meta.page_height = blocks[0].page_height || 0;
-    meta.section_path = blocks.find((b) => b.section_path)?.section_path ?? "";
-    meta.block_type = types.length === 1 ? types[0] : types.length ? "mixed" : "";
+    // Deepest path among the chunk's blocks — a child path contains its parent
+    // as a prefix, so the longest string is the most specific (handles a chunk
+    // that opens with a bare 장 heading then an article body).
+    meta.section_path =
+      blocks
+        .map((b) => b.section_path)
+        .filter(Boolean)
+        .sort((a, b) => b.length - a.length)[0] ?? "";
+    meta.block_type =
+      types.length === 1 ? types[0] : types.length ? "mixed" : "";
     return meta;
   }
 }
