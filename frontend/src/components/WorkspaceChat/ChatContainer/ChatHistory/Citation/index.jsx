@@ -111,15 +111,50 @@ export function SourceTypeCircle({
 export function combineLikeSources(sources) {
   const combined = {};
   sources.forEach((source) => {
-    const { id, title, text, chunkSource = "", score = null } = source;
+    const {
+      id,
+      title,
+      text,
+      chunkSource = "",
+      score = null,
+      // [auto-docu P2] location metadata for the source viewer
+      doc_id = "",
+      has_original = 0,
+      page = 0,
+      page_end = 0,
+      bbox = "",
+      anchor = "",
+      page_width = 0,
+      page_height = 0,
+      section_path = "",
+      parse_path = "",
+      sensitivity = "",
+    } = source;
+    const chunk = {
+      id,
+      text,
+      chunkSource,
+      score,
+      page,
+      page_end,
+      bbox,
+      anchor,
+      page_width,
+      page_height,
+      section_path,
+    };
     if (combined.hasOwnProperty(title)) {
-      combined[title].chunks.push({ id, text, chunkSource, score });
+      combined[title].chunks.push(chunk);
       combined[title].references += 1;
     } else {
       combined[title] = {
         title,
-        chunks: [{ id, text, chunkSource, score }],
+        chunks: [chunk],
         references: 1,
+        doc_id,
+        has_original: Number(has_original) === 1,
+        parse_path,
+        sensitivity,
       };
     }
   });

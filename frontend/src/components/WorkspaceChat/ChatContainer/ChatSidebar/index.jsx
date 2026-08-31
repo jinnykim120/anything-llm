@@ -67,21 +67,21 @@ export function useMemoriesSidebar() {
  * never triggers layout recalculation on the chat history (which can have
  * 500+ message nodes).
  */
-export default function ChatSidebar({ isOpen, children }) {
+export default function ChatSidebar({ isOpen, children, width = 366 }) {
   return (
     <div
       className="h-full flex-shrink-0 overflow-hidden"
       style={{
-        width: isOpen ? "366px" : "0px",
+        width: isOpen ? `${width}px` : "0px",
         transition: "width 400ms cubic-bezier(0.4,0,0.2,1)",
         willChange: isOpen ? "width" : "auto",
-        contain: "strict",
+        contain: "size layout",
       }}
     >
       <div
         className="h-full"
         style={{
-          width: "366px",
+          width: `${width}px`,
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
           transition: "transform 400ms cubic-bezier(0.4,0,0.2,1)",
         }}

@@ -278,6 +278,8 @@ class OllamaAILLM {
           options: {
             temperature,
             num_ctx: this.promptWindowLimit(),
+            // [auto-docu P2] bound response time on CPU; keeps grounded answers terse
+            ...(Number(process.env.OLLAMA_NUM_PREDICT) > 0 ? { num_predict: Number(process.env.OLLAMA_NUM_PREDICT) } : {}),
           },
         })
         .then((res) => {
@@ -330,6 +332,8 @@ class OllamaAILLM {
         options: {
           temperature,
           num_ctx: this.promptWindowLimit(),
+          // [auto-docu P2] bound response time on CPU; keeps grounded answers terse
+          ...(Number(process.env.OLLAMA_NUM_PREDICT) > 0 ? { num_predict: Number(process.env.OLLAMA_NUM_PREDICT) } : {}),
         },
       }),
       messages,

@@ -35,8 +35,14 @@ function mergeStringField(target, source, fieldName, validator = null) {
 
 const SystemSettings = {
   /** A default system prompt that is used when no other system prompt is set or available to the function caller. */
+  // [auto-docu P2] Grounded + cited + concise. This product answers strictly from
+  // the retrieved context and every claim must be traceable to a source.
   saneDefaultSystemPrompt:
-    "Given the following conversation, relevant context, and a follow up question, reply with an answer to the current question the user is asking. The current date and time is {datetime}. Return only your response to the question given the above information following the users instructions as needed.",
+    "You answer the user's question using ONLY the numbered context passages provided below. " +
+    "Do not use outside knowledge. If the context does not contain the answer, say so plainly and stop — do not guess. " +
+    "Cite the passage number in square brackets right after each fact you state, e.g. [0] or [1][2]. " +
+    "Be concise: answer directly, no preamble, no restating the question, no summary of what you were given. " +
+    "Answer in the same language as the user's question. The current date and time is {datetime}.",
   protectedFields: ["multi_user_mode", "hub_api_key", "onboarding_complete"],
   publicFields: [
     "footer_data",
