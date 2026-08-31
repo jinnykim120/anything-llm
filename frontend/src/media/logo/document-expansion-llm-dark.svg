@@ -1,0 +1,10 @@
+<svg width="252" height="28" viewBox="0 0 252 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g stroke="#0e0f0f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.5" y="4.5" width="14" height="19" rx="2.5" fill="none"/>
+    <path d="M7 10h7M7 14h7M7 18h4"/>
+  </g>
+  <path d="M20 8l4 6-4 6" stroke="#6d5efc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="32" y="19" font-family="Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" letter-spacing="0.2">
+    <tspan fill="#0e0f0f">Document Expansion</tspan><tspan fill="#6d5efc" dx="6" font-weight="700">LLM</tspan>
+  </text>
+</svg>

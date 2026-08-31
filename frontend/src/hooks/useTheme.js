@@ -28,7 +28,9 @@ export function useTheme() {
   const [theme, _setTheme] = useState(() => {
     const stored = localStorage.getItem("theme");
     if (stored === "default") return "dark"; // migrate legacy value
-    return stored || "system";
+    // [Document Expansion LLM] dark is the product's default look; the user can
+    // still pick "system" or "light" in Appearance settings.
+    return stored || "dark";
   });
 
   const [systemTheme, setSystemTheme] = useState(() =>
