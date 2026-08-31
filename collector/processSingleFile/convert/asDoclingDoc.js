@@ -46,12 +46,59 @@ function tableToText(tbl) {
   if (Array.isArray(grid) && grid.length) {
     return grid
       .map((row) =>
-        row.map((c) => String(c?.text ?? "").replace(/\s+/g, " ").trim()).join(" | ")
+        row
+          .map((c) =>
+            String(c?.text ?? "")
+              .replace(/\s+/g, " ")
+              .trim()
+          )
+          .join(" | ")
       )
       .join("\n");
   }
   const cells = tbl?.data?.table_cells || [];
-  return cells.map((c) => String(c?.text ?? "").trim()).filter(Boolean).join(" | ");
+  return cells
+    .map((c) => String(c?.text ?? "").trim())
+    .filter(Boolean)
+    .join(" | ");
+}
+
+// --- Korean legal / regulatory structure ------------------------------------
+// Statutes, 시행령·시행규칙, 고시·예규·지침 are organised 편 > 장 > 절 > 관 > 조.
+// The layout model reliably tags 장/절 as headings but NOT the 조 lines
+// ("제7조(상품대금 감액의 금지) ① …") — those open an ordinary text/list block —
+// so without help a citation can't say which article it came from. Detect them.
+const KO_UNIT_LEVEL = { 편: 1, 장: 2, 절: 3, 관: 4 };
+const KO_CONTAINER_RE = /^제\s*\d+\s*(편|장|절|관)(?:\s|의|$)/;
+const KO_ARTICLE_RE = /^(제\s*\d+\s*조(?:\s*의\s*\d+)?)\s*\(([^)]{1,80})\)/;
+const KO_FOOTER_RE = /^법제처\s+\d+\s+국가법령정보센터$/;
+// "headings" the layout model emits that are really annotations, not sections.
+const KO_HEADING_JUNK_RE =
+  /^(\[[^\]]*\]|<[^>]*>|\d{4}\s*\.\s*\d+\s*\.\s*\d+\s*\.?\s*>?)$/;
+
+/** Classify a block's leading text as a Korean legal structural marker. */
+function koStructOf(rawText) {
+  const s = String(rawText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const c = s.match(KO_CONTAINER_RE);
+  if (c) return { level: KO_UNIT_LEVEL[c[1]], label: s.slice(0, 60).trim() };
+  if (/^부칙(\s|<|$)/.test(s)) return { level: 2, label: "부칙" };
+  const a = s.match(KO_ARTICLE_RE);
+  if (a) {
+    const after = s.slice(a[0].length).trim();
+    // A run of "제N조(제목) 제M조(제목) …" is a table-of-contents line, not an
+    // article body. (An in-text reference like "제20조부터 제26조까지" is a body —
+    // it has no parenthesised article title right after the 조 number.)
+    if (/^제\s*\d+\s*조(?:\s*의\s*\d+)?\s*\(/.test(after)) return { toc: true };
+    return {
+      article: true,
+      level: 5,
+      label: `${a[1].replace(/\s+/g, "")}(${a[2].replace(/\s+/g, " ").trim()})`,
+      hasBody: after.length > 0,
+    };
+  }
+  return null;
 }
 
 function bboxFrom(prov, pageHeight) {
@@ -78,6 +125,14 @@ function doclingToBlocks(doc) {
     const text = (t?.text || "").trim();
     if (!text) continue;
     const label = t?.label || "text";
+    // Running page furniture repeats on every page — never content, and if it
+    // carries a heading label it would reset the section stack mid-page.
+    if (
+      label === "page_header" ||
+      label === "page_footer" ||
+      label === "furniture"
+    )
+      continue;
     const prov = Array.isArray(t?.prov) ? t.prov[0] : null;
     const page = prov?.page_no ?? null;
     const { w, h } = sizeOf(page);
@@ -85,7 +140,10 @@ function doclingToBlocks(doc) {
 
     if (label === "section_header" || label === "title") {
       const level = Number(t?.level) || (label === "title" ? 0 : 1);
-      while (sectionStack.length && sectionStack[sectionStack.length - 1].level >= level)
+      while (
+        sectionStack.length &&
+        sectionStack[sectionStack.length - 1].level >= level
+      )
         sectionStack.pop();
       sectionStack.push({ level, text });
     }
@@ -104,10 +162,10 @@ function doclingToBlocks(doc) {
           label === "section_header" || label === "title"
             ? "heading"
             : label === "list_item"
-              ? "list"
-              : label === "picture" || label === "figure" || label === "caption"
-                ? "figure"
-                : "paragraph",
+            ? "list"
+            : label === "picture" || label === "figure" || label === "caption"
+            ? "figure"
+            : "paragraph",
       },
     });
   }
@@ -153,7 +211,9 @@ function doclingToBlocks(doc) {
       Array.isArray(block.bbox);
     const sameLine = both && Math.abs(block.bbox[1] - prev.bbox[1]) < 4;
     const lineWrap =
-      both && block.bbox[1] - prev.bbox[3] >= -4 && block.bbox[1] - prev.bbox[3] < 6;
+      both &&
+      block.bbox[1] - prev.bbox[3] >= -4 &&
+      block.bbox[1] - prev.bbox[3] < 6;
     if (sameLine || lineWrap) {
       prev.text = `${prev.text} ${block.text}`.replace(/\s+/g, " ").trim();
       prev.bbox = [
@@ -167,13 +227,59 @@ function doclingToBlocks(doc) {
     }
   }
 
+  // Rebuild section_path. A Korean legal document (>= 3 real article bodies)
+  // gets a 편/장/절/관/조-aware hierarchy; anything else keeps the generic
+  // heading stack. Both drop annotation "headings" (<개정 …>, [본조신설 …]).
+  const structs = merged.map((b) => koStructOf(b.text));
+  const koLegal = structs.filter((k) => k?.article && k.hasBody).length >= 3;
+
+  if (koLegal) {
+    const stack = [];
+    const cleaned = [];
+    let seenBody = false; // past the table of contents?
+    for (let i = 0; i < merged.length; i += 1) {
+      const b = merged[i];
+      const s = b.text.replace(/\s+/g, " ").trim();
+      if (KO_FOOTER_RE.test(s)) continue; // running footer — pure noise
+      const k = structs[i];
+      if (k?.toc) {
+        if (b.block_type === "heading") b.block_type = "paragraph";
+      } else if (k && (!k.article || k.hasBody)) {
+        while (stack.length && stack[stack.length - 1].level >= k.level)
+          stack.pop();
+        stack.push({ level: k.level, text: k.label });
+        if (k.article) {
+          b.block_type = "heading";
+          seenBody = true;
+        }
+      } else if (b.block_type === "heading" && KO_HEADING_JUNK_RE.test(s)) {
+        b.block_type = "paragraph"; // annotation, not a section
+      } else if (!seenBody) {
+        // ToC entries + page boilerplate ahead of the first article — the stack
+        // still holds ToC chapter headers that don't apply here.
+        b.section_path = null;
+        cleaned.push(b);
+        continue;
+      }
+      b.section_path = stack.map((x) => x.text).join(" > ") || null;
+      cleaned.push(b);
+    }
+    return cleaned;
+  }
+
   const stack = [];
   for (const b of merged) {
     if (b.block_type === "heading") {
-      // shallow heuristic: shorter / all-caps-ish headings are higher level
-      const level = b.text.length <= 24 ? 1 : 2;
-      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
-      stack.push({ level, text: b.text });
+      const t = b.text.replace(/\s+/g, " ").trim();
+      if (KO_HEADING_JUNK_RE.test(t)) {
+        b.block_type = "paragraph";
+      } else {
+        // shallow heuristic: shorter / all-caps-ish headings are higher level
+        const level = b.text.length <= 24 ? 1 : 2;
+        while (stack.length && stack[stack.length - 1].level >= level)
+          stack.pop();
+        stack.push({ level, text: b.text });
+      }
     }
     b.section_path = stack.map((s) => s.text).join(" > ") || null;
   }
@@ -210,7 +316,8 @@ async function parseWithDocling(fullFilePath) {
 
     const doc = json?.document?.json_content;
     const blocks = doclingToBlocks(doc);
-    if (!blocks.length) return { ok: false, reason: "docling returned no content" };
+    if (!blocks.length)
+      return { ok: false, reason: "docling returned no content" };
 
     const raw = json?.confidence?.mean_score;
     const conf =

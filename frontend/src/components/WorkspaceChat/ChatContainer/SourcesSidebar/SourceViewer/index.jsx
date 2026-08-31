@@ -137,27 +137,46 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
     return [...byPage.entries()].sort((a, b) => a[0] - b[0]);
   }, [source]);
 
-  const activeChunk = (source?.chunks || []).find((c) => c.id === activeChunkId);
+  const activeChunk = (source?.chunks || []).find(
+    (c) => c.id === activeChunkId
+  );
   const activePage = Number(activeChunk?.page) || pages[0]?.[0] || 0;
+  const activeSection = (activeChunk?.section_path || "").trim();
 
   return (
-    <div className="ml-4 w-[520px] max-w-[46vw] bg-zinc-900 light:bg-white light:border-2 light:border-slate-300 md:rounded-[16px] flex flex-col overflow-hidden mt-[72px]" style={{ maxHeight: "calc(100% - 88px)" }}>
+    <div
+      className="ml-4 w-[520px] max-w-[46vw] bg-zinc-900 light:bg-white light:border-2 light:border-slate-300 md:rounded-[16px] flex flex-col overflow-hidden mt-[72px]"
+      style={{ maxHeight: "calc(100% - 88px)" }}
+    >
       <div className="flex items-start justify-between gap-2 p-4 border-b border-zinc-800 light:border-slate-200">
         <div className="flex items-start gap-2 min-w-0">
-          <FileText size={18} className="text-white/70 light:text-slate-500 flex-shrink-0 mt-[2px]" />
+          <FileText
+            size={18}
+            className="text-white/70 light:text-slate-500 flex-shrink-0 mt-[2px]"
+          />
           <div className="min-w-0">
             <p className="font-medium text-sm text-white light:text-slate-900 truncate">
               {source?.title}
             </p>
             <div className="flex items-center gap-2 mt-[2px] text-[11px] text-zinc-400 light:text-slate-500">
               {source?.parse_path && <span>{source.parse_path}</span>}
+              {activePage > 0 && <span>p.{activePage}</span>}
               {source?.sensitivity && source.sensitivity !== "unclassified" && (
                 <span className="text-amber-500">{source.sensitivity}</span>
               )}
             </div>
+            {activeSection && (
+              <p className="mt-[3px] text-[11px] text-amber-500/90 leading-[15px] break-words">
+                {activeSection}
+              </p>
+            )}
           </div>
         </div>
-        <button onClick={onClose} type="button" className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 bg-transparent border-none cursor-pointer flex-shrink-0">
+        <button
+          onClick={onClose}
+          type="button"
+          className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 bg-transparent border-none cursor-pointer flex-shrink-0"
+        >
           <X size={16} weight="bold" />
         </button>
       </div>
@@ -165,26 +184,35 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
       {/* chunk chips — jump between the cited passages */}
       {(source?.chunks?.length || 0) > 1 && (
         <div className="flex flex-wrap gap-1 px-4 py-2 border-b border-zinc-800 light:border-slate-200">
-          {source.chunks.map((c, i) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setActiveChunkId(c.id)}
-              className={`text-[11px] px-2 py-[2px] rounded-full border ${
-                c.id === activeChunkId
-                  ? "border-amber-500 text-amber-500"
-                  : "border-zinc-700 light:border-slate-300 text-zinc-400 light:text-slate-500"
-              }`}
-            >
-              {c.page ? `p.${c.page}` : c.section_path ? c.section_path.slice(0, 16) : `#${i + 1}`}
-            </button>
-          ))}
+          {source.chunks.map((c, i) => {
+            const leaf = (c.section_path || "").split(">").pop().trim();
+            const label = c.page
+              ? `p.${c.page}${leaf ? ` · ${leaf}` : ""}`
+              : leaf || `#${i + 1}`;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                title={c.section_path || undefined}
+                onClick={() => setActiveChunkId(c.id)}
+                className={`text-[11px] px-2 py-[2px] rounded-full border max-w-full truncate ${
+                  c.id === activeChunkId
+                    ? "border-amber-500 text-amber-500"
+                    : "border-zinc-700 light:border-slate-300 text-zinc-400 light:text-slate-500"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto no-scroll p-3">
         {status === "loading" && (
-          <p className="text-sm text-zinc-400 light:text-slate-500 p-4">원본을 불러오는 중…</p>
+          <p className="text-sm text-zinc-400 light:text-slate-500 p-4">
+            원본을 불러오는 중…
+          </p>
         )}
 
         {status === "pdf" && pdf && (
@@ -208,11 +236,15 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
           <div className="p-2 space-y-3">
             {source?.doc_id && (
               <p className="flex items-center gap-1 text-[11px] text-zinc-500 light:text-slate-400">
-                <WarningCircle size={13} /> 이 형식은 아직 원본 미리보기를 지원하지 않습니다 — 인용 텍스트를 표시합니다.
+                <WarningCircle size={13} /> 이 형식은 아직 원본 미리보기를
+                지원하지 않습니다 — 인용 텍스트를 표시합니다.
               </p>
             )}
             {(source?.chunks || []).map((c, idx) => (
-              <div key={c.id || idx} className="text-sm text-zinc-100 light:text-slate-900">
+              <div
+                key={c.id || idx}
+                className="text-sm text-zinc-100 light:text-slate-900"
+              >
                 {c.section_path && (
                   <p className="text-[11px] text-zinc-500 light:text-slate-400 mb-1">
                     {c.section_path}
