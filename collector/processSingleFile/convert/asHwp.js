@@ -1,7 +1,9 @@
 // [auto-docu P3] 한글(HWP/HWPX) 파서.
 //   .hwp   → pyhwp `hwp5txt` 평문 → heading-aware 그룹핑. 빠르고(≈1s) 산문
-//            품질이 좋다. bbox 없음 (D2: 비-PDF는 문단 앵커).
-//   .hwpx  → 네이티브 OWPML (zip + regex on <hp:t>).
+//            품질이 좋다. 데이터 표는 `<표>`로 표시되어 빠짐. bbox 없음.
+//   .hwpx  → 네이티브 OWPML 트리 워크 (zip + htmlparser2/domutils): 문단은
+//            문단으로, 데이터 그리드는 표 블록으로, 레이아웃용 표는 셀 안으로
+//            재귀해서 펼침. 임베드 이미지의 "그림입니다…" alt-text 제거.
 //
 //   HWP_RENDER=1 이면 .hwp를 `hwp5odt` → LibreOffice ODT→PDF → docling으로
 //   돌려 page/bbox/표구조를 얻는다. LibreOffice 내장 HWP 필터는 옛 3.0
@@ -15,10 +17,13 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const JSZip = require("jszip");
+const htmlparser2 = require("htmlparser2");
+const { getChildren, textContent, getElementsByTagName } = require("domutils");
 const { trashFile } = require("../../utils/files");
 const { finalizeBlocksDoc } = require("../../utils/blocks");
 const {
   groupLines,
+  markHeadings,
   buildSectionPaths,
 } = require("../../utils/blocks/koStructure");
 const { parseWithDocling } = require("./asDoclingDoc");
@@ -57,19 +62,6 @@ function run(bin, args, timeout = 120000) {
     maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
   });
-}
-
-function decodeEntities(s = "") {
-  return String(s)
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) =>
-      String.fromCharCode(parseInt(n, 16))
-    )
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
 }
 
 function mkBlock(text, idx) {
@@ -142,26 +134,117 @@ function hwpViaText(hwpPath) {
   return buildSectionPaths(groupLines(res.stdout.split(/\r?\n/), mkBlock));
 }
 
-// --- .hwpx → native OWPML (no bbox) --------------------------------------
+// --- .hwpx → native OWPML tree walk (paragraphs + tables, no bbox) --------
+// OWPML nests tables/images inside a run: <hp:p><hp:run><hp:t>|<hp:tbl>…. Walk
+// runs so text and tables come out as separate ordered blocks.
+// zero-width joiner/space/BOM + the "그림입니다. 원본 그림의 …" alt-text HWP
+// stamps on every embedded image.
+const IMG_ALT_RE = /그림입니다\.\s*원본 그림의[^\n]*(pixel[)\s]*)?/g;
+const ZERO_WIDTH_RE = new RegExp("[\\u200B\\u200C\\uFEFF]", "g");
+const clean = (s) =>
+  String(s)
+    .replace(ZERO_WIDTH_RE, "")
+    .replace(IMG_ALT_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+const cellText = (tc) => clean(textContent(tc));
+
+/**
+ * A HWP table is either a real data grid or a layout container (HWP wraps
+ * whole sections in a 1-2 cell table for indentation). Grid → one table block;
+ * container → recurse so each cell's paragraphs/sub-tables come out normally.
+ */
+function handleTable(tbl, out, ctx) {
+  const rows = getChildren(tbl)
+    .filter((c) => c.name === "hp:tr")
+    .map((tr) => getChildren(tr).filter((c) => c.name === "hp:tc"));
+  const cells = rows.flat();
+  if (!cells.length) return;
+
+  const isContainer = cells.some(
+    (tc) =>
+      getElementsByTagName("hp:tbl", tc, true).length > 0 ||
+      getElementsByTagName("hp:p", tc, true).length > 2 ||
+      cellText(tc).length > 300
+  );
+  if (isContainer) {
+    for (const row of rows) for (const tc of row) walkOwpml(tc, out, ctx);
+    flushPara(out, ctx);
+    return;
+  }
+
+  flushPara(out, ctx);
+  const grid = Math.max(...rows.map((r) => r.length)) >= 2 && rows.length >= 2;
+  const text = rows
+    .map((r) =>
+      r
+        .map(cellText)
+        .filter(Boolean)
+        .join(grid ? " | " : " ")
+    )
+    .filter(Boolean)
+    .join("\n");
+  if (text) {
+    const b = mkBlock(text, out.length);
+    if (grid) b.block_type = "table";
+    out.push(b);
+  }
+}
+
+function walkOwpml(node, out, ctx) {
+  for (const child of getChildren(node)) {
+    if (child.type === "text") {
+      ctx.buf.push(child.data);
+      continue;
+    }
+    if (child.type !== "tag") continue;
+    switch (child.name) {
+      case "hp:t":
+        ctx.buf.push(textContent(child));
+        break;
+      case "hp:tab":
+      case "hp:lineBreak":
+        ctx.buf.push(" ");
+        break;
+      case "hp:tbl":
+        handleTable(child, out, ctx);
+        break;
+      case "hp:tr":
+      case "hp:tc":
+        break; // reached only via handleTable's recursion, which passes the tc
+      case "hp:p":
+        flushPara(out, ctx);
+        walkOwpml(child, out, ctx);
+        flushPara(out, ctx);
+        break;
+      default:
+        walkOwpml(child, out, ctx);
+    }
+  }
+}
+
+function flushPara(out, ctx) {
+  const t = clean(ctx.buf.join(""));
+  if (t) out.push(mkBlock(t, out.length));
+  ctx.buf = [];
+}
+
 async function hwpxViaOwpml(buf) {
   const zip = await JSZip.loadAsync(buf);
   const sections = Object.keys(zip.files)
     .filter((n) => /^Contents\/section\d+\.xml$/i.test(n))
     .sort();
-  const lines = [];
+  const blocks = [];
   for (const name of sections) {
-    let xml = await zip.files[name].async("string");
-    xml = xml.replace(/<hp:secPr[\s\S]*?<\/hp:secPr>/g, "");
-    for (const m of xml.matchAll(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/g)) {
-      const t = [...m[1].matchAll(/<hp:t>([\s\S]*?)<\/hp:t>/g)]
-        .map((x) => decodeEntities(x[1].replace(/<[^>]+>/g, "")))
-        .join("")
-        .replace(/\s+/g, " ")
-        .trim();
-      lines.push(t);
-    }
+    const xml = (await zip.files[name].async("string")).replace(
+      /<hp:secPr[\s\S]*?<\/hp:secPr>/g,
+      ""
+    );
+    const ctx = { buf: [] };
+    walkOwpml(htmlparser2.parseDocument(xml, { xmlMode: true }), blocks, ctx);
+    flushPara(blocks, ctx);
   }
-  return buildSectionPaths(groupLines(lines, mkBlock));
+  return buildSectionPaths(markHeadings(blocks));
 }
 
 async function asHwp({
