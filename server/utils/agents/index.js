@@ -292,6 +292,9 @@ class AgentHandler {
         if (!process.env.CEREBRAS_API_KEY)
           throw new Error("Cerebras API key must be provided to use agents.");
         break;
+      case "claudecli":
+        // Uses the machine's local Claude CLI — nothing to validate.
+        break;
       default:
         throw new Error(
           "No workspace agent provider set. Please set your agent provider in the workspace's settings"
@@ -386,6 +389,8 @@ class AgentHandler {
         return process.env.MINIMAX_MODEL_PREF ?? "MiniMax-M2.7";
       case "cerebras":
         return process.env.CEREBRAS_MODEL_PREF ?? "gpt-oss-120b";
+      case "claudecli":
+        return process.env.CLAUDE_CLI_MODEL ?? "claude-sonnet-5";
       default:
         return null;
     }

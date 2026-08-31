@@ -1139,6 +1139,7 @@ function supportedLLM(input = "") {
     "cerebras",
     "omlx",
     "anythingllm-router",
+    "claudecli", // [auto-docu] Claude Code CLI headless (`claude -p`)
   ].includes(input);
   return validSelection ? null : `${input} is not a valid LLM provider.`;
 }

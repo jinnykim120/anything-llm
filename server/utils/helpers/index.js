@@ -159,6 +159,9 @@ function getLLMProvider({ provider = null, model = null } = {}) {
     case "ollama":
       const { OllamaAILLM } = require("../AiProviders/ollama");
       return new OllamaAILLM(embedder, model);
+    case "claudecli":
+      const { ClaudeCliLLM } = require("../AiProviders/claudeCli");
+      return new ClaudeCliLLM(embedder, model);
     case "togetherai":
       const { TogetherAiLLM } = require("../AiProviders/togetherAi");
       return new TogetherAiLLM(embedder, model);
@@ -383,6 +386,9 @@ function getLLMProviderClass({ provider = null } = {}) {
     case "ollama":
       const { OllamaAILLM } = require("../AiProviders/ollama");
       return OllamaAILLM;
+    case "claudecli":
+      const { ClaudeCliLLM } = require("../AiProviders/claudeCli");
+      return ClaudeCliLLM;
     case "togetherai":
       const { TogetherAiLLM } = require("../AiProviders/togetherAi");
       return TogetherAiLLM;
@@ -504,6 +510,8 @@ function getBaseLLMProviderModel({ provider = null } = {}) {
       return process.env.LOCAL_AI_MODEL_PREF;
     case "ollama":
       return process.env.OLLAMA_MODEL_PREF;
+    case "claudecli":
+      return process.env.CLAUDE_CLI_MODEL || "claude-sonnet-5";
     case "togetherai":
       return process.env.TOGETHER_AI_MODEL_PREF;
     case "fireworksai":
