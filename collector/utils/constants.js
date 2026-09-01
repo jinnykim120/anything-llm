@@ -68,10 +68,10 @@ const SUPPORTED_FILETYPE_CONVERTERS = {
   // TODO: Create asDoc.js that works for standard MS Word files.
   // ".doc": "./convert/asDoc.js",
 
-  ".pptx": "./convert/asOfficeMime.js",
+  ".pptx": "./convert/asOffice.js",
 
-  ".odt": "./convert/asOfficeMime.js",
-  ".odp": "./convert/asOfficeMime.js",
+  ".odt": "./convert/asOffice.js",
+  ".odp": "./convert/asOffice.js",
 
   ".xlsx": "./convert/asXlsx.js",
 
