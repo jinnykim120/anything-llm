@@ -30,7 +30,11 @@ function docIdFromResult(r) {
 
 async function loadGolden() {
   const dir = join(here, "golden");
-  const files = (await readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  // `.answers.jsonl` belongs to the answer-quality harness (eval/answers.mjs) —
+  // those question sets target their own workspace, not the synthetic eval one.
+  const files = (await readdir(dir)).filter(
+    (f) => f.endsWith(".jsonl") && !f.endsWith(".answers.jsonl")
+  );
   const items = [];
   for (const f of files) {
     const lines = (await readFile(join(dir, f), "utf8")).split("\n").filter((l) => l.trim());
