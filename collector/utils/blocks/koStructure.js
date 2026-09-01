@@ -57,6 +57,39 @@ function outlineLevel(rawText) {
 }
 
 /**
+ * [auto-docu] Borrowed from kordoc's `outline`: build a real heading tree for
+ * report/award-style HWP where numbering restarts under each division.
+ *
+ * A numbered/roman heading often trails a rubric list —
+ * "1. 경영성과 - 매출증가율 - 영업이익률 등". Keep just the name for the
+ * section_path (only when what follows is clearly an enumeration, so a heading
+ * that legitimately contains " - " is left alone).
+ */
+function trimHeadingLabel(rawText) {
+  const s = String(rawText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (outlineLevel(s) == null) return s;
+  const parts = s.split(/\s+[-–—]\s+/);
+  if (parts.length < 2) return s;
+  const tail = parts.slice(1).join(" - ");
+  const isEnumeration = / [-–—] /.test(tail) || /\s등$/.test(tail);
+  return isEnumeration ? parts[0].trim() : s;
+}
+
+// "1. 공통심사부문" / "2. 해당응모부문" — a numbered heading that names a
+// division, not a section. Everything after it nests one level deeper, and its
+// number does not collide with the sections' numbering.
+const CONTAINER_TAIL_RE = /(부문|분야|부|편|장|절|관|본부|영역)$/;
+function isContainerHeading(rawText) {
+  const label = trimHeadingLabel(rawText);
+  const m = label.match(/^\d{1,2}\.\s*(.+)$/);
+  if (!m) return false;
+  const name = m[1].trim();
+  return name.length <= 12 && CONTAINER_TAIL_RE.test(name);
+}
+
+/**
  * Is this line a section heading? A heading is a SHORT line (headings are
  * titles, not sentences) whose text is a structural marker. The length gate is
  * what keeps a numbered body sentence ("1. 경영성과 — 매출은 …") from being
@@ -161,30 +194,49 @@ function buildSectionPaths(blocks = []) {
     (b) => b.block_type === "heading" && outlineLevel(b.text) != null
   );
   const kept = [];
+  let prevLabel = null;
   for (const b of blocks) {
     // Drop the running page footer ("법제처  N  국가법령정보센터") here too —
     // the koLegal branch already does, but 예규/지침/고시 take this branch.
     if (KO_FOOTER_RE.test(b.text.replace(/\s+/g, " ").trim())) continue;
+    let drop = false;
     if (b.block_type === "heading") {
       const t = b.text.replace(/\s+/g, " ").trim();
       if (KO_HEADING_JUNK_RE.test(t)) {
         b.block_type = "paragraph";
       } else {
-        const level =
-          outlineLevel(t) ?? (anyOutline ? 1 : b.text.length <= 24 ? 1 : 2);
-        const num = t.match(OUTLINE_NUM_RE)?.[1] ?? null;
-        while (stack.length) {
-          const top = stack[stack.length - 1];
-          if (num && top.num) {
-            if (num !== top.num && `${num}.`.startsWith(`${top.num}.`)) break;
-          } else if (top.level < level) {
-            break;
+        const label = trimHeadingLabel(t);
+        if (label === prevLabel) {
+          // The .hwp table flatten repeats a section's label on every row —
+          // a heading identical to the last one is not a new section.
+          drop = true;
+        } else {
+          prevLabel = label;
+          const container = isContainerHeading(t);
+          const num = label.match(OUTLINE_NUM_RE)?.[1] ?? null;
+          const level = container
+            ? 1
+            : outlineLevel(label) ??
+              (anyOutline ? 1 : label.length <= 24 ? 1 : 2);
+          while (stack.length) {
+            const top = stack[stack.length - 1];
+            // A section never pops the division ("N. …부문") it sits under —
+            // this is what lets "1. 경영성과" nest below "1. 공통심사부문"
+            // instead of replacing it.
+            if (top.container && !container) break;
+            if (num && top.num) {
+              // dotted child: "1.2.1" stays under "1" / "1.2" (prefix match)
+              if (num !== top.num && `${num}.`.startsWith(`${top.num}.`)) break;
+            } else if (top.level < level) {
+              break;
+            }
+            stack.pop();
           }
-          stack.pop();
+          stack.push({ level, text: label, num, container });
         }
-        stack.push({ level, text: b.text, num });
       }
     }
+    if (drop) continue;
     b.section_path = stack.map((s) => s.text).join(" > ") || null;
     kept.push(b);
   }
