@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
-import { CheckCircle, Warning } from "@phosphor-icons/react";
+import { CheckCircle, Warning, Lock } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
 
-const SENS_LABEL = { general: "일반 범용", confidential: "격리·민감" };
+const SENS_LABEL = {
+  general: "일반 범용",
+  confidential: "격리·민감",
+  uncertain: "판단 보류",
+};
+const CONFIRMABLE = ["general", "confidential"];
 
 export default function DocRow({ doc, taxonomy, onConfirmed }) {
   const cls = doc.classification;
-  const [sensitivity, setSensitivity] = useState(
-    cls?.sensitivity && cls.sensitivity !== "unclassified"
-      ? cls.sensitivity
-      : "confidential"
-  );
+  // Only a definite call pre-fills the select; "uncertain" / no proposal → the
+  // human must pick.
+  const initialSens = CONFIRMABLE.includes(cls?.sensitivity)
+    ? cls.sensitivity
+    : "";
+  const [sensitivity, setSensitivity] = useState(initialSens);
   const [docType, setDocType] = useState(cls?.docType || "");
   const [domain, setDomain] = useState(cls?.domain || "");
   const [tags, setTags] = useState((cls?.tags || []).join(", "));
@@ -19,16 +25,23 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
 
   useEffect(() => {
     if (!cls) return;
-    if (cls.sensitivity && cls.sensitivity !== "unclassified")
-      setSensitivity(cls.sensitivity);
+    setSensitivity(
+      CONFIRMABLE.includes(cls.sensitivity) ? cls.sensitivity : ""
+    );
     setDocType(cls.docType || "");
     setDomain(cls.domain || "");
     setTags((cls.tags || []).join(", "));
   }, [cls?.contentHash, cls?.updatedAt]);
 
   const confirmed = cls?.status === "confirmed";
+  const uncertain = cls && cls.sensitivity === "uncertain";
+  const confirmableOptions = (
+    taxonomy?.sensitivity?.confirmable || CONFIRMABLE
+  ).filter(Boolean);
 
   async function confirm() {
+    if (!CONFIRMABLE.includes(sensitivity))
+      return showToast("민감도를 먼저 지정하세요.", "error");
     setSaving(true);
     const res = await Classification.confirm(doc.contentHash, {
       sensitivity,
@@ -82,14 +95,30 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
           className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${
             confirmed
               ? "bg-green-500/15 text-green-500"
-              : cls
-                ? "bg-sky-500/15 text-sky-400"
-                : "bg-white/5 text-theme-text-secondary"
+              : uncertain
+                ? "bg-amber-500/15 text-amber-500"
+                : cls
+                  ? "bg-sky-500/15 text-sky-400"
+                  : "bg-white/5 text-theme-text-secondary"
           }`}
         >
-          {confirmed ? "확정" : cls ? "제안됨" : "미분류"}
+          {confirmed
+            ? "확정"
+            : uncertain
+              ? "판단 보류"
+              : cls
+                ? "제안됨"
+                : "미분류"}
         </span>
       </div>
+
+      {!confirmed && doc.held && (
+        <p className="text-[11px] text-amber-500 inline-flex items-center gap-x-1">
+          <Lock className="h-3 w-3" weight="bold" />
+          확정 전까지 <span className="font-semibold">격리·민감</span>으로 취급
+          · 자동 라우팅 제외
+        </p>
+      )}
 
       {cls?.rationale && !confirmed && (
         <p className="text-[11px] text-theme-text-secondary italic border-l-2 border-white/10 pl-2">
@@ -103,15 +132,18 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
           <select
             value={sensitivity}
             onChange={(e) => setSensitivity(e.target.value)}
-            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+            className={`bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border outline-none ${
+              CONFIRMABLE.includes(sensitivity)
+                ? "border-white/10"
+                : "border-amber-500/60"
+            }`}
           >
-            {(taxonomy?.sensitivity?.values || ["general", "confidential"])
-              .filter((v) => v !== "unclassified")
-              .map((v) => (
-                <option key={v} value={v}>
-                  {SENS_LABEL[v] || v}
-                </option>
-              ))}
+            <option value="">— 선택 —</option>
+            {confirmableOptions.map((v) => (
+              <option key={v} value={v}>
+                {SENS_LABEL[v] || v}
+              </option>
+            ))}
           </select>
         </label>
         <label className="flex flex-col gap-y-1">
@@ -157,7 +189,7 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
       <div className="flex justify-end">
         <button
           onClick={confirm}
-          disabled={saving}
+          disabled={saving || !CONFIRMABLE.includes(sensitivity)}
           className="flex items-center gap-x-1.5 text-xs font-semibold text-white bg-theme-button-primary hover:bg-theme-button-primary-hover px-3 py-1.5 rounded-md disabled:opacity-50"
         >
           <CheckCircle className="h-4 w-4" weight="bold" />

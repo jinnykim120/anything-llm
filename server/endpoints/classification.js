@@ -108,6 +108,13 @@ function classificationEndpoints(app) {
             seen.add(w.slug);
             wsList.push(w);
           }
+          // A doc is "held" until a human confirms a definite tier — the LLM
+          // proposal (incl. "uncertain") does not take effect on its own, and
+          // a held doc is treated as confidential for access / not routed.
+          const held =
+            !cls ||
+            cls.status !== "confirmed" ||
+            !["general", "confidential"].includes(cls.sensitivity);
           return {
             contentHash: d.contentHash,
             title: d.title,
@@ -117,6 +124,11 @@ function classificationEndpoints(app) {
             workspaces: wsList,
             duplicateCount: d.docpaths.length,
             classification: cls,
+            held,
+            effectiveSensitivity:
+              cls?.status === "confirmed" && cls.sensitivity === "general"
+                ? "general"
+                : "confidential",
             tierMismatch:
               cls?.status === "confirmed"
                 ? tierMismatch(cls.sensitivity, wsList)

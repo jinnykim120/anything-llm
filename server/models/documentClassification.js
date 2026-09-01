@@ -3,7 +3,10 @@
 const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 const { classifyDocument } = require("../utils/classification/classify");
-const { normalizeSensitivity } = require("../utils/classification/taxonomy");
+const {
+  normalizeSensitivity,
+  SENSITIVITY,
+} = require("../utils/classification/taxonomy");
 
 const DocumentClassification = {
   writable: ["sensitivity", "docType", "domain", "tags", "status", "rationale"],
@@ -90,6 +93,17 @@ const DocumentClassification = {
     userId = null,
   }) {
     if (!contentHash) return { classification: null, error: "no contentHash" };
+    // Confirming REQUIRES a definite call — "uncertain" / "unclassified" can't
+    // be confirmed; the doc stays held until a human picks a real tier.
+    if (
+      sensitivity !== undefined &&
+      !SENSITIVITY.confirmable.includes(normalizeSensitivity(sensitivity))
+    )
+      return {
+        classification: null,
+        error:
+          "민감도를 '일반 범용' 또는 '격리·민감'으로 지정해야 확정할 수 있습니다.",
+      };
     const existing = await prisma.document_classifications
       .findUnique({ where: { contentHash } })
       .catch(() => null);

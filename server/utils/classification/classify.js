@@ -17,10 +17,13 @@ const { safeJsonParse } = require("../http");
 const SYSTEM = `You classify Korean corporate / government documents for an internal archive.
 Return a JSON object and nothing else. Judge only from the text and source given.
 
-sensitivity — one of "general" | "confidential":
+sensitivity — one of "general" | "confidential" | "uncertain":
 ${taxonomy()
   .sensitivity.rule.map((r) => "  - " + r)
   .join("\n")}
+  - "uncertain" means genuinely not enough signal to decide — a human will
+    decide. Do NOT use it as a lazy default; only when the document really
+    could plausibly be either.
 
 doc_type — the document kind. Prefer one of:
   ${DOC_TYPE.suggested.join(", ")}
@@ -33,7 +36,7 @@ domain — the subject area. Prefer one of:
 tags — 2 to 5 short Korean keywords.
 
 Respond with ONLY:
-{"sensitivity":"general|confidential","doc_type":"...","domain":"...","tags":["..."],
+{"sensitivity":"general|confidential|uncertain","doc_type":"...","domain":"...","tags":["..."],
  "rationale":"one Korean sentence explaining the sensitivity call"}`;
 
 function buildPrompt({ title, docSource, parsePath, text }) {
