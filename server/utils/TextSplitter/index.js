@@ -219,6 +219,7 @@ class TextSplitter {
       if (!buf.length) return;
       const text = buf.map((b) => b.text).join("\n\n");
       const meta = TextSplitter.#chunkMetaFromBlocks(buf);
+      meta.chunk_index = out.metas.length;
       out.chunks.push(`${header}${contextLine(meta)}${text}`);
       out.metas.push(meta);
       buf = [];
@@ -230,9 +231,10 @@ class TextSplitter {
       // A single oversized block: split it, each piece keeps this block's meta.
       if (blockText.length > maxSize) {
         flush();
-        const meta = TextSplitter.#chunkMetaFromBlocks([block]);
+        const baseMeta = TextSplitter.#chunkMetaFromBlocks([block]);
         const pieces = await this.#splitter.rawSplit(blockText);
         for (const piece of pieces) {
+          const meta = { ...baseMeta, chunk_index: out.metas.length };
           out.chunks.push(`${header}${contextLine(meta)}${piece}`);
           out.metas.push(meta);
         }
@@ -283,6 +285,10 @@ class TextSplitter {
       page_height: 0,
       section_path: "",
       block_type: "",
+      // [auto-docu] 0-based position of this chunk within its document, in
+      // reading order. Lets whole-section retrieval re-assemble a section's
+      // chunks in order without relying on the vector DB's row order.
+      chunk_index: 0,
     };
   }
 

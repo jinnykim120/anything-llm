@@ -435,6 +435,123 @@ class LanceDb extends VectorDatabase {
     }
   }
 
+  /**
+   * [auto-docu] Whole-section retrieval. Top-k vector search returns scattered
+   * chunks; for a query like "이 지침의 판단기준을 전부 알려줘" the answer is a whole
+   * section that spans many chunks and only a few rank high enough to be
+   * retrieved. When >= MIN_HITS retrieved chunks fall in the same
+   * `(doc_id, top-level section)`, pull in that section's remaining chunks (in
+   * `chunk_index` order) up to a per-section and a global char budget. Then
+   * regroup everything by document, documents ordered by their best hit score
+   * and chunks within a document in reading order, so the model sees each
+   * section as a continuous passage.
+   *
+   * Off via `SECTION_EXPANSION=off`. Tunables: `SECTION_EXPANSION_MIN_HITS` (2),
+   * `SECTION_EXPANSION_SECTION_MAX_CHARS` (16000),
+   * `SECTION_EXPANSION_BUDGET_CHARS` (32000).
+   */
+  async expandSections({ client, namespace, result }) {
+    const { contextTexts, sourceDocuments, scores } = result;
+    if (process.env.SECTION_EXPANSION === "off" || sourceDocuments.length === 0)
+      return result;
+
+    const MIN_HITS = Number(process.env.SECTION_EXPANSION_MIN_HITS) || 2;
+    const SECTION_MAX_CHARS =
+      Number(process.env.SECTION_EXPANSION_SECTION_MAX_CHARS) || 16_000;
+    const BUDGET_CHARS =
+      Number(process.env.SECTION_EXPANSION_BUDGET_CHARS) || 32_000;
+    const topSeg = (sp) =>
+      String(sp || "")
+        .split(">")[0]
+        .trim();
+
+    // Group hit indices by doc + top-level section.
+    const groups = new Map();
+    sourceDocuments.forEach((s, i) => {
+      const seg = topSeg(s.section_path);
+      if (!s.doc_id || !seg) return;
+      const key = `${s.doc_id} ${seg}`;
+      if (!groups.has(key))
+        groups.set(key, { doc_id: s.doc_id, seg, hits: [] });
+      groups.get(key).hits.push(i);
+    });
+
+    const seen = new Set(
+      sourceDocuments.map((s) => `${s.doc_id} ${s.chunk_index}`)
+    );
+    const table = await client.openTable(namespace);
+    const additions = [];
+    let budget = BUDGET_CHARS;
+
+    for (const g of groups.values()) {
+      if (g.hits.length < MIN_HITS) continue;
+      const groupScore = Math.min(...g.hits.map((i) => scores[i] ?? 0));
+      let docRows = [];
+      try {
+        docRows = await table
+          .query()
+          .where(`doc_id = '${g.doc_id}'`)
+          .limit(5_000)
+          .toArray();
+      } catch (e) {
+        this.logger(`expandSections: query failed - ${e.message}`);
+        continue;
+      }
+      const section = docRows
+        .filter((r) => topSeg(r.section_path) === g.seg)
+        .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0));
+      const sectionChars = section.reduce(
+        (n, r) => n + (r.text?.length || 0),
+        0
+      );
+      if (!section.length || sectionChars > SECTION_MAX_CHARS) continue;
+
+      for (const r of section) {
+        const k = `${r.doc_id} ${r.chunk_index}`;
+        if (seen.has(k)) continue;
+        const len = r.text?.length || 0;
+        if (len > budget) continue;
+        const { vector: _v, _distance: _d, ...meta } = r;
+        additions.push({ meta, text: r.text, score: groupScore });
+        seen.add(k);
+        budget -= len;
+      }
+    }
+
+    if (!additions.length) return result;
+    this.logger(
+      `expandSections: +${additions.length} chunks from ${
+        new Set(additions.map((a) => a.meta.doc_id)).size
+      } section(s).`
+    );
+
+    const rows = [
+      ...sourceDocuments.map((s, i) => ({
+        meta: s,
+        text: contextTexts[i],
+        score: scores[i] ?? 0,
+      })),
+      ...additions,
+    ];
+    const bestByDoc = {};
+    for (const r of rows) {
+      const d = r.meta.doc_id || "";
+      bestByDoc[d] = Math.max(bestByDoc[d] ?? -Infinity, r.score);
+    }
+    rows.sort((a, b) => {
+      const da = a.meta.doc_id || "";
+      const db = b.meta.doc_id || "";
+      if (da !== db) return (bestByDoc[db] ?? 0) - (bestByDoc[da] ?? 0);
+      return (a.meta.chunk_index ?? 0) - (b.meta.chunk_index ?? 0);
+    });
+
+    return {
+      contextTexts: rows.map((r) => r.text),
+      sourceDocuments: rows.map((r) => ({ ...r.meta, score: r.score })),
+      scores: rows.map((r) => r.score),
+    };
+  }
+
   async performSimilaritySearch({
     namespace = null,
     input = "",
@@ -457,7 +574,7 @@ class LanceDb extends VectorDatabase {
     }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    const result = rerank
+    const searchResult = rerank
       ? await this.rerankedSimilarityResponse({
           client,
           namespace,
@@ -475,6 +592,12 @@ class LanceDb extends VectorDatabase {
           topN,
           filterIdentifiers,
         });
+
+    const result = await this.expandSections({
+      client,
+      namespace,
+      result: searchResult,
+    });
 
     const { contextTexts, sourceDocuments } = result;
     const sources = sourceDocuments.map((metadata, i) => {
