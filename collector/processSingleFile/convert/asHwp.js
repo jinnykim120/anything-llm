@@ -294,7 +294,8 @@ async function hwpViaRender(hwpPath) {
     throw new Error(
       `soffice: ${(lo.stderr || lo.stdout || "no pdf").split("\n").pop()}`
     );
-  const d = await parseWithDocling(pdf);
+  // The LibreOffice-rendered PDF always has a text layer — skip OCR.
+  const d = await parseWithDocling(pdf, { doOcr: false });
   if (!d.ok || !d.blocks?.length)
     throw new Error(d.reason || "docling returned nothing");
   return { blocks: d.blocks, conf: d.confidence, pdf, tmp };

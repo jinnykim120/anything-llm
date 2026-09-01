@@ -27,16 +27,28 @@ async function asPdf({
   let doclingConfidence = null;
   let pdfInfo = null;
 
-  const docling = await parseWithDocling(fullFilePath);
+  // [auto-docu] Probe the text layer up front. docling + RapidOCR on CPU is
+  // ~80s/page, so a digital PDF (real text layer) must be parsed with OCR OFF —
+  // it costs nothing in quality and ~20x in speed. Only a scanned/image PDF
+  // (no text layer) gets do_ocr. The loaded pages are reused by the fallback
+  // path so the PDF is never read twice.
+  const pdfLoader = new PDFLoader(fullFilePath, { splitPages: true });
+  let pages = await pdfLoader.load();
+  pdfInfo = pages[0]?.metadata?.pdf?.info || null;
+  const textChars = pages.reduce(
+    (n, p) => n + (p.pageContent?.trim().length || 0),
+    0
+  );
+  const hasTextLayer = textChars > 200;
+
+  const docling = await parseWithDocling(fullFilePath, {
+    doOcr: !hasTextLayer,
+  });
   if (docling.ok) {
     blocks = docling.blocks;
     parsePath = docling.parsePath || "docling";
     doclingConfidence = docling.confidence ?? null;
   } else {
-    const pdfLoader = new PDFLoader(fullFilePath, { splitPages: true });
-    let pages = await pdfLoader.load();
-    pdfInfo = pages[0]?.metadata?.pdf?.info || null;
-
     if (pages.length === 0 || !pages.some((p) => p.pageContent?.length)) {
       console.log(
         `[asPDF] No embedded text for ${filename}. Attempting OCR parse.`

@@ -132,7 +132,7 @@ model workspaces {
   similarityThreshold          Float?                         @default(0.25)
   chatProvider                 String?
   chatModel                    String?
-  topN                         Int?                           @default(4)
+  topN                         Int?                           @default(12) // [auto-docu] 4 was too low for dense Korean gov/legal docs — a single section spans many chunks
   chatMode                     String?                        @default("chat")
   pfpFilename                  String?
   agentProvider                String?

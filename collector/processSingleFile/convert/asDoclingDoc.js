@@ -200,7 +200,7 @@ function doclingToBlocks(doc) {
 /**
  * @returns {Promise<{ok:boolean, blocks?:object[], parsePath?:string, confidence?:number, reason?:string}>}
  */
-async function parseWithDocling(fullFilePath) {
+async function parseWithDocling(fullFilePath, { doOcr = true } = {}) {
   if (!(await doclingAvailable()))
     return { ok: false, reason: "docling-serve unavailable" };
   try {
@@ -211,7 +211,9 @@ async function parseWithDocling(fullFilePath) {
       path.basename(fullFilePath)
     );
     fd.append("to_formats", "json");
-    fd.append("do_ocr", "true");
+    // OCR is opt-in per call — digital PDFs pass doOcr:false (docling + RapidOCR
+    // on CPU is ~80s/page). Non-PDF formats ignore it.
+    fd.append("do_ocr", doOcr ? "true" : "false");
     fd.append("do_table_structure", "true");
 
     const res = await fetchWithTimeout(
