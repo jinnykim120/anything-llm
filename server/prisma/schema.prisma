@@ -24,6 +24,28 @@ model api_keys {
   lastUpdatedAt DateTime @default(now())
 }
 
+// [auto-docu P4] Per-document-content classification (sensitivity / doc_type /
+// domain / tags). Keyed by content_hash so it survives re-ingest and is shared
+// across workspaces that hold the same document. `status`:
+//   proposed   — LLM 1-pass proposal, awaiting human review
+//   confirmed  — a human accepted or edited it in the review screen
+model document_classifications {
+  id           Int      @id @default(autoincrement())
+  contentHash  String   @unique
+  sensitivity  String   @default("unclassified")
+  docType      String?
+  domain       String?
+  tags         String?  @default("[]") // JSON array
+  status       String   @default("proposed")
+  rationale    String?
+  source       String? // "llm:<model>" | "human" — how the current values were set
+  sampleTitle  String? // a filename seen for this hash, for the review list
+  proposedBy   String?
+  confirmedBy  Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+}
+
 model workspace_documents {
   id                   Int                   @id @default(autoincrement())
   docId                String                @unique

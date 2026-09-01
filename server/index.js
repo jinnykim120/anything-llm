@@ -25,6 +25,7 @@ const { extensionEndpoints } = require("./endpoints/extensions");
 const { bootHTTP, bootSSL } = require("./utils/boot");
 const { workspaceThreadEndpoints } = require("./endpoints/workspaceThreads");
 const { documentEndpoints } = require("./endpoints/document");
+const { classificationEndpoints } = require("./endpoints/classification");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -90,6 +91,7 @@ inviteEndpoints(apiRouter);
 embedManagementEndpoints(apiRouter);
 utilEndpoints(apiRouter);
 documentEndpoints(apiRouter);
+classificationEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);
