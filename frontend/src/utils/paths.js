@@ -116,6 +116,9 @@ export default {
     chats: () => {
       return "/settings/workspace-chats";
     },
+    classification: () => {
+      return "/settings/classification";
+    },
     llmPreference: () => {
       return "/settings/llm-preference";
     },

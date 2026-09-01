@@ -294,6 +294,12 @@ const SidebarOptions = ({ user = null, t }) => (
               roles: ["admin", "manager"],
             },
             {
+              btnText: "문서 분류 검수",
+              href: paths.settings.classification(),
+              flex: true,
+              roles: ["admin", "manager"],
+            },
+            {
               btnText: t("settings.invites"),
               href: paths.settings.invites(),
               roles: ["admin", "manager"],

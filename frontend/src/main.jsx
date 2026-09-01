@@ -313,6 +313,15 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/classification",
+        lazy: async () => {
+          const { default: ClassificationReview } = await import(
+            "@/pages/GeneralSettings/Classification"
+          );
+          return { element: <ManagerRoute Component={ClassificationReview} /> };
+        },
+      },
+      {
         path: "/settings/invites",
         lazy: async () => {
           const { default: AdminInvites } = await import(
