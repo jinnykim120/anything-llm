@@ -53,6 +53,19 @@ const Classification = {
         return { error: e.message };
       });
   },
+
+  move: async (contentHash, fromWorkspace, toWorkspace) => {
+    return await fetch(`${API_BASE}/classification/${contentHash}/move`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ fromWorkspace, toWorkspace }),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { error: e.message };
+      });
+  },
 };
 
 export default Classification;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle, Warning, Lock } from "@phosphor-icons/react";
+import { CheckCircle, Warning, Lock, ArrowRight } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
 
@@ -10,7 +10,7 @@ const SENS_LABEL = {
 };
 const CONFIRMABLE = ["general", "confidential"];
 
-export default function DocRow({ doc, taxonomy, onConfirmed }) {
+export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
   const cls = doc.classification;
   // Only a definite call pre-fills the select; "uncertain" / no proposal → the
   // human must pick.
@@ -22,6 +22,8 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
   const [domain, setDomain] = useState(cls?.domain || "");
   const [tags, setTags] = useState((cls?.tags || []).join(", "));
   const [saving, setSaving] = useState(false);
+  const [moveTo, setMoveTo] = useState((doc.moveTargets || [])[0] || "");
+  const [moving, setMoving] = useState(false);
 
   useEffect(() => {
     if (!cls) return;
@@ -60,6 +62,20 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
 
   const lowConfidence =
     typeof doc.parseConfidence === "number" && doc.parseConfidence < 0.6;
+
+  async function move() {
+    if (!moveTo) return;
+    setMoving(true);
+    const res = await Classification.move(
+      doc.contentHash,
+      doc.tierMismatch[0],
+      moveTo
+    );
+    setMoving(false);
+    if (res?.error) return showToast(`이동 실패: ${res.error}`, "error");
+    showToast(`"${moveTo}"(으)로 이동함`, "success");
+    reload?.();
+  }
 
   return (
     <div className="bg-theme-bg-primary border border-white/10 rounded-lg p-4 flex flex-col gap-y-3">
@@ -118,6 +134,42 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
           확정 전까지 <span className="font-semibold">격리·민감</span>으로 취급
           · 자동 라우팅 제외
         </p>
+      )}
+
+      {(doc.tierMismatch || []).length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
+          <span className="text-red-400">
+            {doc.tierMismatch[0]}(은)는 이 문서 티어와 맞지 않음.
+          </span>
+          {(doc.moveTargets || []).length > 0 ? (
+            <>
+              <select
+                value={moveTo}
+                onChange={(e) => setMoveTo(e.target.value)}
+                className="bg-theme-settings-input-bg text-theme-text-primary rounded px-1.5 py-1 border border-white/10 outline-none"
+              >
+                {doc.moveTargets.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={move}
+                disabled={moving || !moveTo}
+                className="inline-flex items-center gap-x-1 text-white bg-theme-button-primary hover:bg-theme-button-primary-hover px-2 py-1 rounded disabled:opacity-50"
+              >
+                <ArrowRight className="h-3 w-3" weight="bold" />
+                {moving ? "이동 중…" : "이동"}
+              </button>
+            </>
+          ) : (
+            <span className="text-theme-text-secondary">
+              티어가 <b>{SENS_LABEL[cls?.sensitivity] || cls?.sensitivity}</b>인
+              워크스페이스가 없음 — 워크스페이스 설정에서 tier를 지정하세요.
+            </span>
+          )}
+        </div>
       )}
 
       {cls?.rationale && !confirmed && (

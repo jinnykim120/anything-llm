@@ -99,6 +99,7 @@ export default function ClassificationReview() {
                   key={doc.contentHash}
                   doc={doc}
                   taxonomy={taxonomy}
+                  reload={load}
                   onConfirmed={(cls) =>
                     setDocs((prev) =>
                       prev.map((d) =>

@@ -4,6 +4,7 @@
 //   GET  /classification/documents                review list (one row per doc content)
 //   POST /classification/propose                  run the LLM classifier ({contentHash} or all pending)
 //   POST /classification/:contentHash/confirm     human accepts / edits
+//   POST /classification/:contentHash/move        move a doc to a tier-matching workspace
 const prisma = require("../utils/prisma");
 const { reqBody } = require("../utils/http");
 const { fileData } = require("../utils/files");
@@ -14,6 +15,8 @@ const {
 } = require("../utils/middleware/multiUserProtected");
 const { taxonomy } = require("../utils/classification/taxonomy");
 const { DocumentClassification } = require("../models/documentClassification");
+const { Document } = require("../models/documents");
+const { Workspace } = require("../models/workspace");
 
 /**
  * Every distinct document currently in the archive, keyed by content_hash,
@@ -99,6 +102,9 @@ function classificationEndpoints(app) {
         const byHash = Object.fromEntries(
           classifications.map((c) => [c.contentHash, c])
         );
+        const allWorkspaces = await prisma.workspaces.findMany({
+          select: { slug: true, name: true, tier: true },
+        });
         const out = docs.map((d) => {
           const cls = byHash[d.contentHash] || null;
           const wsList = [];
@@ -115,6 +121,10 @@ function classificationEndpoints(app) {
             !cls ||
             cls.status !== "confirmed" ||
             !["general", "confidential"].includes(cls.sensitivity);
+          const mism =
+            cls?.status === "confirmed"
+              ? tierMismatch(cls.sensitivity, wsList)
+              : [];
           return {
             contentHash: d.contentHash,
             title: d.title,
@@ -129,9 +139,17 @@ function classificationEndpoints(app) {
               cls?.status === "confirmed" && cls.sensitivity === "general"
                 ? "general"
                 : "confidential",
-            tierMismatch:
-              cls?.status === "confirmed"
-                ? tierMismatch(cls.sensitivity, wsList)
+            tierMismatch: mism,
+            // workspaces this doc could be moved into to resolve a mismatch
+            moveTargets:
+              mism.length && cls?.sensitivity
+                ? allWorkspaces
+                    .filter(
+                      (w) =>
+                        w.tier === cls.sensitivity &&
+                        !wsList.some((x) => x.slug === w.slug)
+                    )
+                    .map((w) => w.slug)
                 : [],
           };
         });
@@ -210,6 +228,59 @@ function classificationEndpoints(app) {
         response.status(200).json({ classification });
       } catch (e) {
         console.error("POST /classification/:contentHash/confirm", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  // Move a document's embeddings from one workspace to another (manual
+  // resolution of a tier mismatch — there is no automatic routing). The parsed
+  // doc file stays on disk; only the per-workspace vectors move.
+  app.post(
+    "/classification/:contentHash/move",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { contentHash } = request.params;
+        const { fromWorkspace, toWorkspace } = reqBody(request);
+        if (!fromWorkspace || !toWorkspace || fromWorkspace === toWorkspace)
+          return response
+            .status(400)
+            .json({ error: "fromWorkspace and toWorkspace required" });
+
+        const fromWs = await Workspace.get({ slug: String(fromWorkspace) });
+        const toWs = await Workspace.get({ slug: String(toWorkspace) });
+        if (!fromWs || !toWs)
+          return response.status(404).json({ error: "workspace not found" });
+
+        // The doc(s) with this content hash in the source workspace.
+        const inFrom = (
+          await Document.where({ workspaceId: fromWs.id })
+        ).filter((d) => {
+          try {
+            return JSON.parse(d.metadata || "{}").content_hash === contentHash;
+          } catch {
+            return false;
+          }
+        });
+        if (!inFrom.length)
+          return response
+            .status(404)
+            .json({ error: "document not found in fromWorkspace" });
+
+        const docpaths = inFrom.map((d) => d.docpath);
+        await Document.removeDocuments(fromWs, docpaths);
+        const { failedToEmbed = [] } = await Document.addDocuments(
+          toWs,
+          docpaths,
+          response.locals?.user?.id
+        );
+        response.status(200).json({
+          moved: docpaths.length - failedToEmbed.length,
+          failed: failedToEmbed,
+        });
+      } catch (e) {
+        console.error("POST /classification/:contentHash/move", e);
         response.status(500).json({ error: e.message });
       }
     }
