@@ -4,6 +4,22 @@ const fs = require("fs");
 const { v4 } = require("uuid");
 const { normalizePath, sanitizeFileName } = require(".");
 
+// [auto-docu] busboy hands `file.originalname` as UTF-8 bytes read as latin1, so
+// the usual fix is `Buffer.from(name, "latin1").toString("utf8")`. But some
+// clients (Node's undici FormData, or a browser on a UTF-8 header) already give
+// clean UTF-8 — re-decoding those yields U+FFFD garbage. Only apply the reverse
+// when it actually improves things.
+function decodeUploadName(originalname = "") {
+  // ASCII-only name needs no decoding.
+  if (![...originalname].some((ch) => ch.charCodeAt(0) > 127))
+    return originalname;
+  const decoded = Buffer.from(originalname, "latin1").toString("utf8");
+  const REPL = String.fromCharCode(0xfffd);
+  if (decoded.includes(REPL) && !originalname.includes(REPL))
+    return originalname; // the reverse made it worse — keep the original
+  return decoded;
+}
+
 /**
  * Handle File uploads for auto-uploading.
  * Mostly used for internal GUI/API uploads.
@@ -18,7 +34,7 @@ const fileUploadStorage = multer.diskStorage({
   },
   filename: function (_, file, cb) {
     file.originalname = sanitizeFileName(
-      normalizePath(Buffer.from(file.originalname, "latin1").toString("utf8"))
+      normalizePath(decodeUploadName(file.originalname))
     );
     cb(null, file.originalname);
   },
@@ -38,7 +54,7 @@ const fileAPIUploadStorage = multer.diskStorage({
   },
   filename: function (_, file, cb) {
     file.originalname = sanitizeFileName(
-      normalizePath(Buffer.from(file.originalname, "latin1").toString("utf8"))
+      normalizePath(decodeUploadName(file.originalname))
     );
     cb(null, file.originalname);
   },
@@ -56,7 +72,7 @@ const assetUploadStorage = multer.diskStorage({
   },
   filename: function (_, file, cb) {
     file.originalname = sanitizeFileName(
-      normalizePath(Buffer.from(file.originalname, "latin1").toString("utf8"))
+      normalizePath(decodeUploadName(file.originalname))
     );
     cb(null, file.originalname);
   },
