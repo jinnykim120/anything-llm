@@ -25,6 +25,7 @@ const prisma = require("../utils/prisma");
 const { getVectorDbClass } = require("../utils/helpers");
 const { fileData } = require("../utils/files");
 const { Telemetry } = require("../models/telemetry");
+const { safeJsonParse } = require("../utils/http");
 
 const queue = [];
 const cancelled = new Set();
@@ -61,6 +62,18 @@ async function processQueue() {
   const embedded = [];
   const failedToEmbed = [];
 
+  // [auto-docu P4] content-hash dedup — re-uploads get a fresh docpath so
+  // nothing upstream catches them. Skip an addition whose content_hash is
+  // already in this workspace.
+  const existingHashes = new Map();
+  for (const wd of await prisma.workspace_documents.findMany({
+    where: { workspaceId },
+    select: { metadata: true, filename: true },
+  })) {
+    const h = safeJsonParse(wd.metadata, {})?.content_hash;
+    if (h) existingHashes.set(h, wd.filename);
+  }
+
   for (const [index, filePath] of batch.entries()) {
     if (cancelled.has(filePath)) {
       cancelled.delete(filePath);
@@ -83,6 +96,19 @@ async function processQueue() {
         error: "Failed to load file data",
       });
       failedToEmbed.push(filePath);
+      continue;
+    }
+
+    if (data.content_hash && existingHashes.has(data.content_hash)) {
+      const dupOf = existingHashes.get(data.content_hash);
+      console.log(
+        `[auto-docu] skipping ${filePath.split(/[/\\]/).pop()} — same content as "${dupOf}" already in ${workspaceSlug}`
+      );
+      emit({
+        type: "doc_failed",
+        ...docProgress,
+        error: `중복 문서 — "${dupOf}"와 내용이 동일해 건너뜀`,
+      });
       continue;
     }
 
@@ -125,6 +151,23 @@ async function processQueue() {
     try {
       await prisma.workspace_documents.create({ data: newDoc });
       embedded.push(filePath);
+      if (data.content_hash)
+        existingHashes.set(data.content_hash, newDoc.filename);
+      // [auto-docu P4] opt-in classify-on-ingest (off by default).
+      if (process.env.CLASSIFY_ON_INGEST === "true" && data.content_hash) {
+        const {
+          DocumentClassification,
+        } = require("../models/documentClassification");
+        DocumentClassification.proposeFor({
+          contentHash: data.content_hash,
+          title: data.title,
+          text: data.pageContent,
+          docSource: data.docSource,
+          parsePath: data.parse_path,
+        }).catch((e) =>
+          console.error("[auto-docu classify-on-ingest]", e.message)
+        );
+      }
       emit({
         type: "doc_complete",
         ...docProgress,
