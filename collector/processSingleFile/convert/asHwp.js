@@ -144,6 +144,13 @@ function assemble(items) {
     else {
       flush();
       const b = mkBlock(it.text, blocks.length);
+      // Keep the row breaks — `clean()` collapsed them, but the splitter needs
+      // them to repeat the header row when a big table is chunked.
+      b.text = it.text
+        .split(/\r?\n/)
+        .map((line) => clean(line))
+        .filter(Boolean)
+        .join("\n");
       b.block_type = "table";
       blocks.push(b);
     }

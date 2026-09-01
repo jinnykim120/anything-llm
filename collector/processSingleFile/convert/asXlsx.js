@@ -26,6 +26,22 @@ function convertToCSV(data) {
     .join("\n");
 }
 
+// [auto-docu] `|`-joined rows with the header first — the LLM reads columns
+// better than raw CSV, and the splitter's table handling repeats the header
+// row on each chunk of a big sheet.
+function convertToPipeTable(data) {
+  const rows = data.filter((r) => Array.isArray(r) && r.some((c) => c != null));
+  if (!rows.length) return "";
+  const cell = (c) =>
+    c === null || c === undefined ? "" : String(c).replace(/\s+/g, " ").trim();
+  const width = Math.max(...rows.map((r) => r.length));
+  const line = (r) =>
+    Array.from({ length: width }, (_, i) => cell(r[i])).join(" | ");
+  const out = [line(rows[0]), Array(width).fill("---").join(" | ")];
+  for (const r of rows.slice(1)) out.push(line(r));
+  return out.join("\n");
+}
+
 async function asXlsx({
   fullFilePath = "",
   filename = "",
@@ -171,7 +187,7 @@ async function asXlsx({
 function processSheet(sheet) {
   try {
     const { name, data } = sheet;
-    const content = convertToCSV(data);
+    const content = convertToPipeTable(data) || convertToCSV(data);
 
     if (!content?.length) {
       console.log(`Sheet "${name}" is empty. Skipping.`);

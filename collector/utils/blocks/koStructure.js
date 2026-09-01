@@ -39,12 +39,15 @@ function koStructOf(rawText) {
   return null;
 }
 
-// --- Outline numbering: I. / Ⅱ. / 1. / 1.1. / 1.2.1. ----------------------
+// --- Outline numbering: I. / Ⅱ. / 1. / 1.1. / (3) / ① / 가) / 가. ----------
 const OUTLINE_ROMAN_RE = /^([IVXLC]{1,5}|[Ⅰ-Ⅻ])\.\s+\S/;
 const OUTLINE_NUM_RE = /^(\d{1,2}(?:\.\d{1,2}){0,4})\.?\s+\S/;
+const OUTLINE_PAREN_NUM_RE = /^\(\s*\d{1,2}\s*\)\s*\S/; // (3)  — deck sub-section
+const OUTLINE_CIRCLED_RE = /^[①-⑳]\s*\S/; // ① … ⑳
+const OUTLINE_KO_PAREN_RE = /^[가-힣]\)\s*\S/; // 가) 나) 다)
 const OUTLINE_KO_ORD_RE = /^([가-힣])\.\s+\S/; // 가. 나. 다.
 
-/** Heading depth from an outline number, or null if the text isn't one. */
+/** Heading depth from an outline marker, or null if the text isn't one. */
 function outlineLevel(rawText) {
   const s = String(rawText || "")
     .replace(/\s+/g, " ")
@@ -52,6 +55,9 @@ function outlineLevel(rawText) {
   if (OUTLINE_ROMAN_RE.test(s)) return 1;
   const n = s.match(OUTLINE_NUM_RE);
   if (n) return 1 + n[1].split(".").length; // "1."→2, "1.1."→3, "1.2.1."→4
+  if (OUTLINE_PAREN_NUM_RE.test(s)) return 3;
+  if (OUTLINE_CIRCLED_RE.test(s)) return 5;
+  if (OUTLINE_KO_PAREN_RE.test(s)) return 6;
   if (OUTLINE_KO_ORD_RE.test(s)) return 6;
   return null;
 }
@@ -154,6 +160,12 @@ function markHeadings(blocks = []) {
  * (running footers, ToC boilerplate); returns the resulting array.
  */
 function buildSectionPaths(blocks = []) {
+  // Some parsers (docling on PPTX/ODP, OCR) tag every block "paragraph". If not
+  // one heading came in, promote the ones that read as structural markers so
+  // the branches below have a tree to build.
+  if (blocks.length && !blocks.some((b) => b.block_type === "heading"))
+    markHeadings(blocks);
+
   const structs = blocks.map((b) => koStructOf(b.text));
   const koLegal = structs.filter((k) => k?.article && k.hasBody).length >= 3;
 

@@ -232,10 +232,20 @@ class TextSplitter {
       if (blockText.length > maxSize) {
         flush();
         const baseMeta = TextSplitter.#chunkMetaFromBlocks([block]);
+        // [auto-docu] A split of a big table would leave every piece after the
+        // first with rows but no column names. Repeat the header row on each.
+        const tableHeader =
+          block.block_type === "table"
+            ? TextSplitter.#tableHeaderLine(blockText)
+            : "";
         const pieces = await this.#splitter.rawSplit(blockText);
-        for (const piece of pieces) {
+        for (const [pi, piece] of pieces.entries()) {
           const meta = { ...baseMeta, chunk_index: out.metas.length };
-          out.chunks.push(`${header}${contextLine(meta)}${piece}`);
+          const body =
+            tableHeader && pi > 0 && !piece.startsWith(tableHeader)
+              ? `${tableHeader}\n${piece}`
+              : piece;
+          out.chunks.push(`${header}${contextLine(meta)}${body}`);
           out.metas.push(meta);
         }
         continue;
@@ -290,6 +300,17 @@ class TextSplitter {
       // chunks in order without relying on the vector DB's row order.
       chunk_index: 0,
     };
+  }
+
+  /**
+   * The header of a `|`-joined table block — the first row, plus a markdown
+   * separator row if the source had one. "" when it doesn't look like a table.
+   */
+  static #tableHeaderLine(text = "") {
+    const lines = String(text).split("\n");
+    if (lines.length < 2 || !lines[0].includes("|")) return "";
+    const isSep = /^[\s|:-]+$/.test(lines[1]);
+    return isSep ? `${lines[0]}\n${lines[1]}` : lines[0];
   }
 
   /**
