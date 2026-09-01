@@ -162,6 +162,7 @@ model workspaces {
   queryRefusalResponse         String?
   vectorSearchMode             String?                        @default("default")
   router_id                    Int? // No relation to prevent whole table migration (SQLite limitation)
+  tier                         String? // [auto-docu P4] "general" | "confidential" — the sensitivity tier this workspace holds; a confirmed doc whose sensitivity differs is flagged in the review screen
   workspace_users              workspace_users[]
   documents                    workspace_documents[]
   workspace_suggested_messages workspace_suggested_messages[]

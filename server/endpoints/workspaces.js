@@ -263,20 +263,33 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
+        const {
+          failedToEmbed = [],
+          errors = [],
+          skippedDuplicates = [],
+        } = await Document.addDocuments(
           currWorkspace,
           adds,
           response.locals?.user?.id
         );
         const updatedWorkspace = await Workspace.get({ id: currWorkspace.id });
+        const notes = [];
+        if (failedToEmbed.length > 0)
+          notes.push(
+            `${failedToEmbed.length} documents failed to add.\n\n${errors
+              .map((msg) => `${msg}`)
+              .join("\n\n")}`
+          );
+        if (skippedDuplicates.length > 0)
+          notes.push(
+            `${skippedDuplicates.length}건은 이미 있는 문서와 내용이 동일해 건너뜀 (${skippedDuplicates
+              .map((s) => `"${s.duplicateOf}"`)
+              .join(", ")}).`
+          );
         response.status(200).json({
           workspace: updatedWorkspace,
-          message:
-            failedToEmbed.length > 0
-              ? `${failedToEmbed.length} documents failed to add.\n\n${errors
-                  .map((msg) => `${msg}`)
-                  .join("\n\n")}`
-              : null,
+          skippedDuplicates,
+          message: notes.length ? notes.join("\n\n") : null,
         });
       } catch (e) {
         console.error(e.message, e);

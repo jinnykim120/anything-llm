@@ -56,9 +56,16 @@ const Workspace = {
     "queryRefusalResponse",
     "vectorSearchMode",
     "router_id",
+    "tier",
   ],
 
   validations: {
+    tier: (value) => {
+      if (value === null || value === undefined || value === "") return null;
+      return ["general", "confidential"].includes(String(value))
+        ? String(value)
+        : null;
+    },
     name: (value) => {
       // If the name is not provided or is not a string then we will use a default name.
       // as the name field is not nullable in the db schema or has a default value.

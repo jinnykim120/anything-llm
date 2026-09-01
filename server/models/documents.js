@@ -89,6 +89,19 @@ const Document = {
     const failedToEmbed = [];
     const errors = new Set();
 
+    // [auto-docu P4] content-hash dedup — a re-uploaded document gets a fresh
+    // docpath (new uuid) every time, so the docpath checks upstream never catch
+    // it. Skip an addition whose content_hash already lives in this workspace.
+    const skippedDuplicates = [];
+    const existingHashes = new Map();
+    for (const wd of await prisma.workspace_documents.findMany({
+      where: { workspaceId: workspace.id },
+      select: { metadata: true, filename: true },
+    })) {
+      const h = safeJsonParse(wd.metadata, {})?.content_hash;
+      if (h) existingHashes.set(h, wd.filename);
+    }
+
     emitProgress(workspace.slug, {
       type: "batch_starting",
       workspaceSlug: workspace.slug,
@@ -112,6 +125,20 @@ const Document = {
           type: "doc_failed",
           ...docProgress,
           error: "Failed to load file data",
+        });
+        continue;
+      }
+
+      if (data.content_hash && existingHashes.has(data.content_hash)) {
+        const dupOf = existingHashes.get(data.content_hash);
+        console.log(
+          `[auto-docu] skipping ${path.split(/[/\\]/).pop()} — same content as "${dupOf}" already in ${workspace.slug}`
+        );
+        skippedDuplicates.push({ path, duplicateOf: dupOf });
+        emitProgress(workspace.slug, {
+          type: "doc_failed",
+          ...docProgress,
+          error: `중복 문서 — "${dupOf}"와 내용이 동일해 건너뜀`,
         });
         continue;
       }
@@ -161,6 +188,26 @@ const Document = {
       try {
         await prisma.workspace_documents.create({ data: newDoc });
         embedded.push(path);
+        if (data.content_hash)
+          existingHashes.set(data.content_hash, newDoc.filename);
+        // [auto-docu P4] opt-in: propose a classification as the doc lands, so
+        // the review screen isn't empty. Fire-and-forget (an LLM call each) —
+        // off by default so a bulk load doesn't hammer the LLM / hit rate limits;
+        // the "미확정 N건 분류 제안" button is the batch path.
+        if (process.env.CLASSIFY_ON_INGEST === "true" && data.content_hash) {
+          const {
+            DocumentClassification,
+          } = require("./documentClassification");
+          DocumentClassification.proposeFor({
+            contentHash: data.content_hash,
+            title: data.title,
+            text: data.pageContent,
+            docSource: data.docSource,
+            parsePath: data.parse_path,
+          }).catch((e) =>
+            console.error("[auto-docu classify-on-ingest]", e.message)
+          );
+        }
         emitProgress(workspace.slug, {
           type: "doc_complete",
           ...docProgress,
@@ -201,7 +248,12 @@ const Document = {
       },
       userId
     );
-    return { failedToEmbed, errors: Array.from(errors), embedded };
+    return {
+      failedToEmbed,
+      errors: Array.from(errors),
+      embedded,
+      skippedDuplicates,
+    };
   },
 
   removeDocuments: async function (workspace, removals = [], userId = null) {

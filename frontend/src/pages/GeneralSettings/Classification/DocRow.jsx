@@ -56,7 +56,10 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
             {doc.title}
           </p>
           <p className="text-[11px] text-theme-text-secondary mt-0.5">
-            {doc.workspaces.join(", ")} · {doc.parsePath || "?"}
+            {(doc.workspaces || [])
+              .map((w) => (w.tier ? `${w.slug} (${w.tier})` : w.slug))
+              .join(", ")}{" "}
+            · {doc.parsePath || "?"}
             {doc.duplicateCount > 1 && (
               <span className="ml-1 text-amber-500">
                 · 중복 {doc.duplicateCount}
@@ -65,6 +68,12 @@ export default function DocRow({ doc, taxonomy, onConfirmed }) {
             {lowConfidence && (
               <span className="ml-1 text-amber-500 inline-flex items-center gap-x-0.5">
                 <Warning className="h-3 w-3" /> 파싱 신뢰도 낮음
+              </span>
+            )}
+            {(doc.tierMismatch || []).length > 0 && (
+              <span className="ml-1 text-red-400 inline-flex items-center gap-x-0.5 font-semibold">
+                <Warning className="h-3 w-3" /> 티어 불일치:{" "}
+                {doc.tierMismatch.join(", ")}
               </span>
             )}
           </p>

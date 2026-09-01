@@ -22,7 +22,7 @@ const { DocumentClassification } = require("../models/documentClassification");
  */
 async function archiveDocuments() {
   const rows = await prisma.workspace_documents.findMany({
-    include: { workspace: { select: { slug: true, name: true } } },
+    include: { workspace: { select: { slug: true, name: true, tier: true } } },
   });
   const byHash = new Map();
   for (const wd of rows) {
@@ -47,10 +47,21 @@ async function archiveDocuments() {
       });
     }
     const entry = byHash.get(hash);
-    entry.workspaces.push(wd.workspace?.slug || String(wd.workspaceId));
+    entry.workspaces.push({
+      slug: wd.workspace?.slug || String(wd.workspaceId),
+      tier: wd.workspace?.tier || null,
+    });
     entry.docpaths.push(wd.docpath);
   }
   return [...byHash.values()];
+}
+
+/** A confirmed confidential doc sitting in a general-tier workspace (or v.v.). */
+function tierMismatch(sensitivity, workspaces) {
+  if (!sensitivity || sensitivity === "unclassified") return [];
+  return workspaces
+    .filter((w) => w.tier && w.tier !== sensitivity)
+    .map((w) => w.slug);
 }
 
 /** Best-effort full text for a content hash (first docpath that reads). */
@@ -88,16 +99,30 @@ function classificationEndpoints(app) {
         const byHash = Object.fromEntries(
           classifications.map((c) => [c.contentHash, c])
         );
-        const out = docs.map((d) => ({
-          contentHash: d.contentHash,
-          title: d.title,
-          docSource: d.docSource,
-          parsePath: d.parsePath,
-          parseConfidence: d.parseConfidence,
-          workspaces: [...new Set(d.workspaces)],
-          duplicateCount: d.docpaths.length,
-          classification: byHash[d.contentHash] || null,
-        }));
+        const out = docs.map((d) => {
+          const cls = byHash[d.contentHash] || null;
+          const wsList = [];
+          const seen = new Set();
+          for (const w of d.workspaces) {
+            if (seen.has(w.slug)) continue;
+            seen.add(w.slug);
+            wsList.push(w);
+          }
+          return {
+            contentHash: d.contentHash,
+            title: d.title,
+            docSource: d.docSource,
+            parsePath: d.parsePath,
+            parseConfidence: d.parseConfidence,
+            workspaces: wsList,
+            duplicateCount: d.docpaths.length,
+            classification: cls,
+            tierMismatch:
+              cls?.status === "confirmed"
+                ? tierMismatch(cls.sensitivity, wsList)
+                : [],
+          };
+        });
         response.status(200).json({ documents: out });
       } catch (e) {
         console.error("GET /classification/documents", e);
