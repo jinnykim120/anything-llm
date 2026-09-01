@@ -46,11 +46,23 @@ export class AllmClient {
   async uploadDoc(filePath) {
     const buf = await readFile(filePath);
     const fd = new FormData();
-    fd.append("file", new Blob([buf], { type: "text/markdown" }), basename(filePath));
+    // Node's undici FormData preserves a non-ASCII filename correctly (unlike
+    // `curl -F` on a cp949 Windows box, which mojibakes it).
+    fd.append("file", new Blob([buf]), basename(filePath));
     const json = await this.#req("/v1/document/upload", { method: "POST", form: fd });
     const doc = json?.documents?.[0];
-    if (!doc?.location) throw new Error(`upload gave no location for ${filePath}: ${JSON.stringify(json).slice(0,300)}`);
+    if (!doc?.location)
+      throw new Error(
+        `upload gave no location for ${filePath}: ${JSON.stringify(json).slice(0, 300)}`
+      );
     return doc.location;
+  }
+
+  updateEmbeddings(slug, { adds = [], deletes = [] }) {
+    return this.#req(`/v1/workspace/${slug}/update-embeddings`, {
+      method: "POST",
+      body: { adds, deletes },
+    });
   }
 
   embed(slug, locations) {
@@ -66,5 +78,25 @@ export class AllmClient {
       body: { query, topN, scoreThreshold },
     });
     return json.results || [];
+  }
+
+  /** Grounded chat. mode "query" refuses when no context is retrieved. */
+  async chat(slug, message, { mode = "query" } = {}) {
+    const json = await this.#req(`/v1/workspace/${slug}/chat`, {
+      method: "POST",
+      body: { message, mode },
+    });
+    return {
+      answer: json.textResponse || "",
+      sources: json.sources || [],
+      error: json.error || null,
+    };
+  }
+
+  /** Returns the workspace object (the API wraps it in `{workspace: [ws]}`). */
+  async getWorkspace(slug) {
+    const json = await this.#req(`/v1/workspace/${slug}`);
+    const ws = json?.workspace;
+    return Array.isArray(ws) ? ws[0] : ws || null;
   }
 }

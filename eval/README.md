@@ -44,9 +44,53 @@ A "relevant" chunk = one whose source document (`metadata.title`) is in the ques
 The current `docs/` + `golden/seed.jsonl` are a **synthetic seed** so the harness is
 demonstrable today. Replace them with real archive material + real questions.
 
-## Not here yet (P0.5b — needs a judge LLM + Python ≤3.13 / WSL)
+## Answer-quality harness (P0.5b — lightweight)
 
-- RAGAS faithfulness / answer-relevance / context-precision (LLM-as-judge)
-- DeepEval PR gate
-- Langfuse tracing (needs Docker → P0b/WSL)
+`node eval/answers.mjs` — runs golden questions through the **real grounded chat
+endpoint** and has `claude -p` judge each answer against a reference.
+
+```bash
+node eval/answers.mjs                      # all items, workspace "archive-test"
+node eval/answers.mjs --id jangryeo-axes   # one item
+node eval/answers.mjs --workspace eval --limit 3
+EVAL_JUDGE_MODEL=claude-opus-5 node eval/answers.mjs   # less-biased judge
+```
+
+Needs: server running, `eval/.key`, the target workspace already populated, and
+the `claude` CLI on PATH (`CLAUDE_CLI_BIN` to override).
+
+**Metrics** (0.0–1.0, judged by `claude -p`):
+- **faithfulness** — is every claim in the answer supported by the retrieved context?
+- **completeness** — what fraction of the golden `expect_facts` does the answer convey?
+- **citation_accuracy** — do the `[n]` markers point to context that supports the sentence?
+- **retrieval_hit** — did a retrieved chunk's `section_path` contain `expect_section`? (0/1, informational)
+
+Pass thresholds: faithfulness ≥ 0.8, completeness ≥ 0.7, citation_accuracy ≥ 0.8.
+It's a **regression tool** — run before/after a parsing/chunking/retrieval/prompt
+change and compare. Absolute scores are soft: by default the judge is the same
+model that writes the answers (self-preference bias) — set `EVAL_JUDGE_MODEL`.
+
+### Golden answer items — `golden/*.answers.jsonl`
+
+```json
+{"id": "law-art7", "question": "…", "domain": "공정거래",
+ "expect_section": "제7조(상품대금 감액의 금지)",
+ "expect_facts": ["fact the answer must convey", "…"]}
+```
+
+- `expect_facts` — the key points a *complete* answer conveys (substance, not verbatim).
+- `expect_section` — a `section_path` substring that should appear in a retrieved chunk.
+- Omit `expect_section` + set `expect_docs: []` for a **refusal item** (the system should
+  say the info isn't in the corpus).
+
+### Re-ingesting the target workspace
+
+`node eval/reingest-archive.mjs` re-uploads the `archive-test` docs from `_samples/`
+on the current code (needed after an ingest-time change — e.g. a new chunk field).
+Uploads via Node's `FormData` because `curl -F` on a cp949 Windows box mojibakes
+Korean filenames.
+
+## Not here yet
+
+- RAGAS / DeepEval / Langfuse, synthetic-question generation, PR gate, regression alerts
 - per-citation feedback UI (chat-level `feedbackScore` already exists in `workspace_chats`)
