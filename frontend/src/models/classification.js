@@ -66,6 +66,21 @@ const Classification = {
         return { error: e.message };
       });
   },
+
+  // Collapse duplicate rows for this content_hash within one workspace down
+  // to keepDocId.
+  dedupe: async (contentHash, workspace, keepDocId) => {
+    return await fetch(`${API_BASE}/classification/${contentHash}/dedupe`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ workspace, keepDocId }),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { error: e.message };
+      });
+  },
 };
 
 export default Classification;

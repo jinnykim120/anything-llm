@@ -5,6 +5,7 @@
 //   POST /classification/propose                  run the LLM classifier ({contentHash} or all pending)
 //   POST /classification/:contentHash/confirm     human accepts / edits
 //   POST /classification/:contentHash/move        move a doc to a tier-matching workspace
+//   POST /classification/:contentHash/dedupe      collapse same-workspace duplicate rows to one
 const prisma = require("../utils/prisma");
 const { reqBody } = require("../utils/http");
 const { fileData } = require("../utils/files");
@@ -47,14 +48,24 @@ async function archiveDocuments() {
         ingestSensitivity: meta.sensitivity || "unclassified",
         workspaces: [],
         docpaths: [],
+        // slug -> rows sharing this content_hash IN THAT workspace. A doc
+        // legitimately living in several workspaces is fine; a workspace
+        // holding it more than once (pre-dedup-fix leftovers, races) is the
+        // thing the cleanup UI targets.
+        byWorkspace: new Map(),
       });
     }
     const entry = byHash.get(hash);
-    entry.workspaces.push({
-      slug: wd.workspace?.slug || String(wd.workspaceId),
-      tier: wd.workspace?.tier || null,
-    });
+    const slug = wd.workspace?.slug || String(wd.workspaceId);
+    entry.workspaces.push({ slug, tier: wd.workspace?.tier || null });
     entry.docpaths.push(wd.docpath);
+    if (!entry.byWorkspace.has(slug)) entry.byWorkspace.set(slug, []);
+    entry.byWorkspace.get(slug).push({
+      docId: wd.docId,
+      docpath: wd.docpath,
+      filename: wd.filename,
+      createdAt: wd.createdAt,
+    });
   }
   return [...byHash.values()];
 }
@@ -125,6 +136,18 @@ function classificationEndpoints(app) {
             cls?.status === "confirmed"
               ? tierMismatch(cls.sensitivity, wsList)
               : [];
+          // Real duplicates = the SAME workspace holding this content_hash
+          // more than once (leftovers from before the ingest-time dedup skip,
+          // or a race). Living in several DIFFERENT workspaces is normal and
+          // not included here.
+          const duplicatesByWorkspace = [...d.byWorkspace.entries()]
+            .filter(([, docs]) => docs.length > 1)
+            .map(([workspace, docs]) => ({
+              workspace,
+              docs: docs
+                .slice()
+                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+            }));
           return {
             contentHash: d.contentHash,
             title: d.title,
@@ -133,6 +156,7 @@ function classificationEndpoints(app) {
             parseConfidence: d.parseConfidence,
             workspaces: wsList,
             duplicateCount: d.docpaths.length,
+            duplicatesByWorkspace,
             classification: cls,
             held,
             effectiveSensitivity:
@@ -281,6 +305,57 @@ function classificationEndpoints(app) {
         });
       } catch (e) {
         console.error("POST /classification/:contentHash/move", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  // Collapse duplicate rows for this content_hash WITHIN one workspace down
+  // to a single one (keepDocId) — leftovers from before the ingest-time
+  // dedup skip, or a race. Removes the others' vectors + workspace_documents
+  // rows; the parsed file(s) on disk are untouched (other hashes may still
+  // reference them).
+  app.post(
+    "/classification/:contentHash/dedupe",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { contentHash } = request.params;
+        const { workspace: workspaceSlug, keepDocId } = reqBody(request);
+        if (!workspaceSlug || !keepDocId)
+          return response
+            .status(400)
+            .json({ error: "workspace and keepDocId required" });
+
+        const ws = await Workspace.get({ slug: String(workspaceSlug) });
+        if (!ws)
+          return response.status(404).json({ error: "workspace not found" });
+
+        const inWs = (await Document.where({ workspaceId: ws.id })).filter(
+          (d) => {
+            try {
+              return (
+                JSON.parse(d.metadata || "{}").content_hash === contentHash
+              );
+            } catch {
+              return false;
+            }
+          }
+        );
+        if (!inWs.some((d) => d.docId === keepDocId))
+          return response.status(400).json({
+            error: "keepDocId not found in this workspace for this document",
+          });
+
+        const docpaths = inWs
+          .filter((d) => d.docId !== keepDocId)
+          .map((d) => d.docpath);
+        if (!docpaths.length) return response.status(200).json({ removed: 0 });
+
+        await Document.removeDocuments(ws, docpaths, response.locals?.user?.id);
+        response.status(200).json({ removed: docpaths.length });
+      } catch (e) {
+        console.error("POST /classification/:contentHash/dedupe", e);
         response.status(500).json({ error: e.message });
       }
     }

@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { CheckCircle, Warning, Lock, ArrowRight } from "@phosphor-icons/react";
+import {
+  CheckCircle,
+  Warning,
+  Lock,
+  ArrowRight,
+  Broom,
+} from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
 
@@ -24,6 +30,8 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
   const [saving, setSaving] = useState(false);
   const [moveTo, setMoveTo] = useState((doc.moveTargets || [])[0] || "");
   const [moving, setMoving] = useState(false);
+  const [dedupeKeep, setDedupeKeep] = useState({}); // workspace slug -> docId to keep
+  const [dedupingWs, setDedupingWs] = useState(null);
 
   useEffect(() => {
     if (!cls) return;
@@ -77,6 +85,23 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
     reload?.();
   }
 
+  // Collapse duplicate rows for this content_hash within one workspace down
+  // to whichever one is selected (defaults to the newest).
+  async function dedupe(workspaceSlug, docsInWs) {
+    const keepDocId =
+      dedupeKeep[workspaceSlug] || docsInWs[docsInWs.length - 1].docId;
+    setDedupingWs(workspaceSlug);
+    const res = await Classification.dedupe(
+      doc.contentHash,
+      workspaceSlug,
+      keepDocId
+    );
+    setDedupingWs(null);
+    if (res?.error) return showToast(`정리 실패: ${res.error}`, "error");
+    showToast(`"${workspaceSlug}"에서 중복 ${res.removed}건 정리함`, "success");
+    reload?.();
+  }
+
   return (
     <div className="bg-theme-bg-primary border border-white/10 rounded-lg p-4 flex flex-col gap-y-3">
       <div className="flex items-start justify-between gap-x-4">
@@ -89,10 +114,16 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
               .map((w) => (w.tier ? `${w.slug} (${w.tier})` : w.slug))
               .join(", ")}{" "}
             · {doc.parsePath || "?"}
-            {doc.duplicateCount > 1 && (
-              <span className="ml-1 text-amber-500">
-                · 중복 {doc.duplicateCount}
+            {(doc.duplicatesByWorkspace || []).length > 0 ? (
+              <span className="ml-1 text-amber-500 inline-flex items-center gap-x-0.5">
+                <Warning className="h-3 w-3" /> 중복 정리 필요
               </span>
+            ) : (
+              doc.duplicateCount > 1 && (
+                <span className="ml-1 text-theme-text-secondary">
+                  · 다른 워크스페이스에도 있음 ({doc.duplicateCount})
+                </span>
+              )
             )}
             {lowConfidence && (
               <span className="ml-1 text-amber-500 inline-flex items-center gap-x-0.5">
@@ -134,6 +165,54 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
           확정 전까지 <span className="font-semibold">격리·민감</span>으로 취급
           · 자동 라우팅 제외
         </p>
+      )}
+
+      {(doc.duplicatesByWorkspace || []).length > 0 && (
+        <div className="flex flex-col gap-y-2 text-[11px] bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+          {doc.duplicatesByWorkspace.map(({ workspace, docs }) => {
+            const keepId = dedupeKeep[workspace] || docs[docs.length - 1].docId;
+            return (
+              <div key={workspace} className="flex flex-col gap-y-1">
+                <span className="text-amber-500 font-semibold">
+                  "{workspace}"에 같은 문서가 {docs.length}번 등록됨 — 하나만
+                  남기고 정리하세요.
+                </span>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {docs.map((dd) => (
+                    <label
+                      key={dd.docId}
+                      className="flex items-center gap-x-1 text-theme-text-secondary cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name={`dedupe-${doc.contentHash}-${workspace}`}
+                        checked={keepId === dd.docId}
+                        onChange={() =>
+                          setDedupeKeep((p) => ({
+                            ...p,
+                            [workspace]: dd.docId,
+                          }))
+                        }
+                      />
+                      {dd.filename} ·{" "}
+                      {new Date(dd.createdAt).toLocaleString("ko-KR")}
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={() => dedupe(workspace, docs)}
+                  disabled={dedupingWs === workspace}
+                  className="self-start inline-flex items-center gap-x-1 text-white bg-theme-button-primary hover:bg-theme-button-primary-hover px-2 py-1 rounded disabled:opacity-50"
+                >
+                  <Broom className="h-3 w-3" weight="bold" />
+                  {dedupingWs === workspace
+                    ? "정리 중…"
+                    : `이 하나만 남기고 정리 (${docs.length - 1}건 제거)`}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {(doc.tierMismatch || []).length > 0 && (
