@@ -1,8 +1,9 @@
 import { useState } from "react";
 
-// We dont support all vectorDBs yet for reranking due to complexities of how each provider
-// returns information. We need to normalize the response data so Reranker can be used for each provider.
-const supportedVectorDBs = ["lancedb"];
+// Reranking relies on the normalized source-document shape returned by the
+// provider. LanceDB and pgvector both implement that contract; other providers
+// stay hidden until their response metadata is normalized as well.
+const supportedVectorDBs = ["lancedb", "pgvector"];
 const hint = {
   default: {
     title: "Default",
