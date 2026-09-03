@@ -133,6 +133,10 @@ if (!workspace) {
   console.error(`workspace not found: ${workspaceSlug}`);
   process.exit(1);
 }
+const originalWorkspaceSettings = {
+  vectorSearchMode: workspace.vectorSearchMode === "rerank" ? "rerank" : "default",
+};
+if (workspace.topN != null) originalWorkspaceSettings.topN = workspace.topN;
 const questions = parseJsonLines(await readFile(questionPath, "utf8"));
 const before = await serverSnapshot();
 console.log(
@@ -152,53 +156,60 @@ const report = {
   byMode: {},
 };
 
-for (const mode of modes) {
-  if (!new Set(["default", "rerank"]).has(mode)) {
-    throw new Error(`unsupported mode: ${mode}`);
-  }
-  await client.updateWorkspace(workspaceSlug, {
-    vectorSearchMode: mode === "rerank" ? "rerank" : "default",
-    topN,
-  });
+try {
+  for (const mode of modes) {
+    if (!new Set(["default", "rerank"]).has(mode)) {
+      throw new Error(`unsupported mode: ${mode}`);
+    }
+    await client.updateWorkspace(workspaceSlug, {
+      vectorSearchMode: mode === "rerank" ? "rerank" : "default",
+      topN,
+    });
 
-  // Prime tokenizer/model and exclude one-time initialization from timings.
-  await client.vectorSearch(workspaceSlug, questions[0].question, { topN });
-  const samples = [];
-  for (const question of questions) {
-    for (let iteration = 1; iteration <= repeat; iteration += 1) {
-      const started = performance.now();
-      try {
-        const results = await client.vectorSearch(workspaceSlug, question.question, { topN });
-        samples.push({
-          id: question.id,
-          iteration,
-          ok: true,
-          elapsedMs: Number((performance.now() - started).toFixed(1)),
-          resultCount: results.length,
-          firstSource:
-            results[0]?.metadata?.title || results[0]?.metadata?.chunkSource || null,
-        });
-      } catch (error) {
-        samples.push({
-          id: question.id,
-          iteration,
-          ok: false,
-          elapsedMs: Number((performance.now() - started).toFixed(1)),
-          error: error?.message || String(error),
-        });
+    // Prime tokenizer/model and exclude one-time initialization from timings.
+    await client.vectorSearch(workspaceSlug, questions[0].question, { topN });
+    const samples = [];
+    for (const question of questions) {
+      for (let iteration = 1; iteration <= repeat; iteration += 1) {
+        const started = performance.now();
+        try {
+          const results = await client.vectorSearch(workspaceSlug, question.question, { topN });
+          samples.push({
+            id: question.id,
+            iteration,
+            ok: true,
+            elapsedMs: Number((performance.now() - started).toFixed(1)),
+            resultCount: results.length,
+            firstSource:
+              results[0]?.metadata?.title || results[0]?.metadata?.chunkSource || null,
+          });
+        } catch (error) {
+          samples.push({
+            id: question.id,
+            iteration,
+            ok: false,
+            elapsedMs: Number((performance.now() - started).toFixed(1)),
+            error: error?.message || String(error),
+          });
+        }
       }
     }
+    const summary = summarize(samples);
+    report.byMode[mode] = { summary, samples };
+    console.log(
+      `  ${mode.padEnd(7)} n=${summary.n} avg=${formatMs(summary.avgMs)} ` +
+        `p50=${formatMs(summary.p50Ms)} p95=${formatMs(summary.p95Ms)} ` +
+        `max=${formatMs(summary.maxMs)} errors=${summary.errors}`
+    );
   }
-  const summary = summarize(samples);
-  report.byMode[mode] = { summary, samples };
-  console.log(
-    `  ${mode.padEnd(7)} n=${summary.n} avg=${formatMs(summary.avgMs)} ` +
-      `p50=${formatMs(summary.p50Ms)} p95=${formatMs(summary.p95Ms)} ` +
-      `max=${formatMs(summary.maxMs)} errors=${summary.errors}`
-  );
+} finally {
+  // Benchmarks temporarily change workspace settings; never leave production
+  // traffic in the last measured mode (usually the much slower reranker).
+  await client.updateWorkspace(workspaceSlug, originalWorkspaceSettings);
 }
 
 report.after = await serverSnapshot();
+report.restoredWorkspace = originalWorkspaceSettings;
 await mkdir(reportDir, { recursive: true });
 const reportPath = join(
   reportDir,
