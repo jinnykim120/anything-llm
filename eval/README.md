@@ -21,6 +21,21 @@ node eval/run.mjs --keep           # reuse the workspace (skip re-upload/embed)
 Output: a table of `MRR`, `hit@k`, `recall@k` per retrieval mode, the list of misses,
 and a full JSON report in `eval/reports/`.
 
+## Performance baseline
+
+Measure real vector-search latency without changing the target workspace. The
+default target is `archive-full`; use `PERF_WORKSPACE` for another workspace.
+
+```bash
+node eval/perf.mjs
+PERF_WORKSPACE=archive-full PERF_REPEAT=3 node eval/perf.mjs
+node eval/perf.mjs --mode default --repeat 5
+```
+
+The report includes average, p50, p95, and maximum request latency, result
+counts, errors, and best-effort Windows server memory telemetry. The first
+request in each mode is a warm-up and is excluded from the measurements.
+
 ## Metrics
 
 - **hit@k** — fraction of questions where ≥1 of the top-k chunks comes from an expected source doc.
