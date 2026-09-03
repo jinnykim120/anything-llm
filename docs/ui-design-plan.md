@@ -1,6 +1,6 @@
 # Auto Docu UI design plan
 
-Status: design decisions captured on 2026-09-03. Implementation is intentionally deferred until the next work session.
+Status: design decisions captured on 2026-09-03. The first implementation slice (landing, archive shell, theme, management, and document room) was added on 2026-09-04; evidence-panel refinements and browser verification remain next.
 
 ## Product direction
 

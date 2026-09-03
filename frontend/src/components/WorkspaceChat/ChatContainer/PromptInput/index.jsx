@@ -42,6 +42,8 @@ export default function PromptInput({
   centered = false,
   workspaceSlug = null,
   threadSlug = null,
+  archiveMode = false,
+  placeholder = null,
 }) {
   const { t } = useTranslation();
   const { showAgentCommand = true } = workspace ?? {};
@@ -337,15 +339,17 @@ export default function PromptInput({
           className={`flex items-center rounded-lg md:w-full ${centered ? "mb-0" : "mb-4"}`}
         >
           <div className="relative w-[95vw] md:w-[750px]">
-            <ToolsMenu
-              workspace={workspace}
-              showing={showTools}
-              setShowing={setShowTools}
-              sendCommand={sendCommand}
-              promptRef={textareaRef}
-              centered={centered}
-              highlightedIndexRef={toolsHighlightRef}
-            />
+            {!archiveMode && (
+              <ToolsMenu
+                workspace={workspace}
+                showing={showTools}
+                setShowing={setShowTools}
+                sendCommand={sendCommand}
+                promptRef={textareaRef}
+                centered={centered}
+                highlightedIndexRef={toolsHighlightRef}
+              />
+            )}
             <div className="bg-zinc-800 light:bg-white light:border light:border-slate-300 rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden">
               <AttachmentManager attachments={attachments} />
               <div className="flex items-center">
@@ -367,29 +371,35 @@ export default function PromptInput({
                   value={promptInput}
                   spellCheck={Appearance.get("enableSpellCheck")}
                   className={`border-none cursor-text max-h-[50vh] md:max-h-[350px] md:min-h-[40px] pt-[20px] w-full leading-5 text-white light:text-slate-600 bg-transparent placeholder:text-white/60 light:placeholder:text-slate-400 resize-none active:outline-none focus:outline-none flex-grow pwa:!text-[16px] ${textSizeClass}`}
-                  placeholder={t("chat_window.send_message")}
+                  placeholder={placeholder || t("chat_window.send_message")}
                 />
               </div>
               <div className="flex justify-between items-center pt-3.5 pb-3">
                 <div className="flex items-center gap-x-0.25">
                   <div className="flex items-center gap-x-1">
-                    <AttachItem
-                      workspaceSlug={workspaceSlug}
-                      workspaceThreadSlug={threadSlug}
-                    />
-                    <AgentSessionButton
-                      sendCommand={sendCommand}
-                      promptInput={promptInput}
-                      textareaRef={textareaRef}
-                      visible={!agentSessionActive & showAgentCommand}
-                    />
+                    {!archiveMode && (
+                      <>
+                        <AttachItem
+                          workspaceSlug={workspaceSlug}
+                          workspaceThreadSlug={threadSlug}
+                        />
+                        <AgentSessionButton
+                          sendCommand={sendCommand}
+                          promptInput={promptInput}
+                          textareaRef={textareaRef}
+                          visible={!agentSessionActive & showAgentCommand}
+                        />
+                      </>
+                    )}
                   </div>
-                  <ToolsButton
-                    showTools={showTools}
-                    setShowTools={setShowTools}
-                    textareaRef={textareaRef}
-                    autoOpenedToolsRef={autoOpenedToolsRef}
-                  />
+                  {!archiveMode && (
+                    <ToolsButton
+                      showTools={showTools}
+                      setShowTools={setShowTools}
+                      textareaRef={textareaRef}
+                      autoOpenedToolsRef={autoOpenedToolsRef}
+                    />
+                  )}
                 </div>
                 <div className="flex gap-x-2 items-center">
                   <SpeechToText sendCommand={sendCommand} />

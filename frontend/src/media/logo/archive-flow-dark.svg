@@ -1,0 +1,13 @@
+<svg width="246" height="32" viewBox="0 0 246 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g stroke="#161616" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.85" y="6.25" width="12.5" height="16.5" rx="2" fill="#fff"/>
+    <path d="M6 11h6.2M6 15h6.2M6 19h3.6"/>
+    <path d="M15.7 14.5h7.6" stroke="#0f62fe"/>
+    <circle cx="25.5" cy="14.5" r="2.5" fill="#0f62fe" stroke="#0f62fe"/>
+    <path d="M28 14.5h7.5" stroke="#0f62fe"/>
+    <circle cx="38.5" cy="14.5" r="2.5" fill="#fff" stroke="#0f62fe"/>
+    <path d="M41 14.5h8.5" stroke="#0f62fe"/>
+    <circle cx="52" cy="14.5" r="2.5" fill="#0f62fe" stroke="#0f62fe"/>
+  </g>
+  <text x="66" y="19" font-family="Inter, -apple-system, 'Segoe UI', sans-serif" font-size="14" font-weight="650" letter-spacing="0.2" fill="#161616">Archive QA</text>
+</svg>

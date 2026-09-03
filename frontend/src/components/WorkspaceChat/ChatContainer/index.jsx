@@ -59,6 +59,7 @@ export default function ChatContainer({
 
   const isEmpty =
     chatHistory.length === 0 && !sessionStorage.getItem(PENDING_HOME_MESSAGE);
+  const isArchive = workspace?.slug === "archive-full";
 
   /**
    * Keep chat history bottom-padding in sync with the prompt input's
@@ -112,6 +113,7 @@ export default function ChatContainer({
     if (!activeThreadSlug && chatHistory.length === 0) {
       const { thread } = await Workspace.threads.new(workspace.slug);
       if (thread) {
+        window.dispatchEvent(new Event("archive-thread-created"));
         sessionStorage.setItem(
           PENDING_HOME_MESSAGE,
           JSON.stringify({
@@ -199,6 +201,7 @@ export default function ChatContainer({
     if (!activeThreadSlug && chatHistory.length === 0 && history.length === 0) {
       const { thread } = await Workspace.threads.new(workspace.slug);
       if (thread) {
+        window.dispatchEvent(new Event("archive-thread-created"));
         sessionStorage.setItem(
           PENDING_HOME_MESSAGE,
           JSON.stringify({ message: text, attachments })
@@ -480,20 +483,37 @@ export default function ChatContainer({
           style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
           className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
         >
-          <ChatSettingsMenu
-            history={chatHistory}
-            workspace={workspace}
-            threadSlug={activeThreadSlug}
-          />
+          {!isArchive && (
+            <ChatSettingsMenu
+              history={chatHistory}
+              workspace={workspace}
+              threadSlug={activeThreadSlug}
+            />
+          )}
           <div className="flex-1 min-w-0 relative md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
             {isMobile && <SidebarMobileHeader />}
-            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            {!isArchive && (
+              <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            )}
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full items-center justify-center">
                 <div className="flex flex-col items-center w-full max-w-[750px]">
+                  {isArchive && (
+                    <div className="mb-5 inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-500 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                      공정거래 아카이브 · 전체 문서 · Default 검색
+                    </div>
+                  )}
                   <h1 className="text-white text-xl md:text-2xl mb-11 text-center">
-                    {t("main-page.greeting")}
+                    {isArchive
+                      ? "아카이브에서 무엇을 확인할까요?"
+                      : t("main-page.greeting")}
                   </h1>
+                  {isArchive && (
+                    <p className="-mt-7 mb-7 max-w-[520px] text-center text-sm leading-6 text-slate-500 light:text-slate-500 dark:text-zinc-400">
+                      질문을 입력하면 관련 문서의 맥락을 읽고, 답변과 원본
+                      근거를 함께 보여드립니다.
+                    </p>
+                  )}
                   <PromptInput
                     workspace={workspace}
                     submit={handleSubmit}
@@ -501,26 +521,40 @@ export default function ChatContainer({
                     sendCommand={sendCommand}
                     attachments={files}
                     centered={true}
+                    archiveMode={isArchive}
+                    placeholder={
+                      isArchive ? "문서에 대해 질문해 보세요." : undefined
+                    }
                   />
-                  <QuickActions
-                    hasAvailableWorkspace={!!workspace}
-                    onCreateAgent={() => navigate(paths.settings.agentSkills())}
-                    onEditWorkspace={() =>
-                      navigate(
-                        paths.workspace.settings.generalAppearance(
-                          workspace.slug
+                  {isArchive ? (
+                    <ArchiveSuggestions sendCommand={sendCommand} />
+                  ) : (
+                    <QuickActions
+                      hasAvailableWorkspace={!!workspace}
+                      onCreateAgent={() =>
+                        navigate(paths.settings.agentSkills())
+                      }
+                      onEditWorkspace={() =>
+                        navigate(
+                          paths.workspace.settings.generalAppearance(
+                            workspace.slug
+                          )
                         )
-                      )
-                    }
-                    onUploadDocument={() =>
-                      document.getElementById("dnd-chat-file-uploader")?.click()
-                    }
-                  />
+                      }
+                      onUploadDocument={() =>
+                        document
+                          .getElementById("dnd-chat-file-uploader")
+                          ?.click()
+                      }
+                    />
+                  )}
                 </div>
-                <SuggestedMessages
-                  suggestedMessages={workspace?.suggestedMessages}
-                  sendCommand={sendCommand}
-                />
+                {!isArchive && (
+                  <SuggestedMessages
+                    suggestedMessages={workspace?.suggestedMessages}
+                    sendCommand={sendCommand}
+                  />
+                )}
               </div>
             </DnDFileUploaderWrapper>
             <ChatTooltips />
@@ -538,14 +572,18 @@ export default function ChatContainer({
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
       >
-        <ChatSettingsMenu
-          history={chatHistory}
-          workspace={workspace}
-          threadSlug={activeThreadSlug}
-        />
+        {!isArchive && (
+          <ChatSettingsMenu
+            history={chatHistory}
+            workspace={workspace}
+            threadSlug={activeThreadSlug}
+          />
+        )}
         <div className="flex-1 min-w-0 relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
           {isMobile && <SidebarMobileHeader />}
-          <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+          {!isArchive && (
+            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+          )}
           <DnDFileUploaderWrapper>
             <div className="flex flex-col h-full w-full pb-20 md:pb-0">
               <div className="contents">
@@ -567,6 +605,10 @@ export default function ChatContainer({
                   sendCommand={sendCommand}
                   attachments={files}
                   centered={false}
+                  archiveMode={isArchive}
+                  placeholder={
+                    isArchive ? "문서에 대해 질문해 보세요." : undefined
+                  }
                 />
               </div>
             </div>
@@ -577,5 +619,27 @@ export default function ChatContainer({
         <MemoriesSidebar workspace={workspace} />
       </div>
     </ChatSidebarProvider>
+  );
+}
+
+function ArchiveSuggestions({ sendCommand }) {
+  const suggestions = [
+    "이 문서의 목적은 무엇인가요?",
+    "관련 조항의 적용 요건은 무엇인가요?",
+    "답변의 원본 페이지를 보여주세요.",
+  ];
+  return (
+    <div className="mt-4 grid w-full max-w-[750px] gap-2 px-3 sm:grid-cols-3 sm:px-0">
+      {suggestions.map((suggestion) => (
+        <button
+          key={suggestion}
+          type="button"
+          onClick={() => sendCommand({ text: suggestion })}
+          className="min-h-[54px] rounded border border-slate-200 bg-white px-3 py-2 text-left text-xs leading-5 text-slate-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 light:border-slate-200 light:bg-white light:text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+        >
+          {suggestion}
+        </button>
+      ))}
+    </div>
   );
 }

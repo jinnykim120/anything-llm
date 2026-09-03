@@ -1,6 +1,6 @@
 import { createContext, useEffect, useState } from "react";
-import BrandMarkLight from "./media/logo/document-expansion-llm.svg"; // light text — for dark UI
-import BrandMarkDark from "./media/logo/document-expansion-llm-dark.svg"; // dark text — for light UI
+import BrandMarkLight from "./media/logo/archive-flow.svg"; // light text — for dark UI
+import BrandMarkDark from "./media/logo/archive-flow-dark.svg"; // dark text — for light UI
 import System from "./models/system";
 
 export const REFETCH_LOGO_EVENT = "refetch-logo";

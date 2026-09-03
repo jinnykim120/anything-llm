@@ -7,8 +7,10 @@ import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
 import { isMobile } from "react-device-detect";
 import { FullScreenLoader } from "@/components/Preloader";
 import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
+import ArchiveSidebar from "@/components/ArchiveSidebar";
 
 export default function WorkspaceChat() {
+  const { slug } = useParams();
   const { loading, requiresAuth, mode } = usePasswordModal();
 
   if (loading) return <FullScreenLoader />;
@@ -18,7 +20,12 @@ export default function WorkspaceChat() {
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
-      {!isMobile && <Sidebar />}
+      {!isMobile &&
+        (slug === "archive-full" ? (
+          <ArchiveSidebar slug={slug} />
+        ) : (
+          <Sidebar />
+        ))}
       <ShowWorkspaceChat />
     </div>
   );

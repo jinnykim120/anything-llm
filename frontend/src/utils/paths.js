@@ -99,6 +99,12 @@ export default {
     thread: (wsSlug, threadSlug) => {
       return `/workspace/${wsSlug}/t/${threadSlug}`;
     },
+    manage: (slug) => {
+      return `/workspace/${slug}/manage`;
+    },
+    library: (slug) => {
+      return `/workspace/${slug}/library`;
+    },
   },
   apiDocs: () => {
     return `${API_BASE}/docs`;

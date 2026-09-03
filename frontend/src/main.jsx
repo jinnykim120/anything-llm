@@ -56,6 +56,24 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/workspace/:slug/manage",
+        lazy: async () => {
+          const { default: ArchiveManagement } = await import(
+            "@/pages/ArchiveManagement"
+          );
+          return { element: <PrivateRoute Component={ArchiveManagement} /> };
+        },
+      },
+      {
+        path: "/workspace/:slug/library",
+        lazy: async () => {
+          const { default: DocumentRoom } = await import(
+            "@/pages/DocumentRoom"
+          );
+          return { element: <PrivateRoute Component={DocumentRoom} /> };
+        },
+      },
+      {
         path: "/workspace/:slug",
         lazy: async () => {
           const { default: WorkspaceChat } = await import(

@@ -28,9 +28,9 @@ export function useTheme() {
   const [theme, _setTheme] = useState(() => {
     const stored = localStorage.getItem("theme");
     if (stored === "default") return "dark"; // migrate legacy value
-    // [Document Expansion LLM] dark is the product's default look; the user can
-    // still pick "system" or "light" in Appearance settings.
-    return stored || "dark";
+    // Archive QA opens on a quiet Carbon-inspired light canvas. Users can
+    // still pick "system" or "dark" from the floating theme control.
+    return stored || "light";
   });
 
   const [systemTheme, setSystemTheme] = useState(() =>
@@ -52,6 +52,7 @@ export function useTheme() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", resolvedTheme);
+    document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
     document.body.classList.toggle("light", resolvedTheme === "light");
     localStorage.setItem("theme", theme);
     window.dispatchEvent(new Event(REFETCH_LOGO_EVENT));
