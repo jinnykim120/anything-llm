@@ -2,6 +2,11 @@
 # Native ONNX reranking remains the default; run this only for a rich ingest
 # session. Models load on demand and are released by the collector after parse.
 
+param(
+  [ValidateRange(30, 900)]
+  [int]$StartupTimeoutSeconds = 300
+)
+
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $cache = Join-Path $root ".local-cache"
@@ -41,7 +46,7 @@ $process = Start-Process -FilePath $exe `
   -RedirectStandardError $stderrLog `
   -PassThru
 
-$deadline = (Get-Date).AddSeconds(60)
+$deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
 do {
   Start-Sleep -Seconds 2
   try {
@@ -53,7 +58,7 @@ do {
 
 if (-not $health) {
   if (-not $process.HasExited) { Stop-Process -Id $process.Id }
-  "Docling failed to start. See $stdoutLog and $stderrLog"
+  "Docling failed to start within ${StartupTimeoutSeconds}s. See $stdoutLog and $stderrLog"
   exit 1
 }
 
