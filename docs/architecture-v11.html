@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Expansion LLM — Architecture v11</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#faf9fc; --surface:#ffffff; --surface-2:#f2f0f8; --border:#e3e0ee;
+  --text:#201e2b; --text-dim:#635f78; --text-faint:#8b87a0;
+  --accent:#7c3aed; --accent-ink:#ffffff; --accent-soft:#7c3aed14; --accent-line:#7c3aed3d;
+  --good:#0f8f52; --good-soft:#0f8f5214;
+  --warn:#a5620a; --warn-soft:#a5620a14;
+  --bad:#c4342f; --bad-soft:#c4342f14;
+  --hold:#6d5bd0; --hold-soft:#6d5bd014;
+  --mono-bg:#f2f0f8;
+  --shadow:0 1px 2px rgba(32,20,60,.06),0 8px 24px -12px rgba(32,20,60,.12);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#100f1a; --surface:#1a1826; --surface-2:#211f30; --border:#2f2c40;
+    --text:#ece9f8; --text-dim:#a49fbe; --text-faint:#726d8c;
+    --accent:#a78bfa; --accent-ink:#150f2e; --accent-soft:#a78bfa1f; --accent-line:#a78bfa4d;
+    --good:#3fd08a; --good-soft:#3fd08a1a;
+    --warn:#f0a93e; --warn-soft:#f0a93e1a;
+    --bad:#f2726d; --bad-soft:#f2726d1a;
+    --hold:#a99cf2; --hold-soft:#a99cf21a;
+    --mono-bg:#161425;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#100f1a; --surface:#1a1826; --surface-2:#211f30; --border:#2f2c40;
+  --text:#ece9f8; --text-dim:#a49fbe; --text-faint:#726d8c;
+  --accent:#a78bfa; --accent-ink:#150f2e; --accent-soft:#a78bfa1f; --accent-line:#a78bfa4d;
+  --good:#3fd08a; --good-soft:#3fd08a1a;
+  --warn:#f0a93e; --warn-soft:#f0a93e1a;
+  --bad:#f2726d; --bad-soft:#f2726d1a;
+  --hold:#a99cf2; --hold-soft:#a99cf21a;
+  --mono-bg:#161425;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"Noto Sans KR","IBM Plex Mono",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--accent-line); }
+a{ color:var(--accent); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+code, .mono, .pill, .kv dd, .cmd, td.num, .badge-commit{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+h1,h2,h3,h4{ font-weight:700; text-wrap:balance; letter-spacing:-.01em; }
+p{ line-height:1.65; }
+.container{ max-width:1160px; margin:0 auto; }
+
+/* ---------- shell ---------- */
+.shell{
+  display:grid; grid-template-columns:250px 1fr; gap:0;
+  max-width:1320px; margin:0 auto;
+}
+.nav{
+  position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+  padding:28px 18px 40px 28px; border-right:1px solid var(--border);
+}
+.nav-brand{ display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+.nav-mark{
+  width:26px; height:26px; border-radius:7px; background:var(--accent);
+  display:grid; place-items:center; color:var(--accent-ink); font-weight:900; font-size:13px; flex:none;
+}
+.nav-title{ font-size:13.5px; font-weight:700; line-height:1.25; }
+.nav-title small{ display:block; font-weight:500; color:var(--text-faint); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; margin-top:2px; }
+.nav-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px; }
+.nav-list a{
+  display:block; color:var(--text-dim); font-size:12.8px; padding:6px 10px; border-radius:6px;
+  border-left:2px solid transparent;
+}
+.nav-list a:hover{ color:var(--text); text-decoration:none; background:var(--surface-2); }
+.nav-list a.active{ color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); font-weight:500; }
+.nav-section-label{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); margin:16px 10px 6px; font-weight:600; }
+.nav-section-label:first-of-type{ margin-top:4px; }
+
+.mobile-nav{ display:none; }
+
+main{ padding:36px 44px 90px; min-width:0; }
+
+/* ---------- hero ---------- */
+.hero{ padding-bottom:30px; border-bottom:1px solid var(--border); margin-bottom:38px; }
+.eyebrow{
+  font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:700;
+  display:flex; align-items:center; gap:8px; margin-bottom:12px;
+}
+.eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--good); box-shadow:0 0 0 3px var(--good-soft); }
+.hero h1{ font-size:34px; margin:0 0 8px; }
+.hero .sub{ font-size:15px; color:var(--text-dim); max-width:640px; margin:0 0 20px; }
+.hero-meta{ display:flex; flex-wrap:wrap; gap:8px; }
+.chip{
+  display:inline-flex; align-items:center; gap:6px; font-size:11.5px; padding:5px 10px;
+  border-radius:100px; border:1px solid var(--border); color:var(--text-dim); background:var(--surface);
+}
+.chip b{ color:var(--text); font-weight:600; }
+.chip.accent{ border-color:var(--accent-line); color:var(--accent); background:var(--accent-soft); }
+
+/* ---------- section scaffolding ---------- */
+section{ margin-bottom:52px; }
+section:target, section.linked{ scroll-margin-top:20px; }
+.section-head{ display:flex; align-items:baseline; gap:12px; margin-bottom:6px; }
+.section-num{ font-size:12px; color:var(--text-faint); font-weight:600; }
+h2{ font-size:22px; margin:0; }
+.section-dek{ color:var(--text-dim); font-size:13.5px; max-width:680px; margin:6px 0 22px; }
+h3{ font-size:15.5px; margin:28px 0 10px; }
+h3:first-child{ margin-top:0; }
+
+/* ---------- goal cards ---------- */
+.goals{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.goal{
+  background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px 18px 16px;
+  box-shadow:var(--shadow); display:flex; flex-direction:column; gap:8px;
+}
+.goal-num{ font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--accent); font-weight:600; }
+.goal h4{ margin:0; font-size:14.5px; }
+.goal p{ margin:0; font-size:12.8px; color:var(--text-dim); }
+
+/* ---------- pipeline ---------- */
+.pipeline{
+  display:flex; align-items:stretch; gap:0; overflow-x:auto; padding:6px 2px 14px;
+  scrollbar-width:thin;
+}
+.pipe-step{
+  flex:1 0 128px; min-width:128px; background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:12px 12px 13px; position:relative; display:flex; flex-direction:column; gap:5px;
+}
+.pipe-step .n{ font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--text-faint); }
+.pipe-step .t{ font-size:12.5px; font-weight:700; }
+.pipe-step .d{ font-size:11px; color:var(--text-dim); line-height:1.45; }
+.pipe-arrow{ flex:0 0 22px; display:flex; align-items:center; justify-content:center; color:var(--text-faint); font-size:14px; }
+.pipeline-note{ font-size:11.5px; color:var(--text-faint); margin-top:2px; }
+
+/* ---------- decisions table ---------- */
+.dtable{ display:flex; flex-direction:column; gap:1px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--border); }
+.drow{ display:grid; grid-template-columns:52px 190px 1fr; gap:16px; background:var(--surface); padding:14px 18px; }
+.drow .id{ font-family:"IBM Plex Mono",monospace; font-weight:700; color:var(--accent); font-size:13px; }
+.drow .choice{ font-size:12.8px; font-weight:600; }
+.drow .why{ font-size:12.5px; color:var(--text-dim); line-height:1.55; }
+.overflow-x{ overflow-x:auto; }
+
+/* ---------- pills / status ---------- */
+.pill{
+  display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; padding:3px 9px;
+  border-radius:100px; letter-spacing:.02em; white-space:nowrap;
+}
+.pill.done{ background:var(--good-soft); color:var(--good); }
+.pill.next{ background:var(--accent-soft); color:var(--accent); }
+.pill.deferred{ background:var(--warn-soft); color:var(--warn); }
+.pill.dropped{ background:var(--bad-soft); color:var(--bad); }
+.pill.hold{ background:var(--hold-soft); color:var(--hold); }
+.pill::before{ content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
+
+/* ---------- timeline ---------- */
+.timeline{ display:flex; flex-direction:column; }
+.trow{
+  display:grid; grid-template-columns:16px 1fr auto; gap:14px; align-items:start;
+  padding:11px 0; border-bottom:1px solid var(--border); position:relative;
+}
+.trow:last-child{ border-bottom:none; }
+.trow .tdot{
+  width:9px; height:9px; border-radius:50%; margin-top:5px; background:var(--good); flex:none;
+}
+.trow.next .tdot{ background:var(--accent); }
+.trow .tmain{ min-width:0; }
+.trow .ttitle{ font-size:13px; font-weight:600; }
+.trow .tdesc{ font-size:11.8px; color:var(--text-dim); margin-top:2px; line-height:1.5; }
+.badge-commit{
+  font-size:10.5px; color:var(--text-faint); background:var(--mono-bg); border:1px solid var(--border);
+  padding:1px 6px; border-radius:5px; margin-left:6px;
+}
+
+/* ---------- axis cards ---------- */
+.axes{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+.axis{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:10px; }
+.axis .label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); font-weight:700; }
+.axis h4{ margin:0; font-size:14.5px; }
+.axis-vals{ display:flex; flex-direction:column; gap:6px; margin-top:2px; }
+.axis-val{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:12px; }
+.axis-val .k{ color:var(--text); font-weight:500; }
+.axis-val .v{ color:var(--text-faint); font-size:11px; text-align:right; }
+.rule-callout{
+  border:1px solid var(--accent-line); background:var(--accent-soft); border-radius:10px; padding:12px 14px;
+  font-size:12.5px; color:var(--text); line-height:1.55; margin-top:8px;
+}
+.rule-callout b{ color:var(--accent); }
+
+/* ---------- tier compare ---------- */
+.tier-wrap{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.tier-card{ border:1px solid var(--border); border-radius:12px; padding:16px 18px; background:var(--surface); }
+.tier-card.was{ opacity:.78; }
+.tier-card h4{ margin:0 0 3px; font-size:13.5px; display:flex; align-items:center; gap:8px; }
+.tier-card .when{ font-size:10.5px; color:var(--text-faint); margin-bottom:12px; }
+.tier-row{ display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:7px 0; border-top:1px solid var(--border); }
+.tier-row:first-of-type{ border-top:none; }
+.tier-row .k{ color:var(--text-dim); flex:none; }
+.tier-row .v{ text-align:right; font-weight:500; }
+.strike{ text-decoration:line-through; color:var(--text-faint); }
+.arrow-between{ display:flex; align-items:center; justify-content:center; color:var(--accent); font-size:20px; grid-column:1/-1; margin:-4px 0; }
+
+/* ---------- findings ---------- */
+.finding-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+.stat{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:13px 14px; }
+.stat .num{ font-size:22px; font-weight:700; font-family:"IBM Plex Mono",monospace; }
+.stat .lbl{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+.stat.good .num{ color:var(--good); }
+.doctype-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:14px 0; }
+.doctype{ border:1px solid var(--border); border-radius:9px; padding:10px 12px; background:var(--surface); font-size:11.5px; }
+.doctype .kind{ font-weight:700; margin-bottom:3px; }
+.doctype .verdict{ color:var(--good); }
+.sample{
+  background:var(--mono-bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; line-height:1.7; color:var(--text-dim); margin-top:6px;
+  overflow-x:auto; white-space:pre-wrap;
+}
+.sample .bad{ color:var(--bad); font-weight:700; }
+.sample .good{ color:var(--good); font-weight:700; }
+
+/* ---------- misc ---------- */
+.kv{ display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:12.5px; margin:0; }
+.kv dt{ color:var(--text-faint); }
+.kv dd{ margin:0; color:var(--text); }
+ul.plain{ margin:0; padding-left:18px; font-size:13px; color:var(--text-dim); line-height:1.7; }
+ul.plain li::marker{ color:var(--text-faint); }
+.footer{ border-top:1px solid var(--border); padding-top:20px; font-size:11.5px; color:var(--text-faint); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+@media (max-width:880px){
+  .shell{ grid-template-columns:1fr; }
+  .nav{ display:none; }
+  .mobile-nav{
+    display:flex; gap:6px; overflow-x:auto; position:sticky; top:0; background:var(--bg);
+    padding:12px 16px; border-bottom:1px solid var(--border); z-index:5;
+  }
+  .mobile-nav a{
+    flex:none; font-size:11.5px; padding:6px 11px; border-radius:100px; border:1px solid var(--border);
+    color:var(--text-dim); white-space:nowrap;
+  }
+  main{ padding:26px 18px 70px; }
+  .goals, .axes, .finding-grid, .doctype-grid, .tier-wrap{ grid-template-columns:1fr; }
+  .arrow-between{ display:none; }
+  .drow{ grid-template-columns:1fr; gap:4px; }
+}
+</style>
+</head>
+<body>
+
+<div class="mobile-nav" id="mobileNav"></div>
+
+<div class="shell">
+  <nav class="nav" id="sideNav">
+    <div class="nav-brand">
+      <div class="nav-mark">D</div>
+      <div class="nav-title">Document Expansion LLM<small>Architecture · v11</small></div>
+    </div>
+    <div class="nav-section-label">Overview</div>
+    <ul class="nav-list">
+      <li><a href="#goals">4대 목표</a></li>
+      <li><a href="#pipeline">파이프라인</a></li>
+    </ul>
+    <div class="nav-section-label">Decisions</div>
+    <ul class="nav-list">
+      <li><a href="#decisions">D1–D8</a></li>
+      <li><a href="#llm-tiers">LLM · 민감도 전략</a></li>
+      <li><a href="#classification">분류 체계</a></li>
+    </ul>
+    <div class="nav-section-label">Status</div>
+    <ul class="nav-list">
+      <li><a href="#roadmap">구현 현황</a></li>
+      <li><a href="#korean-quality">한글 파싱 품질</a></li>
+      <li><a href="#deferred">보류 · 폐기</a></li>
+      <li><a href="#stack">스택 · 실행</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="eyebrow"><span class="dot"></span>feat/archive-qa · 2026-09-02 기준</div>
+      <h1>Document Expansion LLM</h1>
+      <p class="sub">AnythingLLM(v1.16.0) 포크. 사내 한글 문서 아카이브를 근거 기반 QA와 초안 작성으로 확장하는 시스템 — 처음부터 새로 만들지 않고, 기존 오픈소스 구성요소를 재사용한다.</p>
+      <div class="hero-meta">
+        <span class="chip accent"><b>8/8</b> 평가 항목 통과</span>
+        <span class="chip">claudecli 생성 LLM</span>
+        <span class="chip">LanceDB → pgvector(P0b)</span>
+        <span class="chip">BGE-M3 · bge-reranker-v2-m3-ko</span>
+        <span class="chip">D:\ai factory\auto docu\anything-llm</span>
+      </div>
+    </header>
+
+    <section id="goals">
+      <div class="section-head"><span class="section-num">01</span><h2>4대 목표</h2></div>
+      <p class="section-dek">방향은 고정, 순서는 실사용에 따라 조정한다 — 자세한 시퀀싱은 §06 참고.</p>
+      <div class="goals">
+        <div class="goal"><span class="goal-num">GOAL 1</span><h4>아카이브 + 자동 분류</h4><p>PDF·PPT·HWP·DOCX·XLSX 등을 수집하고, 문서 유형·분야로 반자동 분류해 내용을 색인한다.</p></div>
+        <div class="goal"><span class="goal-num">GOAL 2</span><h4>범위 한정 근거 QA</h4><p>수집된 자료 안에서만 답하고, 인용을 클릭하면 원문의 정확한 위치(PDF는 bbox, 그 외는 문단 앵커)를 옆 패널에 띄운다.</p></div>
+        <div class="goal"><span class="goal-num">GOAL 3</span><h4>외부 간편 조회</h4><p>주 사용처는 데스크톱이지만, 급한 조회를 위해 앱/링크로 외부에서도 접근 가능해야 한다.</p></div>
+        <div class="goal"><span class="goal-num">GOAL 4</span><h4>템플릿 기반 초안 생성</h4><p>질문이 주어지면 과거 문서/양식의 형식을 학습해 그에 맞는 초안을 작성하고 저장한다.</p></div>
+      </div>
+    </section>
+
+    <section id="pipeline">
+      <div class="section-head"><span class="section-num">02</span><h2>수집 → 답변 파이프라인</h2></div>
+      <p class="section-dek">핵심 원칙: <b>인입 시점(ingest-time) 데이터만 선제 설계</b>한다 — page/bbox/section_path/content_hash/sensitivity처럼 나중에 추가하면 전체 코퍼스를 재파싱·재임베딩해야 하는 값만. API 스키마나 응답 필드는 필요할 때 얼마든지 추가한다.</p>
+      <div class="pipeline">
+        <div class="pipe-step"><span class="n">01</span><span class="t">업로드</span><span class="d">multer, 한글 파일명 mojibake 방지 디코딩</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">02</span><span class="t">파싱</span><span class="d">docling-serve(PDF/PPTX/ODP/ODT) · hwp-hwpx-parser(.hwp) · OWPML 트리워크(.hwpx)</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">03</span><span class="t">구조화</span><span class="d">koStructure.js — 헤딩/아웃라인 레벨 감지, section_path 생성</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">04</span><span class="t">청킹</span><span class="d">조/섹션 단위 정렬 청킹, 분할 시 표 헤더 반복</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">05</span><span class="t">분류</span><span class="d">claudecli 제안 → 사람 확정(민감도/유형/분야), 불확실은 보류</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">06</span><span class="t">임베딩</span><span class="d">BGE-M3 dense, LanceDB 저장 — 워크스페이스 = 민감도 경계</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">07</span><span class="t">검색</span><span class="d">벡터 검색 + bge-reranker-v2-m3-ko, 전체 섹션 단위 재구성</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">08</span><span class="t">생성</span><span class="d">claudecli(claude -p headless) — 인용 강제 프롬프트</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><span class="n">09</span><span class="t">인용 뷰어</span><span class="d">pdf.js + bbox 하이라이트, /api/document/raw/:docId</span></div>
+      </div>
+      <p class="pipeline-note">전 구간에서 <b>1단계(파싱)</b>와 <b>4단계(청킹)</b>가 축 — 여기서 페이지 경계와 위치 정보를 보존해야 뒤의 인용 정확도가 성립한다.</p>
+    </section>
+
+    <section id="decisions">
+      <div class="section-head"><span class="section-num">03</span><h2>아키텍처 결정 D1–D8</h2></div>
+      <p class="section-dek">2026-08-28 확정. 각 결정은 재작업 비용이 큰 인입 시점 선택이라 먼저 고정했다.</p>
+      <div class="dtable overflow-x">
+        <div class="drow"><span class="id">D1</span><span class="choice">파싱 스택 = docling-serve</span><span class="why">공식 Docling FastAPI 사이드카(Python 3.12), 직접 구현 안 함. 외부 파싱 API 없음(Somansa 프록시/오프라인 환경) — 모델은 1회 캐시 후 <code>HF_HUB_OFFLINE</code>.</span></div>
+        <div class="drow"><span class="id">D2</span><span class="choice">인용 정밀도 = PDF bbox / 그 외 앵커</span><span class="why">PDF는 정확한 bbox 하이라이트. HWP·DOCX·XLSX는 문단(또는 시트!셀) 앵커까지만. DOCX→PDF 렌더링은 보류.</span></div>
+        <div class="drow"><span class="id">D3</span><span class="choice">벡터 DB = LanceDB → pgvector(P0b)</span><span class="why">지금은 LanceDB. 규모가 커지면 WSL2 위 pgvector로 전환(이 머신엔 Docker/MSVC 없음) — 같은 Postgres가 문서 메타/사용자도 보관.</span></div>
+        <div class="drow"><span class="id">D4</span><span class="choice">HWP 커버리지 = 계층형 폴백</span><span class="why">① HWPX 네이티브 XML ② .hwp 멀티 파서(hwp-hwpx-parser) ③ LibreOffice headless→PDF→docling(OCR). 문서마다 <code>parse_path</code>/<code>parse_confidence</code> 기록.</span></div>
+        <div class="drow"><span class="id">D5</span><span class="choice">분류 = 반자동</span><span class="why">LLM이 doc_type/domain/tags를 제안하고 사람이 확정하거나 다른 체계로 재분류. <code>classify_source</code> 저장. Paperless-ngx 데이터 모델 참고.</span></div>
+        <div class="drow"><span class="id">D6</span><span class="choice">모델 제공자 = 생성만 교체 가능</span><span class="why">임베딩(BGE-M3)·리랭커(bge-reranker-v2-m3-ko)·파싱·OCR은 전부 로컬. 생성 LLM만 API로 둘 수 있고 설정으로 교체 가능.</span></div>
+        <div class="drow"><span class="id">D7</span><span class="choice">한글 어휘 검색 = BGE-M3 sparse</span><span class="why">Postgres <code>tsvector</code>는 한글 토큰화가 안 됨. 같은 모델이 내는 sparse 출력을 어휘 항으로 사용(dense+sparse 컬럼), <code>pg_bigm</code>은 백스톱.</span></div>
+        <div class="drow"><span class="id">D8</span><span class="choice">품질 게이트 = 골든 Q&A 회귀</span><span class="why">50–100개 골든 질문 세트로 채점. 이후 모든 단계의 완료 조건은 "골든 세트 회귀 없음".</span></div>
+      </div>
+    </section>
+
+    <section id="llm-tiers">
+      <div class="section-head"><span class="section-num">04</span><h2>생성 LLM · 민감도 전략</h2></div>
+      <p class="section-dek">2026-08-31 전환: 상시 격리(air-gapped) Ollama 전략을 버리고, 클라우드 LLM 하나로 통일하는 쪽으로 바꿨다.</p>
+      <div class="tier-wrap">
+        <div class="tier-card was">
+          <h4>이전 계획 <span class="pill dropped">폐기</span></h4>
+          <div class="when">2026-08-28 확정 → 2026-08-31 폐기</div>
+          <div class="tier-row"><span class="k">일반 워크스페이스</span><span class="v">Gemini Enterprise</span></div>
+          <div class="tier-row"><span class="k">격리/민감 워크스페이스</span><span class="v strike">Ollama 로컬(상시 격리)</span></div>
+          <div class="tier-row"><span class="k">근거</span><span class="v">민감 문서가 망 밖으로 나가지 않게 하는 하드 경계</span></div>
+        </div>
+        <div class="tier-card">
+          <h4>현재 계획 <span class="pill done">적용 중</span></h4>
+          <div class="when">2026-08-31 → 현재</div>
+          <div class="tier-row"><span class="k">전체 워크스페이스</span><span class="v"><code>claudecli</code>(claude -p headless)</span></div>
+          <div class="tier-row"><span class="k">근거</span><span class="v">현재 인입 문서는 전부 일반 범용(공개 법령류) — 클라우드 LLM 사용에 문제 없음</span></div>
+          <div class="tier-row"><span class="k">차기</span><span class="v">Gemini가 민감 문서 포함 전체를 대체(액세스 형태 미정)</span></div>
+        </div>
+      </div>
+      <h3>왜 아직 "Gemini"가 아닌가</h3>
+      <ul class="plain">
+        <li>AnythingLLM 내장 <code>gemini</code> 제공자 = Google AI Studio API(<code>GEMINI_API_KEY</code>) — 무료 티어는 데이터로 학습, 유료(과금 켠) 티어는 학습 안 함.</li>
+        <li>"Gemini Enterprise" 급 기밀성 보장은 실제로 <b>Vertex AI</b>(GCP 프로젝트 + 서비스 계정)에서 나오는데, AnythingLLM에는 내장 Vertex 제공자가 없음 — <code>claudecli</code>처럼 커스텀 제공자를 새로 만들어야 함.</li>
+        <li>사용자의 실제 "Gemini Enterprise 계정" 형태(AI Studio 키 / Vertex 프로젝트 / Workspace용 Gemini 구독)가 아직 확인되지 않음 — 확인되는 대로 붙인다.</li>
+      </ul>
+      <div class="rule-callout"><b>항상 로컬:</b> 임베딩(BGE-M3), 리랭커(bge-reranker-v2-m3-ko), 파싱/OCR(Docling). 생성 단계만 클라우드로 나간다 — 이 경계는 어떤 계획이든 바뀌지 않는다.</div>
+    </section>
+
+    <section id="classification">
+      <div class="section-head"><span class="section-num">05</span><h2>분류 체계 — 3개 축</h2></div>
+      <p class="section-dek">모든 문서는 독립된 세 축으로 분류된다. LLM이 제안하고, <code>/settings/classification</code> 리뷰 화면에서 사람이 확정한다.</p>
+      <div class="axes">
+        <div class="axis">
+          <span class="label">Axis 1 · 민감도</span>
+          <h4>워크스페이스 라우팅 축</h4>
+          <div class="axis-vals">
+            <div class="axis-val"><span class="k">일반 범용</span><span class="v">공개 배포 문서</span></div>
+            <div class="axis-val"><span class="k">격리·민감</span><span class="v">사내 전용</span></div>
+            <div class="axis-val"><span class="k">판단 보류</span><span class="v">확정 전까지 민감으로 취급</span></div>
+          </div>
+        </div>
+        <div class="axis">
+          <span class="label">Axis 2 · 문서 유형</span>
+          <h4>doc_type</h4>
+          <div class="axis-vals">
+            <div class="axis-val"><span class="k">법령·지침·고시</span><span class="v">파일: PDF/HWP</span></div>
+            <div class="axis-val"><span class="k">보고서·계획서</span><span class="v">파일: HWP/PPTX</span></div>
+            <div class="axis-val"><span class="k">회의자료·데이터표</span><span class="v">파일: PPTX/XLSX</span></div>
+          </div>
+        </div>
+        <div class="axis">
+          <span class="label">Axis 3 · 분야</span>
+          <h4>domain</h4>
+          <div class="axis-vals">
+            <div class="axis-val"><span class="k">유통·공정거래</span><span class="v">자동 제안</span></div>
+            <div class="axis-val"><span class="k">예산·교육·환경</span><span class="v">자동 제안</span></div>
+            <div class="axis-val"><span class="k">…</span><span class="v">리뷰 화면에서 확정</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="rule-callout"><b>규칙 (2026-08-31):</b> 국가가 공개 배포한 문서 — 법률·시행령·시행규칙·예규·고시·지침·가이드라인 등 — 는 <b>일반 범용</b>이다(대외비 아님). 신호: 국가법령정보센터 / 관보 / 부처 홈페이지 출처. 그 외 애매한 문서는 사람이 확정하기 전까지 격리·민감으로 취급한다.</div>
+      <h3>확정 · 이동 · 중복정리 (P4 리뷰 화면)</h3>
+      <ul class="plain">
+        <li><b>제안(propose)</b> — claudecli가 문서 텍스트를 읽고 민감도/유형/분야/태그를 1차 제안.</li>
+        <li><b>확정(confirm)</b> — 사람이 그대로 받거나 값을 고쳐 저장. 확정 전까지는 자동 라우팅 대상이 아님.</li>
+        <li><b>이동(move)</b> — 확정된 민감도와 워크스페이스 티어가 다를 때(티어 불일치), 사람이 수동으로 다른 워크스페이스로 옮김. <b>자동 라우팅은 하지 않는다</b> — 사용자가 명시적으로 원한 제약.</li>
+        <li><b>중복정리(dedupe)</b> — 같은 워크스페이스에 같은 문서(content_hash)가 두 번 이상 들어간 경우, 어느 사본을 남길지 라디오로 고르고 나머지를 정리.</li>
+      </ul>
+    </section>
+
+    <section id="roadmap">
+      <div class="section-head"><span class="section-num">06</span><h2>구현 현황</h2></div>
+      <p class="section-dek"><code>feat/archive-qa</code> 브랜치, 최신 커밋 <code>ae67a60b</code>까지 push 완료. 순서는 "인입 시점 완성도 → 실제 아카이브 적재 → 분류/UI"로 재배열됨.</p>
+      <div class="finding-grid">
+        <div class="stat good"><div class="num">8/8</div><div class="lbl">골든 항목 통과 (2026-09-02)</div></div>
+        <div class="stat good"><div class="num">1.000</div><div class="lbl">신뢰성 · 완결성 · 인용정확도</div></div>
+        <div class="stat"><div class="num">~120</div><div class="lbl">archive-test 청크 (실 문서 4건)</div></div>
+        <div class="stat"><div class="num">4</div><div class="lbl">파서 경로 (PDF/HWP/HWPX/PPTX)</div></div>
+      </div>
+      <div class="timeline">
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P0a · 한글 임베딩 + 리랭커</span></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P0.5a · 검색 평가 하네스</span></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P1a · 위치 인식 PDF 파이프라인</span><div class="tdesc">페이지+bbox가 파싱→청킹→저장 전 구간을 관통</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P1a′ · 인입 완성도</span><div class="tdesc">원본 보존, content_hash 중복검사, sensitivity 기본값, contextual prefix</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P1b · docling-serve 네이티브화</span><div class="tdesc">Python 3.12 venv, section_path/표/OCR</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P2 · 인용 → 원문 뷰어</span><div class="tdesc">pdf.js + bbox 하이라이트 사이드 패널</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P3 · HWP/HWPX 계층형 파싱</span></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">claudecli 생성 LLM 제공자</span><div class="tdesc">2026-08-31 E2E 검증</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P0.5b · 경량 답변 평가 하네스</span><div class="tdesc"><code>eval/answers.mjs</code>, judge = claudecli</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">전체 섹션 단위 검색</span></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">kordoc식 HWP/HWPX 헤딩트리 section_path</span></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">P4 · 분류 + 리뷰 UI</span><div class="tdesc">제안/확정/이동/중복정리, 워크스페이스 tier 불일치 경고</div><span class="badge-commit">ae67a60b</span><span class="badge-commit">afae87d3</span><span class="badge-commit">5308a652</span><span class="badge-commit">ebb6fa36</span></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">2026-09-02 회귀 검사</span><div class="tdesc">계정 전환으로 생긴 claude -p 인증 혼선 확인 후 재실행 → 클린</div></div><span class="pill done">완료</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--hold)"></span><div class="tmain"><span class="ttitle">P1d · Gemini 멀티모달 인입</span><div class="tdesc">스캔/이미지/PPT ~30% 커버 목적. 사용자 요청으로 Google API를 다시 제공할 때까지 보류</div></div><span class="pill hold">보류</span></div>
+        <div class="trow"><span class="tdot"></span><div class="tmain"><span class="ttitle">confirmedBy 멀티유저 연동</span><div class="tdesc">확정 요청의 사용자 ID를 저장하고 리뷰 화면에 사용자명·확정 시각 표시</div><span class="badge-commit">working tree</span></div><span class="pill done">완료</span></div>
+        <div class="trow next"><span class="tdot"></span><div class="tmain"><span class="ttitle">P0b · pgvector 하이브리드</span><div class="tdesc">애플리케이션 호환 계층 진행 중 — 위치 메타데이터·블록 청킹·한국어 리랭킹·섹션 확장 반영. 실제 DB/HNSW/sparse 검증은 WSL2 필요</div><span class="badge-commit">working tree</span></div><span class="pill next">진행 중</span></div>
+      </div>
+    </section>
+
+    <section id="korean-quality">
+      <div class="section-head"><span class="section-num">07</span><h2>한글 파싱 품질 점검</h2></div>
+      <p class="section-dek">2026-09-02 재점검. <code>archive-test</code>에 실제로 적재된 4개 문서(PDF 법률·PPTX 이행평가서·HWP 유통혁신·HWPX 공적서)의 파싱 결과를 직접 열어 육안 확인했다.</p>
+      <div class="doctype-grid">
+        <div class="doctype"><div class="kind">PDF · 법률</div>제1장 총칙, 제N조 구조 그대로 보존. 인코딩 깨짐 없음.<br><span class="verdict">✓ 양호</span></div>
+        <div class="doctype"><div class="kind">PPTX · 이행평가서</div>슬라이드 순서·글머리표(▲■①) 보존, docling 라우팅 정상.<br><span class="verdict">✓ 양호</span></div>
+        <div class="doctype"><div class="kind">HWP · 유통혁신</div>본문+표 추출 정상. 아래 사례 1건 발견.<br><span class="verdict">△ 미세 결함 1건</span></div>
+        <div class="doctype"><div class="kind">HWPX · 공적서</div>표 구조, 날짜, 항목 텍스트 모두 정확히 보존.<br><span class="verdict">✓ 양호</span></div>
+      </div>
+      <h3>전체 코퍼스 스캔 결과</h3>
+      <ul class="plain">
+        <li>손상 문자(U+FFFD, 깨진 글자 표시)를 <b>전체 파싱 결과 파일에서 0건</b> 확인 — mojibake/인코딩 손상 없음.</li>
+        <li><code>생태계</code> 같은 흔한 한글 복합어가 코퍼스 전체에서 21회 정확하게 나타남 → 자모/음절 처리 자체는 정상.</li>
+        <li>표 헤더는 청킹으로 분할될 때도 반복되도록 이미 고쳐짐(<code>5308a652</code>) — 표가 잘려도 컬럼명을 잃지 않음.</li>
+      </ul>
+      <h3>발견된 결함 1건 — 국지적, 검색 품질엔 무영향</h3>
+      <div class="sample">"...물리적 공간 제약을 넘어서는 'O4O <span class="bad">태계</span> 통합'과..."
+   (원문 추정: 'O4O <span class="good">생태계</span> 통합' — 음절 "생" 1개 누락)</div>
+      <p style="font-size:12.5px;color:var(--text-dim);margin-top:8px;">같은 HWP 문서 안에서 <code>생태계</code>는 21곳 중 20곳에서 정확히 나타나고, 정확히 같은 문장이 반복되는 지점(요약 헤더)에서만 이 형태로 나타남 — <code>hwp-hwpx-parser</code>가 특정 런(run) 경계(개정 마크·인라인 객체 등)를 지나며 앞 글자를 흘리는 것으로 추정. 한 단어 안의 음절 하나이고 주변 문맥이 충분해 답변 품질에는 영향이 없었지만, 근본 원인은 아직 확인 전이다.</p>
+      <p class="section-dek" style="margin:14px 0 0;"><b>결론:</b> 한글은 전반적으로 잘 읽히고 있다 — 인코딩 손상 없음, 구조(조/항, 표, 슬라이드 순서) 보존 양호. 유일한 이슈는 특정 HWP 반복 구절에서의 음절 1개 누락으로, 국지적 파서 결함이지 시스템 전반의 문제는 아니다.</p>
+    </section>
+
+    <section id="deferred">
+      <div class="section-head"><span class="section-num">08</span><h2>보류 · 폐기 항목</h2></div>
+      <p class="section-dek">버린 게 아니라 순서를 뒤로 미룬 것 — "실사용으로 필요가 확인되면 추가한다."</p>
+      <div class="timeline">
+        <div class="trow"><span class="tdot" style="background:var(--bad)"></span><div class="tmain"><span class="ttitle">ColPali / Morphik 시각 검색</span><div class="tdesc">이 머신에 GPU 없음(CPU MaxSim은 인터랙티브하게 못 씀) + Gemini 멀티모달이 같은 역할(P1d) → 폐기</div></div><span class="pill dropped">폐기</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--bad)"></span><div class="tmain"><span class="ttitle">상시 격리 Ollama (민감 티어)</span><div class="tdesc">claudecli → Gemini 통합 전략으로 대체됨 (§04)</div></div><span class="pill dropped">폐기</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">RAGAS / DeepEval / Langfuse</span><div class="tdesc">지금은 claudecli를 judge로 쓰는 경량 <code>eval/</code> 하네스로 충분</div></div><span class="pill deferred">보류</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">Paperless-ngx 베이지안 자동분류기</span><div class="tdesc">학습에 확정 문서 30–50건 필요 — 수동 리뷰 UI(P4)로 그 수를 먼저 쌓는 중</div></div><span class="pill deferred">보류</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">지식 그래프 (R2R)</span><div class="tdesc">평이한 RAG로 문서 간 종합이 부족하다고 확인될 때(P6 Compose)</div></div><span class="pill deferred">보류</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">TipTap / BlockNote 에디터</span><div class="tdesc">P6 Compose의 마감 단계 폴리시</div></div><span class="pill deferred">보류</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">pgvector 이전 (P0b)</span><div class="tdesc">LanceDB로 지금은 충분, WSL2 확보되면 이전</div></div><span class="pill deferred">보류</span></div>
+      </div>
+    </section>
+
+    <section id="stack">
+      <div class="section-head"><span class="section-num">09</span><h2>스택 · 로컬 실행</h2></div>
+      <h3>서비스</h3>
+      <div class="dtable overflow-x">
+        <div class="drow" style="grid-template-columns:120px 90px 1fr;"><span class="choice">server (Express API)</span><span class="id" style="color:var(--text)">:3001</span><span class="why">server/ · <code>yarn dev</code></span></div>
+        <div class="drow" style="grid-template-columns:120px 90px 1fr;"><span class="choice">frontend (Vite/React)</span><span class="id" style="color:var(--text)">:3000</span><span class="why">frontend/ · <code>yarn dev</code></span></div>
+        <div class="drow" style="grid-template-columns:120px 90px 1fr;"><span class="choice">collector (문서 파싱)</span><span class="id" style="color:var(--text)">:8888</span><span class="why">collector/ · <code>yarn dev</code></span></div>
+        <div class="drow" style="grid-template-columns:120px 90px 1fr;"><span class="choice">docling-serve</span><span class="id" style="color:var(--text)">:5001</span><span class="why">.local-cache/docling-venv (Python 3.12, 이 머신 기본은 3.14)</span></div>
+        <div class="drow" style="grid-template-columns:120px 90px 1fr;"><span class="choice">ollama (폴백)</span><span class="id" style="color:var(--text)">:11434</span><span class="why">더 이상 채팅 LLM 아님, exaone3.5:2.4b 유지</span></div>
+      </div>
+      <h3>기동 · 회귀 확인</h3>
+      <div class="sample">cd "D:\ai factory\auto docu\anything-llm"
+.\run-local.ps1                        # 5개 서비스 WMI 스폰 + 포트 폴링
+node eval/reingest-archive.mjs         # 인입 로직 변경 후 재적재 (Node FormData, curl 금지)
+node eval/answers.mjs                  # 회귀 확인 — 8개 골든 항목, 임계치 이상이어야 통과</div>
+      <p style="font-size:11.5px;color:var(--text-faint);margin-top:10px;">이 Windows 박스는 cp949 기본 인코딩이라 <code>curl -F</code>로 업로드하면 한글 파일명이 깨진다 — 스크립트 테스트는 항상 Node FormData로. Docker/WSL 없음 — pgvector(P0b)는 그게 갖춰질 때 착수.</p>
+    </section>
+
+    <footer class="footer container">
+      <span>Document Expansion LLM · <code>feat/archive-qa</code> · AnythingLLM v1.16.0 fork</span>
+      <span>architecture v11 · 2026-09-02</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+(function(){
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section[id]'));
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.nav-list a'));
+  var mobileNav = document.getElementById('mobileNav');
+  sections.forEach(function(s){
+    var label = s.querySelector('h2');
+    if(!label) return;
+    var a = document.createElement('a');
+    a.href = '#' + s.id;
+    a.textContent = label.textContent;
+    mobileNav.appendChild(a);
+  });
+  var allLinks = navLinks.concat(Array.prototype.slice.call(mobileNav.querySelectorAll('a')));
+
+  function setActive(id){
+    allLinks.forEach(function(a){
+      var on = a.getAttribute('href') === '#' + id;
+      a.classList.toggle('active', on);
+    });
+  }
+  if('IntersectionObserver' in window){
+    var obs = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting) setActive(e.target.id);
+      });
+    }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+    sections.forEach(function(s){ obs.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

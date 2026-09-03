@@ -1,6 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import {
+  createBrowserRouter,
+  Navigate,
+  RouterProvider,
+} from "react-router-dom";
 import App from "@/App.jsx";
 import PrivateRoute, {
   AdminRoute,
@@ -30,6 +34,13 @@ const router = createBrowserRouter([
       {
         path: "/login",
         element: <Login />,
+      },
+      // Vite serves /index.html, but BrowserRouter treats that filename as a
+      // client-side route. Keep the common direct URL working by normalizing
+      // it to the application root before the catch-all 404 route.
+      {
+        path: "/index.html",
+        element: <Navigate to="/" replace />,
       },
       {
         path: "/sso/simple",

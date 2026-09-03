@@ -1,11 +1,16 @@
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 
 class NativeEmbeddingReranker {
   // Memory per model call scales with batch size, and onnxruntime-node never
   // returns it to the OS - so the largest batch we ever run sets process RSS
   // for the life of the app. Callers pass as many documents as they like.
-  static maxBatchSize = 10;
+  static get maxBatchSize() {
+    const configured = Number.parseInt(process.env.RERANKER_MAX_BATCH_SIZE, 10);
+    if (!Number.isInteger(configured)) return 10;
+    return Math.max(1, Math.min(10, configured));
+  }
 
   static #model = null;
   static #tokenizer = null;
@@ -23,6 +28,22 @@ class NativeEmbeddingReranker {
   // Overridable via RERANKER_MODEL_PREF. Both are XLM-R SequenceClassification
   // with num_labels=1, so the rerank() logic below is unchanged.
   static defaultModel = "onnx-community/bge-reranker-v2-m3-ONNX";
+
+  // Loading the 570MB quantized BGE-M3 graph temporarily needs substantially
+  // more memory than its final resident set. On constrained Windows hosts the
+  // native ONNX process can terminate before JavaScript gets an exception.
+  // Refuse the first load early so vector providers can fall back to dense
+  // retrieval. Set RERANKER_MIN_FREE_MEMORY_MB=0 to disable this guard.
+  static assertLoadMemory() {
+    const configured = Number(process.env.RERANKER_MIN_FREE_MEMORY_MB);
+    const minimumMb = Number.isFinite(configured) ? configured : 3_200;
+    if (minimumMb <= 0 || NativeEmbeddingReranker.#model) return;
+    const freeMb = Math.floor(os.freemem() / 1024 / 1024);
+    if (freeMb >= minimumMb) return;
+    throw new Error(
+      `Insufficient free memory to load the native reranker (${freeMb}MB available; ${minimumMb}MB required).`
+    );
+  }
 
   constructor() {
     this.model =
@@ -97,6 +118,8 @@ class NativeEmbeddingReranker {
       await NativeEmbeddingReranker.#initializationPromise;
       return;
     }
+
+    NativeEmbeddingReranker.assertLoadMemory();
 
     NativeEmbeddingReranker.#initializationPromise = (async () => {
       try {

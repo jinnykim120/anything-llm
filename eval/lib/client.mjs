@@ -1,8 +1,13 @@
 // Minimal AnythingLLM API client for the eval harness.
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
+import undici from "../../server/node_modules/undici/index.js";
 
 const BASE = process.env.ALLM_BASE || "http://localhost:3001";
+const REQUEST_AGENT = new undici.Agent({
+  headersTimeout: 30 * 60_000,
+  bodyTimeout: 30 * 60_000,
+});
 
 export class AllmClient {
   constructor(apiKey) {
@@ -19,7 +24,12 @@ export class AllmClient {
       headers["Content-Type"] = "application/json";
       payload = JSON.stringify(body);
     }
-    const res = await fetch(`${BASE}/api${path}`, { method, headers, body: payload });
+    const res = await fetch(`${BASE}/api${path}`, {
+      method,
+      headers,
+      body: payload,
+      dispatcher: REQUEST_AGENT,
+    });
     const text = await res.text();
     let json;
     try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
@@ -29,9 +39,15 @@ export class AllmClient {
     return json;
   }
 
-  ping() { return fetch(`${BASE}/api/ping`).then((r) => r.ok); }
+  ping() {
+    return fetch(`${BASE}/api/ping`, { dispatcher: REQUEST_AGENT }).then((r) => r.ok);
+  }
 
   listWorkspaces() { return this.#req("/v1/workspaces"); }
+
+  listDocumentsFolder(folder = "custom-documents") {
+    return this.#req(`/v1/documents/folder/${encodeURIComponent(folder)}?limit=all`);
+  }
 
   async deleteWorkspace(slug) {
     try { await this.#req(`/v1/workspace/${slug}`, { method: "DELETE" }); } catch { /* ok if absent */ }
@@ -43,12 +59,14 @@ export class AllmClient {
     return this.#req(`/v1/workspace/${slug}/update`, { method: "POST", body: data });
   }
 
-  async uploadDoc(filePath) {
+  async uploadDoc(filePath, { metadata = null } = {}) {
     const buf = await readFile(filePath);
     const fd = new FormData();
     // Node's undici FormData preserves a non-ASCII filename correctly (unlike
     // `curl -F` on a cp949 Windows box, which mojibakes it).
     fd.append("file", new Blob([buf]), basename(filePath));
+    if (metadata && typeof metadata === "object")
+      fd.append("metadata", JSON.stringify(metadata));
     const json = await this.#req("/v1/document/upload", { method: "POST", form: fd });
     const doc = json?.documents?.[0];
     if (!doc?.location)

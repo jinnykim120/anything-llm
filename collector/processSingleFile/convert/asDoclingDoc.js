@@ -12,6 +12,9 @@ const path = require("path");
 const DOCLING_URL = (process.env.DOCLING_SERVE_URL || "").replace(/\/+$/, "");
 const HEALTH_TIMEOUT_MS = 2000;
 const CONVERT_TIMEOUT_MS = Number(process.env.DOCLING_TIMEOUT_MS || 300000);
+const RELEASE_MODELS_AFTER_PARSE =
+  process.env.DOCLING_RELEASE_MODELS_AFTER_PARSE === "true";
+let activeParses = 0;
 
 // Manual controller + clearTimeout — AbortSignal.timeout() leaves a live timer
 // that can surface as an unhandled rejection after a fast fetch resolves (crashes
@@ -38,6 +41,20 @@ async function doclingAvailable() {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/** Release Docling's large layout/OCR model cache when the collector is idle. */
+async function releaseDoclingModels() {
+  if (!RELEASE_MODELS_AFTER_PARSE || activeParses > 0) return;
+  try {
+    await fetchWithTimeout(
+      `${DOCLING_URL}/v1/clear/converters`,
+      {},
+      HEALTH_TIMEOUT_MS * 5
+    );
+  } catch {
+    // Model release is a memory optimization and must not fail document parsing.
   }
 }
 
@@ -203,6 +220,7 @@ function doclingToBlocks(doc) {
 async function parseWithDocling(fullFilePath, { doOcr = true } = {}) {
   if (!(await doclingAvailable()))
     return { ok: false, reason: "docling-serve unavailable" };
+  activeParses += 1;
   try {
     const fd = new FormData();
     fd.append(
@@ -246,6 +264,9 @@ async function parseWithDocling(fullFilePath, { doOcr = true } = {}) {
     };
   } catch (e) {
     return { ok: false, reason: `docling error: ${e.message}` };
+  } finally {
+    activeParses -= 1;
+    await releaseDoclingModels();
   }
 }
 

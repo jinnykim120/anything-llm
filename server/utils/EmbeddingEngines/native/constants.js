@@ -62,10 +62,12 @@ const SUPPORTED_NATIVE_EMBEDDING_MODELS = {
   // here we use the ONNX dense-only weights via transformers.js.
   "Xenova/bge-m3": {
     maxConcurrentChunks: 5,
-    // Model hard limit is 8192 tokens. Korean tokenizes densely (often ~1 char/token
-    // with this XLM-R sentencepiece), so cap chars well under that to avoid silent
-    // truncation, and to keep chunks retrieval-sized.
-    embeddingMaxChunkLength: 8_000,
+    // The model supports 8192 tokens, but the local ONNX attention graph grows
+    // quadratically with sequence length. An 8k flat spreadsheet chunk tried to
+    // allocate a 2.5GB buffer on a 16GB Windows host. Block-aware documents
+    // already target 1200 chars, so use the same practical ceiling for flat
+    // PDF/XLSX/text inputs as well.
+    embeddingMaxChunkLength: 1_200,
     chunkPrefix: "",
     queryPrefix: "",
     apiInfo: {

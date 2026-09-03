@@ -45,6 +45,11 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
 
   const confirmed = cls?.status === "confirmed";
   const uncertain = cls && cls.sensitivity === "uncertain";
+  const confirmedByLabel = cls?.confirmedByUser?.username
+    ? cls.confirmedByUser.username
+    : cls?.confirmedBy
+      ? `사용자 #${cls.confirmedBy}`
+      : null;
   const confirmableOptions = (
     taxonomy?.sensitivity?.confirmable || CONFIRMABLE
   ).filter(Boolean);
@@ -164,6 +169,19 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
           <Lock className="h-3 w-3" weight="bold" />
           확정 전까지 <span className="font-semibold">격리·민감</span>으로 취급
           · 자동 라우팅 제외
+        </p>
+      )}
+
+      {confirmed && (
+        <p className="text-[11px] text-theme-text-secondary">
+          {confirmedByLabel && (
+            <>
+              확정자: <span className="font-semibold">{confirmedByLabel}</span>
+            </>
+          )}
+          {confirmedByLabel && cls?.updatedAt && " · "}
+          {cls?.updatedAt &&
+            `확정 시각: ${new Date(cls.updatedAt).toLocaleString("ko-KR")}`}
         </p>
       )}
 

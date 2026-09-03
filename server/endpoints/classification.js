@@ -113,6 +113,20 @@ function classificationEndpoints(app) {
         const byHash = Object.fromEntries(
           classifications.map((c) => [c.contentHash, c])
         );
+        const confirmerIds = [
+          ...new Set(
+            classifications
+              .map((c) => c.confirmedBy)
+              .filter((id) => Number.isInteger(id))
+          ),
+        ];
+        const confirmers = confirmerIds.length
+          ? await prisma.users.findMany({
+              where: { id: { in: confirmerIds } },
+              select: { id: true, username: true },
+            })
+          : [];
+        const confirmerById = new Map(confirmers.map((u) => [u.id, u]));
         const allWorkspaces = await prisma.workspaces.findMany({
           select: { slug: true, name: true, tier: true },
         });
@@ -157,7 +171,12 @@ function classificationEndpoints(app) {
             workspaces: wsList,
             duplicateCount: d.docpaths.length,
             duplicatesByWorkspace,
-            classification: cls,
+            classification: cls
+              ? {
+                  ...cls,
+                  confirmedByUser: confirmerById.get(cls.confirmedBy) || null,
+                }
+              : null,
             held,
             effectiveSensitivity:
               cls?.status === "confirmed" && cls.sensitivity === "general"
@@ -249,7 +268,17 @@ function classificationEndpoints(app) {
           userId: response.locals?.user?.id ?? null,
         });
         if (error) return response.status(400).json({ error });
-        response.status(200).json({ classification });
+        const confirmer = response.locals?.user;
+        response.status(200).json({
+          classification: {
+            ...classification,
+            confirmedByUser:
+              classification.confirmedBy &&
+              confirmer?.id === classification.confirmedBy
+                ? { id: confirmer.id, username: confirmer.username }
+                : null,
+          },
+        });
       } catch (e) {
         console.error("POST /classification/:contentHash/confirm", e);
         response.status(500).json({ error: e.message });

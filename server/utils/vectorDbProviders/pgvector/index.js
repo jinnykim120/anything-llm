@@ -3,6 +3,7 @@ const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { TextSplitter } = require("../../TextSplitter");
 const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
+const { NativeEmbeddingReranker } = require("../../EmbeddingRerankers/native");
 const { VectorDatabase } = require("../base");
 
 /*
@@ -58,8 +59,45 @@ class PGVector extends VectorDatabase {
     return process.env.PGVECTOR_CONNECTION_STRING;
   }
 
+  static integerSetting(name, fallback, min, max) {
+    const parsed = Number.parseInt(process.env[name], 10);
+    if (!Number.isInteger(parsed)) return fallback;
+    return Math.max(min, Math.min(max, parsed));
+  }
+
+  static hnswSettings() {
+    return {
+      m: this.integerSetting("PGVECTOR_HNSW_M", 16, 2, 100),
+      efConstruction: this.integerSetting(
+        "PGVECTOR_HNSW_EF_CONSTRUCTION",
+        64,
+        4,
+        1_000
+      ),
+      efSearch: this.integerSetting("PGVECTOR_HNSW_EF_SEARCH", 40, 1, 1_000),
+    };
+  }
+
+  static indexName(suffix) {
+    const base = PGVector.tableName().replace(/[^a-zA-Z0-9_]/g, "_");
+    return `${base}_${suffix}`.slice(0, 63);
+  }
+
   createTableSql(dimensions) {
     return `CREATE TABLE IF NOT EXISTS "${PGVector.tableName()}" (id UUID PRIMARY KEY, namespace TEXT, embedding vector(${Number(dimensions)}), metadata JSONB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
+  }
+
+  createIndexSql() {
+    const { m, efConstruction } = PGVector.hnswSettings();
+    return [
+      `CREATE INDEX IF NOT EXISTS "${PGVector.indexName("namespace_idx")}" ON "${PGVector.tableName()}" (namespace)`,
+      `CREATE INDEX IF NOT EXISTS "${PGVector.indexName("embedding_hnsw_idx")}" ON "${PGVector.tableName()}" USING hnsw (embedding vector_cosine_ops) WITH (m = ${m}, ef_construction = ${efConstruction})`,
+    ];
+  }
+
+  async configureVectorSearch(client) {
+    const { efSearch } = PGVector.hnswSettings();
+    await client.query(`SET hnsw.ef_search = ${efSearch}`);
   }
 
   /**
@@ -109,6 +147,37 @@ class PGVector extends VectorDatabase {
 
     // Numbers, booleans, etc.
     return value;
+  }
+
+  /**
+   * Keep per-document fields out of chunk JSONB while retaining the stable
+   * retrieval metadata shared with LanceDB.
+   */
+  prepareDocumentData(documentData = {}) {
+    const {
+      pageContent,
+      docId,
+      blocks,
+      file_hash: _fileHash,
+      content_hash: _contentHash,
+      original_path: originalPath,
+      render_path: renderPath,
+      ...rest
+    } = documentData;
+    return {
+      pageContent,
+      docId,
+      blocks,
+      metadata: {
+        ...rest,
+        doc_id: docId || "",
+        has_original: originalPath || renderPath ? 1 : 0,
+        sensitivity: rest.sensitivity || "unclassified",
+        parse_path: rest.parse_path || "",
+        parse_confidence:
+          typeof rest.parse_confidence === "number" ? rest.parse_confidence : 0,
+      },
+    };
   }
 
   client(connectionString = null) {
@@ -386,14 +455,17 @@ class PGVector extends VectorDatabase {
       scores: [],
     };
 
+    await this.configureVectorSearch(client);
     const embedding = `[${queryVector.map(Number).join(",")}]`;
     const response = await client.query(
       `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ORDER BY _distance ASC LIMIT $3`,
       [embedding, namespace, topN]
     );
     response.rows.forEach((item) => {
-      if (this.distanceToSimilarity(item._distance) < similarityThreshold)
-        return;
+      const distance = Number(item._distance);
+      if (!Number.isFinite(distance)) return;
+      const score = this.distanceToSimilarity(distance);
+      if (score < similarityThreshold) return;
       if (filterIdentifiers.includes(sourceIdentifier(item.metadata))) {
         this.logger(
           "A source was filtered from context as it's parent document is pinned."
@@ -404,11 +476,75 @@ class PGVector extends VectorDatabase {
       result.contextTexts.push(item.metadata.text);
       result.sourceDocuments.push({
         ...item.metadata,
-        score: this.distanceToSimilarity(item._distance),
+        score,
       });
-      result.scores.push(this.distanceToSimilarity(item._distance));
+      result.scores.push(score);
     });
 
+    return result;
+  }
+
+  /** Retrieve a wider dense candidate set, then apply the local multilingual
+   * reranker. This mirrors the LanceDB path so changing vector stores does not
+   * silently lower Korean retrieval quality.
+   */
+  async rerankedSimilarityResponse({
+    client,
+    namespace,
+    query,
+    queryVector,
+    similarityThreshold = 0.25,
+    topN = 4,
+    filterIdentifiers = [],
+  }) {
+    const totalEmbeddings = await this.namespaceCount(namespace);
+    const searchLimit = Math.max(
+      10,
+      Math.min(50, Math.ceil(totalEmbeddings * 0.1))
+    );
+    await this.configureVectorSearch(client);
+    const embedding = `[${queryVector.map(Number).join(",")}]`;
+    const response = await client.query(
+      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ORDER BY _distance ASC LIMIT $3`,
+      [embedding, namespace, searchLimit]
+    );
+    const candidates = response.rows.map((item) => ({
+      ...item.metadata,
+      _distance: Number(item._distance),
+    }));
+    const result = { contextTexts: [], sourceDocuments: [], scores: [] };
+    const reranker = new NativeEmbeddingReranker();
+
+    try {
+      const reranked = await reranker.rerank(query, candidates, { topK: topN });
+      for (const item of reranked) {
+        if (this.distanceToSimilarity(item._distance) < similarityThreshold)
+          continue;
+        const { vector: _vector, ...rest } = item;
+        if (filterIdentifiers.includes(sourceIdentifier(rest))) {
+          this.logger(
+            "A source was filtered from context as it's parent document is pinned."
+          );
+          continue;
+        }
+        const score =
+          item.rerank_score || this.distanceToSimilarity(item._distance);
+        result.contextTexts.push(rest.text);
+        result.sourceDocuments.push({ ...rest, score });
+        result.scores.push(score);
+      }
+    } catch (err) {
+      this.logger("rerankedSimilarityResponse", err.message);
+      this.logger("Falling back to dense similarity search.");
+      return await this.similarityResponse({
+        client,
+        namespace,
+        queryVector,
+        similarityThreshold,
+        topN,
+        filterIdentifiers,
+      });
+    }
     return result;
   }
 
@@ -471,6 +607,8 @@ class PGVector extends VectorDatabase {
     this.logger(`Creating embedding table with ${dimensions} dimensions`);
     await connection.query(this.createExtensionSql);
     await connection.query(this.createTableSql(dimensions));
+    for (const statement of this.createIndexSql())
+      await connection.query(statement);
     return true;
   }
 
@@ -551,7 +689,8 @@ class PGVector extends VectorDatabase {
     let connection = null;
 
     try {
-      const { pageContent, docId, ...metadata } = documentData;
+      const { pageContent, docId, blocks, metadata } =
+        this.prepareDocumentData(documentData);
       if (!pageContent || pageContent.length == 0) return false;
       connection = await this.connect();
 
@@ -603,7 +742,8 @@ class PGVector extends VectorDatabase {
         chunkHeaderMeta: TextSplitter.buildHeaderMeta(metadata),
         chunkPrefix: EmbedderEngine?.embeddingPrefix,
       });
-      const textChunks = await textSplitter.splitText(pageContent);
+      const { chunks: textChunks, metas: chunkMetas } =
+        await textSplitter.splitDocument({ pageContent, blocks });
 
       this.logger("Snippets created from document:", textChunks.length);
       const documentVectors = [];
@@ -618,7 +758,11 @@ class PGVector extends VectorDatabase {
           const vectorRecord = {
             id: uuidv4(),
             values: vector,
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: {
+              ...metadata,
+              ...(chunkMetas[i] || {}),
+              text: textChunks[i],
+            },
           };
 
           vectors.push(vectorRecord);
@@ -711,6 +855,120 @@ class PGVector extends VectorDatabase {
     }
   }
 
+  /**
+   * Expand repeated hits in one top-level section into the section's remaining
+   * chunks. Location-aware metadata and chunk_index make this deterministic.
+   */
+  async expandSections({ client, namespace, result }) {
+    const { contextTexts, sourceDocuments, scores } = result;
+    if (process.env.SECTION_EXPANSION === "off" || sourceDocuments.length === 0)
+      return result;
+
+    const minHits = Number(process.env.SECTION_EXPANSION_MIN_HITS) || 2;
+    const sectionMaxChars =
+      Number(process.env.SECTION_EXPANSION_SECTION_MAX_CHARS) || 16_000;
+    const budgetMax =
+      Number(process.env.SECTION_EXPANSION_BUDGET_CHARS) || 32_000;
+    const topSegment = (sectionPath) =>
+      String(sectionPath || "")
+        .split(">")
+        .at(0)
+        .trim();
+    const rowKey = (docId, value) => JSON.stringify([docId || "", value]);
+
+    const groups = new Map();
+    sourceDocuments.forEach((source, index) => {
+      const segment = topSegment(source.section_path);
+      if (!source.doc_id || !segment) return;
+      const key = rowKey(source.doc_id, segment);
+      if (!groups.has(key))
+        groups.set(key, { docId: source.doc_id, segment, hits: [] });
+      groups.get(key).hits.push(index);
+    });
+
+    const seen = new Set(
+      sourceDocuments.map((source) => rowKey(source.doc_id, source.chunk_index))
+    );
+    const additions = [];
+    let budget = budgetMax;
+
+    for (const group of groups.values()) {
+      if (group.hits.length < minHits) continue;
+      const groupScore = Math.min(
+        ...group.hits.map((index) => scores[index] ?? 0)
+      );
+      let rows = [];
+      try {
+        const response = await client.query(
+          `SELECT metadata FROM "${PGVector.tableName()}" WHERE namespace = $1 AND metadata->>'doc_id' = $2 LIMIT 5000`,
+          [namespace, group.docId]
+        );
+        rows = response.rows.map((row) => row.metadata);
+      } catch (err) {
+        this.logger(`expandSections: query failed - ${err.message}`);
+        continue;
+      }
+
+      const section = rows
+        .filter((row) => topSegment(row.section_path) === group.segment)
+        .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0));
+      const sectionChars = section.reduce(
+        (total, row) => total + (row.text?.length || 0),
+        0
+      );
+      if (!section.length || sectionChars > sectionMaxChars) continue;
+
+      for (const row of section) {
+        const key = rowKey(row.doc_id, row.chunk_index);
+        if (seen.has(key)) continue;
+        const length = row.text?.length || 0;
+        if (length > budget) continue;
+        additions.push({ metadata: row, text: row.text, score: groupScore });
+        seen.add(key);
+        budget -= length;
+      }
+    }
+
+    if (!additions.length) return result;
+    this.logger(
+      `expandSections: +${additions.length} chunks from ${
+        new Set(additions.map((item) => item.metadata.doc_id)).size
+      } section(s).`
+    );
+    const rows = [
+      ...sourceDocuments.map((source, index) => ({
+        metadata: source,
+        text: contextTexts[index],
+        score: scores[index] ?? 0,
+      })),
+      ...additions,
+    ];
+    const bestByDocument = {};
+    for (const row of rows) {
+      const docId = row.metadata.doc_id || "";
+      bestByDocument[docId] = Math.max(
+        bestByDocument[docId] ?? -Infinity,
+        row.score
+      );
+    }
+    rows.sort((a, b) => {
+      const aDoc = a.metadata.doc_id || "";
+      const bDoc = b.metadata.doc_id || "";
+      if (aDoc !== bDoc)
+        return (bestByDocument[bDoc] ?? 0) - (bestByDocument[aDoc] ?? 0);
+      return (a.metadata.chunk_index ?? 0) - (b.metadata.chunk_index ?? 0);
+    });
+
+    return {
+      contextTexts: rows.map((row) => row.text),
+      sourceDocuments: rows.map((row) => ({
+        ...row.metadata,
+        score: row.score,
+      })),
+      scores: rows.map((row) => row.score),
+    };
+  }
+
   async performSimilaritySearch({
     namespace = null,
     input = "",
@@ -718,6 +976,7 @@ class PGVector extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    rerank = false,
   }) {
     let connection = null;
     if (!namespace || !input || !LLMConnector)
@@ -738,13 +997,28 @@ class PGVector extends VectorDatabase {
       }
 
       const queryVector = await LLMConnector.embedTextInput(input);
-      const result = await this.similarityResponse({
+      const searchResult = rerank
+        ? await this.rerankedSimilarityResponse({
+            client: connection,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+          })
+        : await this.similarityResponse({
+            client: connection,
+            namespace,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+          });
+      const result = await this.expandSections({
         client: connection,
         namespace,
-        queryVector,
-        similarityThreshold,
-        topN,
-        filterIdentifiers,
+        result: searchResult,
       });
 
       const { contextTexts, sourceDocuments } = result;
