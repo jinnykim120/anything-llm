@@ -11,6 +11,7 @@ const PGVector = new PGVectorClass();
 describe("NativeEmbeddingReranker memory guard", () => {
   const originalMinimum = process.env.RERANKER_MIN_FREE_MEMORY_MB;
   const originalBatchSize = process.env.RERANKER_MAX_BATCH_SIZE;
+  const originalCandidateLimit = process.env.RERANKER_CANDIDATE_LIMIT;
 
   afterEach(() => {
     jest.restoreAllMocks();
@@ -20,6 +21,9 @@ describe("NativeEmbeddingReranker memory guard", () => {
     if (originalBatchSize === undefined)
       delete process.env.RERANKER_MAX_BATCH_SIZE;
     else process.env.RERANKER_MAX_BATCH_SIZE = originalBatchSize;
+    if (originalCandidateLimit === undefined)
+      delete process.env.RERANKER_CANDIDATE_LIMIT;
+    else process.env.RERANKER_CANDIDATE_LIMIT = originalCandidateLimit;
   });
 
   it("rejects the first native model load before ONNX can exhaust memory", () => {
@@ -200,6 +204,38 @@ describe("PGVector section expansion", () => {
 });
 
 describe("PGVector dense search", () => {
+  it("caps rerank candidates while keeping enough results for topN", () => {
+    process.env.RERANKER_CANDIDATE_LIMIT = "16";
+
+    expect(PGVectorClass.rerankCandidateLimit(500, 8)).toBe(16);
+    expect(PGVectorClass.rerankCandidateLimit(50, 8)).toBe(10);
+    expect(PGVectorClass.rerankCandidateLimit(500, 20)).toBe(20);
+  });
+
+  it("uses the candidate cap in the rerank query", async () => {
+    process.env.RERANKER_CANDIDATE_LIMIT = "16";
+    jest.spyOn(PGVector, "namespaceCount").mockResolvedValue(500);
+    jest
+      .spyOn(NativeEmbeddingReranker.prototype, "rerank")
+      .mockResolvedValue([]);
+    const client = {
+      query: jest.fn().mockResolvedValue({ rows: [] }),
+    };
+
+    await PGVector.rerankedSimilarityResponse({
+      client,
+      namespace: "archive",
+      query: "질문",
+      queryVector: [0.1, 0.2],
+      topN: 8,
+    });
+
+    expect(client.query).toHaveBeenLastCalledWith(
+      expect.stringContaining("LIMIT $3"),
+      [expect.any(String), "archive", 16]
+    );
+  });
+
   it("normalizes pg float strings before applying the similarity threshold", async () => {
     const result = await PGVector.similarityResponse({
       client: {

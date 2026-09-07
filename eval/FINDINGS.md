@@ -2,6 +2,129 @@
 
 Running log of what the harness has told us. Newest first.
 
+## 2026-09-07 — live regression, bug fixes, and performance correction
+
+The archive QA stack was re-run against the live local services after the
+`claudecli` and native BGE-M3 memory-guard changes. The reports below are
+committed under `eval/reports/` and should be treated as the current baseline.
+
+### Answer quality: ENAMETOOLONG fixed
+
+Before the fix, `answers-2026-09-07T01-35-18-613Z.json` recorded 7 successful
+answers and one complete failure:
+
+| run | faithfulness | completeness | citation accuracy | result |
+|-----|--------------|--------------|-------------------|--------|
+| before `claudecli` fix | 0.875 | 0.875 | 0.875 | `jangryeo-contract` failed with `spawn ENAMETOOLONG` |
+| after fix | 0.99375 | 1.000 | 0.99375 | 8/8 passed |
+
+The failure occurred because the complete retrieved system prompt was passed
+as a Windows process argument. Section expansion could grow the prompt beyond
+the process command-line limit. `server/utils/AiProviders/claudeCli/index.js`
+now writes the system prompt to a temporary file and passes it with
+`--system-prompt-file` for normal, streaming, and agent completion paths.
+
+Current answer-quality report:
+
+- Report: `answers-2026-09-07T03-34-15-018Z.json`
+- Workspace: `archive-test`
+- Golden questions: 8
+- Judge: `claude-sonnet-5`
+- Faithfulness mean: `0.99375`
+- Completeness mean: `1.0`
+- Citation accuracy mean: `0.99375`
+- Threshold result: 8/8 passed
+
+The judge is the same Claude CLI family used for answer generation, so these
+absolute scores still have self-preference bias. Use this harness primarily as
+a before/after regression gate.
+
+### Retrieval regression after the memory guard change
+
+The current retrieval smoke test still passes after dense BGE-M3 was allowed to
+load on this host:
+
+- Report: `2026-09-07T03-27-07-050Z.json`
+- Golden questions: 18
+- Default mode MRR: `0.9444`
+- Default hit@1: `0.8889`
+- Default hit@3/5/8: `1.0`
+- Default recall@3/5/8: `1.0`
+- No misses at `@5`
+
+This is still a smoke test. The synthetic seed corpus is intentionally easy;
+the real archive answer set is the more useful product regression target.
+
+### Performance baseline correction
+
+The older `perf-archive-full-2026-09-04T00-13-31-587Z.json` report showed about
+25 ms average latency, but every sample in that report had `resultCount: 0`.
+That was a successful HTTP request with an empty result, not a valid result
+latency baseline.
+
+The corrected pre-memory-fix report is:
+
+- Report: `perf-archive-full-2026-09-07T01-29-20-591Z.json`
+- Workspace: `archive-full`
+- Documents: 232
+- Queries: 8, repeated twice per mode, 16 samples per mode
+- Default: average `426.1 ms`, p50 `416.8 ms`, p95 `515.8 ms`, 0 errors,
+  average 9.8 results
+- Rerank: average `427.5 ms`, p50 `420.8 ms`, p95 `498.4 ms`, 0 errors,
+  average 9.8 results
+
+After the memory guard was lowered to `NATIVE_EMBEDDING_MIN_FREE_MEMORY_MB=1600`,
+the live rerun reported approximately `371.8 ms` average for default mode. The
+same run showed rerank latency spikes up to roughly 14 seconds when
+`expandSections` supplied up to 32 candidates to the CPU reranker. This is a
+follow-up performance investigation, not a correctness failure.
+
+The 25 ms figure must not be used as the archive search baseline going forward.
+
+### 2026-09-07 — rerank candidate cap
+
+The first live performance run showed that rerank latency was dominated by the
+number of dense candidates passed to the CPU cross-encoder. A corpus of 232
+documents produced 9–32 candidates and individual rerank calls took up to about
+14 seconds. The pgvector provider now uses the configurable
+`RERANKER_CANDIDATE_LIMIT` value, while never selecting fewer candidates than
+the requested `topN` or the existing minimum of 10.
+
+The initial cap of 16 was still too slow on this host:
+
+- Report: `perf-archive-full-2026-09-07T04-55-20-918Z.json`
+- Candidate cap: 16
+- Rerank average: `15,575.4 ms`
+- p50: `16,495.7 ms`
+- p95/max: `22,571.9 ms`
+- Errors: 0
+
+The live default was then set to `RERANKER_CANDIDATE_LIMIT="10"` in the ignored
+local `server/.env.development`, with the same documented value in both env
+templates. The one-pass rerank performance run improved to:
+
+- Report: `perf-archive-full-2026-09-07T05-01-30-685Z.json`
+- Candidate cap: 10
+- Rerank average: `7,572.6 ms`
+- p50: `8,643.6 ms`
+- p95/max: `16,334.4 ms`
+- Errors: 0
+
+Correctness did not regress:
+
+- `eval/run.mjs --keep --mode rerank`: MRR `1.000`, hit@1 `1.000`, no misses
+  at @5 (`2026-09-07T05-05-38-527Z.json`)
+- `eval/answers.mjs`: 8/8 passed, faithfulness `1.0`, completeness `0.988`,
+  citation accuracy `1.0` (`answers-2026-09-07T05-10-53-367Z.json`)
+
+Conclusion: candidate capping is useful and prevents the worst 32-candidate
+case, but CPU reranking remains a multi-second optional mode. Keep default
+search as the normal user path and expose rerank as a precision mode. A future
+performance pass should evaluate a smaller/quantized reranker or move rerank
+to a dedicated service; lowering the candidate cap further would make the
+current `topN=8` contract unsafe because the provider intentionally keeps a
+minimum of 10 candidates.
+
 ## 2026-08-28 — reranker swapped to multilingual (P0a follow-up)
 
 Changed `server/utils/EmbeddingRerankers/native/index.js` default model

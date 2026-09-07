@@ -78,6 +78,20 @@ class PGVector extends VectorDatabase {
     };
   }
 
+  static rerankCandidateLimit(totalEmbeddings, topN = 4) {
+    const configured = this.integerSetting(
+      "RERANKER_CANDIDATE_LIMIT",
+      10,
+      10,
+      50
+    );
+    const corpusCandidateCount = Math.ceil(totalEmbeddings * 0.1);
+    return Math.max(
+      topN,
+      Math.min(configured, Math.max(10, corpusCandidateCount))
+    );
+  }
+
   static indexName(suffix) {
     const base = PGVector.tableName().replace(/[^a-zA-Z0-9_]/g, "_");
     return `${base}_${suffix}`.slice(0, 63);
@@ -661,10 +675,7 @@ class PGVector extends VectorDatabase {
     filterIdentifiers = [],
   }) {
     const totalEmbeddings = await this.namespaceCount(namespace);
-    const searchLimit = Math.max(
-      10,
-      Math.min(50, Math.ceil(totalEmbeddings * 0.1))
-    );
+    const searchLimit = PGVector.rerankCandidateLimit(totalEmbeddings, topN);
     await this.configureVectorSearch(client);
     const embedding = `[${queryVector.map(Number).join(",")}]`;
     const response = await client.query(
