@@ -38,6 +38,7 @@ class GenericOpenAiProvider extends InheritMultiple([Provider, UnTooled]) {
     this.maxTokens = process.env.GENERIC_OPEN_AI_MAX_TOKENS
       ? toValidNumber(process.env.GENERIC_OPEN_AI_MAX_TOKENS, 1024)
       : 1024;
+    this.reasoningEffort = process.env.GENERIC_OPEN_AI_REASONING_EFFORT;
   }
 
   get client() {
@@ -78,6 +79,9 @@ class GenericOpenAiProvider extends InheritMultiple([Provider, UnTooled]) {
         temperature: 0,
         messages,
         max_tokens: this.maxTokens,
+        ...(this.reasoningEffort
+          ? { reasoning_effort: this.reasoningEffort }
+          : {}),
       })
       .then((result) => {
         if (!result.hasOwnProperty("choices"))
@@ -96,6 +100,9 @@ class GenericOpenAiProvider extends InheritMultiple([Provider, UnTooled]) {
       model: this.model,
       stream: true,
       messages,
+      ...(this.reasoningEffort
+        ? { reasoning_effort: this.reasoningEffort }
+        : {}),
     });
   }
 
@@ -127,7 +134,12 @@ class GenericOpenAiProvider extends InheritMultiple([Provider, UnTooled]) {
         messages,
         functions,
         eventHandler,
-        { provider: this }
+        {
+          provider: this,
+          ...(this.reasoningEffort
+            ? { requestOptions: { reasoning_effort: this.reasoningEffort } }
+            : {}),
+        }
       );
     } catch (error) {
       console.error(error.message, error);
@@ -166,7 +178,12 @@ class GenericOpenAiProvider extends InheritMultiple([Provider, UnTooled]) {
         messages,
         functions,
         this.getCost.bind(this),
-        { provider: this }
+        {
+          provider: this,
+          ...(this.reasoningEffort
+            ? { requestOptions: { reasoning_effort: this.reasoningEffort } }
+            : {}),
+        }
       );
 
       if (result.retryWithError) {

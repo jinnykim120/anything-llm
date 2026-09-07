@@ -102,8 +102,8 @@ export default {
     manage: (slug) => {
       return `/workspace/${slug}/manage`;
     },
-    library: (slug) => {
-      return `/workspace/${slug}/library`;
+    library: (slug, options = {}) => {
+      return applyOptions(`/workspace/${slug}/library`, options);
     },
   },
   apiDocs: () => {

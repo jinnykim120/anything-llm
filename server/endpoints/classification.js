@@ -7,17 +7,48 @@
 //   POST /classification/:contentHash/move        move a doc to a tier-matching workspace
 //   POST /classification/:contentHash/dedupe      collapse same-workspace duplicate rows to one
 const prisma = require("../utils/prisma");
-const { reqBody } = require("../utils/http");
+const { reqBody, safeJsonParse } = require("../utils/http");
 const { fileData } = require("../utils/files");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { taxonomy } = require("../utils/classification/taxonomy");
+const { taxonomy, DOC_TYPE } = require("../utils/classification/taxonomy");
 const { DocumentClassification } = require("../models/documentClassification");
 const { Document } = require("../models/documents");
 const { Workspace } = require("../models/workspace");
+
+const CUSTOM_DOC_TYPES_SETTING = "archive_document_types";
+
+async function storedDocumentTypes() {
+  const setting = await prisma.system_settings
+    .findUnique({ where: { label: CUSTOM_DOC_TYPES_SETTING } })
+    .catch(() => null);
+  const values = safeJsonParse(setting?.value, []);
+  return (Array.isArray(values) ? values : [])
+    .filter((value) => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function documentTypeOptions() {
+  const [stored, classifications] = await Promise.all([
+    storedDocumentTypes(),
+    prisma.document_classifications
+      .findMany({ select: { docType: true } })
+      .catch(() => []),
+  ]);
+  const used = classifications.map((row) => row.docType).filter(Boolean);
+  return [...new Set([...DOC_TYPE.suggested, ...stored, ...used])];
+}
+
+async function taxonomyWithDocumentTypes() {
+  return {
+    ...taxonomy(),
+    doc_type: { suggested: await documentTypeOptions() },
+  };
+}
 
 /**
  * Every distinct document currently in the archive, keyed by content_hash,
@@ -98,8 +129,44 @@ function classificationEndpoints(app) {
   app.get(
     "/classification/taxonomy",
     [validatedRequest, flexUserRoleValid([ROLES.all])],
-    (_request, response) => {
-      response.status(200).json({ taxonomy: taxonomy() });
+    async (_request, response) => {
+      response
+        .status(200)
+        .json({ taxonomy: await taxonomyWithDocumentTypes() });
+    }
+  );
+
+  app.post(
+    "/classification/taxonomy/doc-type",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const value = String(reqBody(request).value || "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!value || value.length > 80)
+          return response
+            .status(400)
+            .json({ error: "문서 종류는 1~80자로 입력하세요." });
+
+        const current = await storedDocumentTypes();
+        const values = [...new Set([...current, value])].slice(0, 100);
+        await prisma.system_settings.upsert({
+          where: { label: CUSTOM_DOC_TYPES_SETTING },
+          update: { value: JSON.stringify(values) },
+          create: {
+            label: CUSTOM_DOC_TYPES_SETTING,
+            value: JSON.stringify(values),
+          },
+        });
+        response.status(200).json({
+          value,
+          taxonomy: await taxonomyWithDocumentTypes(),
+        });
+      } catch (e) {
+        console.error("POST /classification/taxonomy/doc-type", e);
+        response.status(500).json({ error: e.message });
+      }
     }
   );
 

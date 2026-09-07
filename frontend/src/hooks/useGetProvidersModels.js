@@ -69,7 +69,20 @@ export default function useGetProviderModels(provider = null) {
 
   useEffect(() => {
     async function fetchProviderModels() {
-      if (!provider) return;
+      if (!provider) {
+        setLoading(false);
+        return;
+      }
+
+      // Claude Code uses the local CLI and does not expose a model-list API.
+      // The selector supplies the configured model as its fallback option.
+      if (provider === "claudecli") {
+        setDefaultModels([]);
+        setCustomModels([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       const { models = [] } = await System.customModels(provider);
       if (

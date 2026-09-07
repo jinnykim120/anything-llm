@@ -87,6 +87,21 @@ export default function GenericOpenAiOptions({ settings }) {
             autoComplete="off"
           />
         </div>
+        <div className="flex flex-col w-60">
+          <label className="text-white text-sm font-semibold block mb-3">
+            Reasoning effort
+          </label>
+          <select
+            name="GenericOpenAiReasoningEffort"
+            defaultValue={settings?.GenericOpenAiReasoningEffort || ""}
+            className="border-none bg-theme-settings-input-bg border-gray-500 text-white text-sm rounded-lg block w-full p-2.5"
+          >
+            <option value="">Default</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
       </div>
     </div>
   );

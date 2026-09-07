@@ -8,6 +8,7 @@ import { isMobile } from "react-device-detect";
 import { FullScreenLoader } from "@/components/Preloader";
 import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
 import ArchiveSidebar from "@/components/ArchiveSidebar";
+import ArchiveFlowBackdrop from "@/components/ArchiveFlowBackdrop";
 
 export default function WorkspaceChat() {
   const { slug } = useParams();
@@ -19,7 +20,8 @@ export default function WorkspaceChat() {
   }
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-zinc-950 light:bg-slate-50">
+      {slug === "archive-full" && <ArchiveFlowBackdrop className="z-0" />}
       {!isMobile &&
         (slug === "archive-full" ? (
           <ArchiveSidebar slug={slug} />

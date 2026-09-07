@@ -1,5 +1,6 @@
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { toChunks, reportEmbeddingProgress } = require("../../helpers");
 const { v4 } = require("uuid");
 const { SUPPORTED_NATIVE_EMBEDDING_MODELS } = require("./constants");
@@ -13,6 +14,28 @@ class NativeEmbedder {
   static #pipelines = new Map();
   /** @type {Map<string, Promise<any>>} */
   static #pipelinePromises = new Map();
+
+  /**
+   * BGE-M3 is a large ONNX graph and loading it can require more temporary
+   * memory than the model's file size. Refuse a cold load when the host is
+   * already under pressure so the caller can use a text-search fallback
+   * instead of taking down the whole server with a native allocation error.
+   */
+  static assertLoadMemory(model) {
+    if (!String(model).includes("bge-m3")) return;
+
+    const configured = Number(
+      process.env.NATIVE_EMBEDDING_MIN_FREE_MEMORY_MB
+    );
+    const minimumMb = Number.isFinite(configured) ? configured : 2_560;
+    if (minimumMb <= 0) return;
+
+    const freeMb = Math.floor(os.freemem() / 1024 / 1024);
+    if (freeMb >= minimumMb) return;
+    throw new Error(
+      `Insufficient free memory to load ${model} (${freeMb}MB available; ${minimumMb}MB required).`
+    );
+  }
 
   /**
    * Supported embedding models for native.
@@ -189,6 +212,8 @@ class NativeEmbedder {
       return NativeEmbedder.#pipelines.get(this.model);
     if (NativeEmbedder.#pipelinePromises.has(this.model))
       return await NativeEmbedder.#pipelinePromises.get(this.model);
+
+    NativeEmbedder.assertLoadMemory(this.model);
 
     const loadPromise = (async () => {
       if (!this.modelDownloaded)

@@ -9,9 +9,10 @@ import {
   FolderOpen,
   MagnifyingGlass,
 } from "@phosphor-icons/react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import ArchiveSidebar from "@/components/ArchiveSidebar";
 import Workspace from "@/models/workspace";
+import Classification from "@/models/classification";
 import { API_BASE } from "@/utils/constants";
 import paths from "@/utils/paths";
 
@@ -26,17 +27,42 @@ function safeMetadata(value) {
 }
 
 function filename(document) {
-  return (
-    document?.filename ||
-    document?.docpath?.split(/[\\/]/).pop() ||
-    "이름 없는 문서"
-  );
+  const metadata = safeMetadata(document?.metadata);
+  const source =
+    metadata.title ||
+    metadata.originalFilename ||
+    metadata.originalname ||
+    metadata.name ||
+    metadata.docSource ||
+    metadata.source;
+  if (source) {
+    const normalized = String(source).split(/[\\/]/).pop();
+    return normalized.includes("://")
+      ? normalized.split("://").pop()
+      : normalized;
+  }
+
+  const storedName =
+    document?.filename || document?.docpath?.split(/[\\/]/).pop();
+  return storedName?.toLowerCase().endsWith(".json")
+    ? storedName.slice(0, -5)
+    : storedName || "이름 없는 문서";
 }
 
-function folderName(document) {
+function storageFolderName(document) {
   const path = document?.docpath || "";
   const segments = path.split(/[\\/]/).filter(Boolean);
   return segments.length > 1 ? segments.slice(0, -1).join(" / ") : "미분류";
+}
+
+function contentHash(document) {
+  return safeMetadata(document?.metadata).content_hash || null;
+}
+
+function classificationFolder(document, classificationsByHash) {
+  const classification = classificationsByHash.get(contentHash(document));
+  if (classification?.docType?.trim()) return classification.docType.trim();
+  return "미분류";
 }
 
 function typeLabel(document) {
@@ -46,57 +72,104 @@ function typeLabel(document) {
 
 export default function DocumentRoom() {
   const { slug = "archive-full" } = useParams();
+  const [searchParams] = useSearchParams();
+  const requestedFolder = searchParams.get("type")?.trim() || "";
+  const requestedHash = searchParams.get("hash")?.trim() || "";
   const [workspace, setWorkspace] = useState(null);
+  const [classifications, setClassifications] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [expanded, setExpanded] = useState({ "전체 문서": true });
-  const [selectedFolder, setSelectedFolder] = useState("전체 문서");
+  const [expanded, setExpanded] = useState(() => ({ "전체 문서": true }));
+  const [selectedFolder, setSelectedFolder] = useState(
+    requestedFolder || "전체 문서"
+  );
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    Workspace.bySlug(slug).then((result) => {
-      if (cancelled) return;
-      setWorkspace(result);
-      const first = result?.documents?.[0] || null;
-      setSelected(first);
-      setLoading(false);
-    });
+    Promise.all([Workspace.bySlug(slug), Classification.documents()]).then(
+      ([result, classificationResult]) => {
+        if (cancelled) return;
+        setWorkspace(result);
+        setClassifications(classificationResult || []);
+        const workspaceDocuments = result?.documents || [];
+        const linked = requestedHash
+          ? workspaceDocuments.find(
+              (document) => contentHash(document) === requestedHash
+            )
+          : null;
+        setSelected(linked || workspaceDocuments[0] || null);
+        setSelectedFolder(requestedFolder || "전체 문서");
+        if (requestedFolder) {
+          setExpanded((previous) => ({
+            ...previous,
+            [requestedFolder]: true,
+          }));
+        }
+        setLoading(false);
+      }
+    );
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [requestedFolder, requestedHash, slug]);
 
   const documents = workspace?.documents || [];
+  const classificationsByHash = useMemo(
+    () =>
+      new Map(
+        classifications
+          .filter((item) => item?.contentHash && item.classification)
+          .map((item) => [item.contentHash, item.classification])
+      ),
+    [classifications]
+  );
   const folders = useMemo(() => {
     const map = new Map([["전체 문서", documents]]);
     for (const document of documents) {
-      const folder = folderName(document);
+      const folder = classificationFolder(document, classificationsByHash);
       if (!map.has(folder)) map.set(folder, []);
       map.get(folder).push(document);
     }
-    return [...map.entries()];
-  }, [documents]);
+    return [...map.entries()].sort(([a], [b]) => {
+      const order = (name) =>
+        name === "전체 문서" ? 0 : name === "미분류" ? 1 : 2;
+      return order(a) - order(b) || a.localeCompare(b, "ko");
+    });
+  }, [classificationsByHash, documents]);
 
   const filteredDocuments = useMemo(() => {
     const folderDocuments =
       selectedFolder === "전체 문서"
         ? documents
         : documents.filter(
-            (document) => folderName(document) === selectedFolder
+            (document) =>
+              classificationFolder(document, classificationsByHash) ===
+              selectedFolder
           );
     const normalized = query.trim().toLowerCase();
     if (!normalized) return folderDocuments;
     return folderDocuments.filter((document) =>
-      `${filename(document)} ${folderName(document)}`
+      `${filename(document)} ${classificationFolder(
+        document,
+        classificationsByHash
+      )} ${storageFolderName(document)}`
         .toLowerCase()
         .includes(normalized)
     );
-  }, [documents, query, selectedFolder]);
+  }, [classificationsByHash, documents, query, selectedFolder]);
+
+  const selectedClassification = selected
+    ? classificationsByHash.get(contentHash(selected)) || null
+    : null;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <ArchiveSidebar slug={slug} />
+      <ArchiveSidebar
+        slug={slug}
+        view="management"
+        activeManagement="documents"
+      />
       <main className="min-w-0 flex-1 overflow-hidden">
         <div className="flex h-full flex-col px-6 py-8 lg:px-10 lg:py-10">
           <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 pb-6 dark:border-zinc-800">
@@ -135,12 +208,21 @@ export default function DocumentRoom() {
           <div className="mt-6 grid min-h-0 flex-1 gap-5 lg:grid-cols-[230px_minmax(0,1fr)_320px]">
             <aside className="min-h-0 overflow-y-auto border border-slate-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
               <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-600">
-                폴더
+                분류 폴더
               </p>
               {folders.map(([folder, items]) => {
+                const isRoot = folder === "전체 문서";
+                if (!isRoot && !expanded["전체 문서"]) return null;
                 const isOpen = expanded[folder];
                 return (
-                  <div key={folder} className="mb-1">
+                  <div
+                    key={folder}
+                    className={`mb-1 ${
+                      isRoot
+                        ? ""
+                        : "ml-3 border-l border-slate-200 pl-2 dark:border-zinc-800"
+                    }`}
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -170,7 +252,7 @@ export default function DocumentRoom() {
                         {items.length}
                       </span>
                     </button>
-                    {isOpen && folder !== "전체 문서" && (
+                    {isOpen && !isRoot && (
                       <div className="ml-7 border-l border-slate-200 pl-2 dark:border-zinc-800">
                         {items.slice(0, 5).map((document) => (
                           <button
@@ -192,7 +274,7 @@ export default function DocumentRoom() {
             <section className="min-h-0 overflow-y-auto border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
                 <p className="text-xs font-semibold">
-                  전체 문서{" "}
+                  {selectedFolder}{" "}
                   <span className="ml-1 font-normal text-slate-400 dark:text-zinc-600">
                     {filteredDocuments.length}
                   </span>
@@ -238,7 +320,11 @@ export default function DocumentRoom() {
                           {filename(document)}
                         </span>
                         <span className="mt-1 block truncate text-[10px] text-slate-400 dark:text-zinc-600">
-                          {folderName(document)} · {typeLabel(document)}
+                          {classificationFolder(
+                            document,
+                            classificationsByHash
+                          )}{" "}
+                          · {typeLabel(document)}
                           {metadata?.title &&
                           metadata.title !== filename(document)
                             ? ` · ${metadata.title}`
@@ -253,7 +339,10 @@ export default function DocumentRoom() {
                 })}
             </section>
 
-            <DocumentDetail document={selected} />
+            <DocumentDetail
+              document={selected}
+              classification={selectedClassification}
+            />
           </div>
         </div>
       </main>
@@ -261,7 +350,7 @@ export default function DocumentRoom() {
   );
 }
 
-function DocumentDetail({ document }) {
+function DocumentDetail({ document, classification }) {
   const metadata = safeMetadata(document?.metadata);
   if (!document)
     return (
@@ -271,8 +360,8 @@ function DocumentDetail({ document }) {
         </p>
       </aside>
     );
-  const rawHref = document.id
-    ? `${API_BASE}/document/raw/${document.id}`
+  const rawHref = document.docId
+    ? `${API_BASE}/document/raw/${document.docId}`
     : null;
   return (
     <aside className="min-h-0 overflow-y-auto border border-slate-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -286,7 +375,22 @@ function DocumentDetail({ document }) {
         <div>
           <dt className="text-slate-400 dark:text-zinc-600">폴더</dt>
           <dd className="mt-1 break-words text-slate-700 dark:text-zinc-300">
-            {folderName(document)}
+            {classificationFolder(
+              document,
+              new Map([[contentHash(document), classification]])
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-slate-400 dark:text-zinc-600">분류 종류</dt>
+          <dd className="mt-1 break-words text-slate-700 dark:text-zinc-300">
+            {classification?.docType || "미분류"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-slate-400 dark:text-zinc-600">분야</dt>
+          <dd className="mt-1 break-words text-slate-700 dark:text-zinc-300">
+            {classification?.domain || "-"}
           </dd>
         </div>
         <div>
@@ -298,9 +402,7 @@ function DocumentDetail({ document }) {
         <div>
           <dt className="text-slate-400 dark:text-zinc-600">분류 검수</dt>
           <dd className="mt-1 text-amber-700 dark:text-amber-300">
-            {metadata?.classification?.status === "confirmed"
-              ? "확정"
-              : "검수 대기"}
+            {classification?.status === "confirmed" ? "확정" : "검수 대기"}
           </dd>
         </div>
         <div>

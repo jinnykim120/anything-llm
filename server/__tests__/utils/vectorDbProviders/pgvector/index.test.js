@@ -132,6 +132,7 @@ describe("PGVector document metadata parity", () => {
 describe("PGVector section expansion", () => {
   it("fills in missing chunks from a section and restores reading order", async () => {
     const client = {
+      end: jest.fn().mockResolvedValue(),
       query: jest.fn().mockResolvedValue({
         rows: [
           {
@@ -249,6 +250,60 @@ describe("PGVector dense search", () => {
     expect(result.contextTexts).toEqual(["기본 검색 결과"]);
     expect(result.scores).toEqual([0.9]);
     expect(client.query).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("PGVector lexical fallback", () => {
+  it("normalizes Korean particles in exact-name queries", () => {
+    expect(PGVectorClass.lexicalSearchTerms("우리동네GS 실적은?")).toEqual([
+      "우리동네gs",
+      "실적",
+    ]);
+  });
+
+  it("returns document context when embedding search is unavailable", async () => {
+    const client = {
+      end: jest.fn().mockResolvedValue(),
+      query: jest.fn().mockResolvedValue({
+        rows: [
+          {
+            metadata: {
+              title: "GS리테일 실적 보고서",
+              published: "2026-09-03",
+              text: "우리동네GS 앱의 실적은 월간 활성 사용자 431만 명입니다.",
+              doc_id: "doc-1",
+            },
+          },
+        ],
+      }),
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue(client);
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive-full",
+      input: "우리동네gs 실적은?",
+      LLMConnector: {
+        embedTextInput: jest
+          .fn()
+          .mockRejectedValue(new Error("embedding unavailable")),
+      },
+      similarityThreshold: 0.25,
+      topN: 4,
+    });
+
+    expect(result.contextTexts).toEqual([
+      "우리동네GS 앱의 실적은 월간 활성 사용자 431만 명입니다.",
+    ]);
+    expect(result.sources[0]).toEqual(
+      expect.objectContaining({
+        title: "GS리테일 실적 보고서",
+        score: expect.any(Number),
+      })
+    );
   });
 });
 

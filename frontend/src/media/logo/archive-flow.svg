@@ -9,5 +9,5 @@
     <path d="M41 14.5h8.5" stroke="#78a9ff"/>
     <circle cx="52" cy="14.5" r="2.5" fill="#78a9ff" stroke="#78a9ff"/>
   </g>
-  <text x="66" y="19" font-family="Inter, -apple-system, 'Segoe UI', sans-serif" font-size="14" font-weight="650" letter-spacing="0.2" fill="#f4f4f4">Archive QA</text>
+  <text x="66" y="19" font-family="Inter, -apple-system, 'Segoe UI', sans-serif" font-size="14" font-weight="650" letter-spacing="0.2" fill="#f4f4f4">Document Expansion LLM</text>
 </svg>

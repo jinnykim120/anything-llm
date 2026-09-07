@@ -3,9 +3,38 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { userFromStorage } from "./request";
 import { TOGGLE_LLM_SELECTOR_EVENT } from "@/components/WorkspaceChat/ChatContainer/PromptInput/LLMSelector/action";
+import System from "@/models/system";
+import showToast from "@/utils/toast";
 
 export const KEYBOARD_SHORTCUTS_HELP_EVENT = "keyboard-shortcuts-help";
 export const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
+const REASONING_EFFORTS = ["", "low", "medium", "high"];
+
+async function cycleReasoningEffort() {
+  const settings = await System.keys();
+  if (settings?.LLMProvider !== "generic-openai") {
+    showToast("Reasoning effort is available for AI Gateway only.", "info");
+    return;
+  }
+
+  const current = settings?.GenericOpenAiReasoningEffort || "";
+  const currentIndex = REASONING_EFFORTS.indexOf(current);
+  const next = REASONING_EFFORTS[(currentIndex + 1) % REASONING_EFFORTS.length];
+
+  const { error } = await System.updateSystem({
+    GenericOpenAiReasoningEffort: next,
+  });
+  if (error) {
+    showToast(`Failed to change reasoning effort: ${error}`, "error");
+    return;
+  }
+
+  showToast(
+    `Reasoning effort: ${next ? next[0].toUpperCase() + next.slice(1) : "Default"}`,
+    "success"
+  );
+}
 
 /**
  * Keyboard shortcut definitions.
@@ -68,6 +97,18 @@ export const SHORTCUTS = {
       window.dispatchEvent(new Event(TOGGLE_LLM_SELECTOR_EVENT));
     },
   },
+  "⌘ + T": {
+    translationKey: "showLLMSelector",
+    action: () => {
+      cycleReasoningEffort();
+    },
+  },
+  "⌘ + Shift + T": {
+    translationKey: "showLLMSelector",
+    action: () => {
+      window.dispatchEvent(new Event(TOGGLE_LLM_SELECTOR_EVENT));
+    },
+  },
 };
 
 const LISTENERS = {};
@@ -106,6 +147,7 @@ function getShortcutKey(event) {
  */
 export function initKeyboardShortcuts(ctx = {}) {
   function handleKeyDown(event) {
+    if (event.repeat) return;
     const shortcutKey = getShortcutKey(event);
     if (!shortcutKey) return;
 
@@ -126,7 +168,7 @@ function useKeyboardShortcuts() {
     // If there is a user and the user is not an admin do not register the event listener
     // since some of the shortcuts are only available in multi-user mode as admin
     const user = userFromStorage();
-    if (!!user && user?.role !== "admin") return;
+    if (!!user && !["admin", "manager"].includes(user?.role)) return;
     const cleanup = initKeyboardShortcuts({ navigate });
 
     return () => cleanup();

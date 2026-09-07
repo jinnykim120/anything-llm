@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require("uuid");
 const truncate = require("truncate");
 
 const WorkspaceThread = {
-  defaultName: "Thread",
+  defaultName: "새로운 채팅",
   writable: ["name"],
 
   /**
@@ -141,7 +141,9 @@ const WorkspaceThread = {
     onRename = null,
   }) {
     if (!workspace || !thread || !prompt) return false;
-    if (thread.name !== this.defaultName) return false; // don't rename if already named.
+    // Keep compatibility with threads created before the archive UI changed
+    // the placeholder from "Thread" to the user-facing Korean label.
+    if (![this.defaultName, "Thread"].includes(thread.name)) return false;
 
     const { WorkspaceChats } = require("./workspaceChats");
     const chatCount = await WorkspaceChats.count({
@@ -150,8 +152,9 @@ const WorkspaceThread = {
       thread_id: thread.id,
     });
     if (chatCount !== 1) return { renamed: false, thread };
+    const title = String(prompt).replace(/\s+/g, " ").trim();
     const { thread: updatedThread } = await this.update(thread, {
-      name: truncate(prompt, 22),
+      name: truncate(title, 28),
     });
 
     onRename?.(updatedThread);

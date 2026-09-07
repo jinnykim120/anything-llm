@@ -28,9 +28,9 @@ export function useTheme() {
   const [theme, _setTheme] = useState(() => {
     const stored = localStorage.getItem("theme");
     if (stored === "default") return "dark"; // migrate legacy value
-    // Archive QA opens on a quiet Carbon-inspired light canvas. Users can
-    // still pick "system" or "dark" from the floating theme control.
-    return stored || "light";
+    // Archive QA opens in a focused dark canvas. Users can still pick
+    // "light" or "system" from the floating theme control.
+    return stored || "dark";
   });
 
   const [systemTheme, setSystemTheme] = useState(() =>

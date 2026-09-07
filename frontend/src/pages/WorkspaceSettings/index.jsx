@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
+import ArchiveSidebar from "@/components/ArchiveSidebar";
 import Workspace from "@/models/workspace";
 import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
 import { isMobile } from "react-device-detect";
@@ -48,6 +49,7 @@ function ShowWorkspaceChat() {
   const { t } = useTranslation();
   const { slug, tab } = useParams();
   const { user } = useUser();
+  const isArchiveWorkspace = slug === "archive-full";
   const [workspace, setWorkspace] = useState(null);
   const [deletionProtected, setDeletionProtected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -79,17 +81,39 @@ function ShowWorkspaceChat() {
   const TabContent = TABS[tab];
   return (
     <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
-      {!isMobile && <Sidebar />}
+      {!isMobile &&
+        (isArchiveWorkspace ? (
+          <ArchiveSidebar
+            slug={slug}
+            view="management"
+            activeManagement="query"
+          />
+        ) : (
+          <Sidebar />
+        ))}
       <div
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll"
       >
         <div className="flex gap-x-10 pt-6 pb-4 ml-16 mr-8 border-b-2 border-white light:border-theme-chat-input-border border-opacity-10">
           <Link
-            to={paths.workspace.chat(slug)}
-            className="absolute top-2 left-2 md:top-4 md:left-4 transition-all duration-300 p-2 rounded-full text-white bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover z-10"
+            to={
+              isArchiveWorkspace
+                ? paths.workspace.manage(slug)
+                : paths.workspace.chat(slug)
+            }
+            aria-label={
+              isArchiveWorkspace ? "관리로 돌아가기" : "작업 화면으로 돌아가기"
+            }
+            title={
+              isArchiveWorkspace ? "관리로 돌아가기" : "작업 화면으로 돌아가기"
+            }
+            className={`absolute top-2 left-2 md:top-4 md:left-4 z-10 inline-flex items-center gap-2 rounded-full p-2 text-white transition-all duration-300 hover:bg-theme-sidebar-footer-icon-hover ${isArchiveWorkspace ? "rounded-lg pr-3" : "bg-theme-sidebar-footer-icon"}`}
           >
             <ArrowUUpLeft className="h-5 w-5" weight="fill" />
+            {isArchiveWorkspace && (
+              <span className="text-xs font-semibold">관리로 돌아가기</span>
+            )}
           </Link>
           <TabItem
             title={t("workspaces—settings.general")}

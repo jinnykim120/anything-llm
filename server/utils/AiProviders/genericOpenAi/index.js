@@ -222,6 +222,7 @@ class GenericOpenAiLLM {
   }
 
   async getChatCompletion(messages = null, { temperature = 0.7 }) {
+    const reasoningEffort = process.env.GENERIC_OPEN_AI_REASONING_EFFORT;
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
       this.openai.chat.completions
         .create({
@@ -229,6 +230,7 @@ class GenericOpenAiLLM {
           messages,
           temperature,
           max_tokens: this.maxTokens,
+          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         })
         .catch((e) => {
           throw new Error(e.message);
@@ -262,6 +264,7 @@ class GenericOpenAiLLM {
   }
 
   async streamGetChatCompletion(messages = null, { temperature = 0.7 }) {
+    const reasoningEffort = process.env.GENERIC_OPEN_AI_REASONING_EFFORT;
     const measuredStreamRequest = await LLMPerformanceMonitor.measureStream({
       func: this.openai.chat.completions.create({
         model: this.model,
@@ -269,6 +272,7 @@ class GenericOpenAiLLM {
         messages,
         temperature,
         max_tokens: this.maxTokens,
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         ...this.#includeStreamOptionsUsage(),
       }),
       messages,

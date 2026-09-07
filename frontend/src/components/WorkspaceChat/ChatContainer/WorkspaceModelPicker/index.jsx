@@ -14,15 +14,22 @@ import Workspace from "@/models/workspace";
 import System from "@/models/system";
 import ModelRouterAPI from "@/models/modelRouter";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";
+import {
+  formatLLMModelName,
+  getSystemModelForProvider,
+} from "../PromptInput/LLMSelector/utils";
 
 async function resolveModelName(workspace, systemSettings, t) {
   const effectiveProvider =
-    workspace.chatProvider ?? systemSettings?.LLMProvider;
+    workspace?.chatProvider ?? systemSettings?.LLMProvider;
 
   if (effectiveProvider !== "anythingllm-router")
-    return workspace.chatModel ?? systemSettings?.LLMModel ?? "";
+    return (
+      workspace?.chatModel ||
+      getSystemModelForProvider(systemSettings, effectiveProvider)
+    );
 
-  const routerId = workspace.router_id || systemSettings?.ModelRouterId;
+  const routerId = workspace?.router_id || systemSettings?.ModelRouterId;
   if (!routerId) return t("model-router.metrics.model-router-default");
 
   const { router } = await ModelRouterAPI.get(routerId);
@@ -33,11 +40,15 @@ async function resolveModelName(workspace, systemSettings, t) {
 
 async function fetchModelName(slug, setModelName, t) {
   if (!slug) return;
-  const [workspace, systemSettings] = await Promise.all([
-    Workspace.bySlug(slug),
-    System.keys(),
-  ]);
-  setModelName(await resolveModelName(workspace, systemSettings, t));
+  try {
+    const [workspace, systemSettings] = await Promise.all([
+      Workspace.bySlug(slug),
+      System.keys(),
+    ]);
+    setModelName(await resolveModelName(workspace, systemSettings, t));
+  } catch (error) {
+    console.error("Failed to load the workspace model label", error);
+  }
 }
 
 export default function WorkspaceModelPicker({ workspaceSlug = null }) {
@@ -67,7 +78,7 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
   // Fetch current model name for display
   useEffect(() => {
     fetchModelName(slug, setModelName, t);
-  }, [slug]);
+  }, [slug, t]);
 
   // Close selector and refresh model name when model is saved
   useEffect(() => {
@@ -78,7 +89,7 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
     window.addEventListener(SAVE_LLM_SELECTOR_EVENT, handleSave);
     return () =>
       window.removeEventListener(SAVE_LLM_SELECTOR_EVENT, handleSave);
-  }, [slug]);
+  }, [slug, t]);
 
   // Handle provider setup request
   useEffect(() => {
@@ -92,8 +103,10 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
       window.removeEventListener(PROVIDER_SETUP_EVENT, handleProviderSetup);
   }, []);
 
-  // This feature is disabled for multi-user instances where the user is not an admin
-  if (!!user && user.role !== "admin") return null;
+  // Workspace updates are available to administrators and managers. Keep the
+  // picker hidden for regular multi-user accounts because they cannot persist
+  // a shared workspace model selection.
+  if (!!user && !["admin", "manager"].includes(user.role)) return null;
   if (!slug || isMobile) return null;
 
   return (
@@ -125,7 +138,7 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
                 : "text-zinc-500 light:text-slate-500 group-hover:text-white light:group-hover:text-slate-800"
             }`}
           >
-            {modelName || t("chat_window.select_model")}
+            {formatLLMModelName(modelName) || t("chat_window.select_model")}
           </span>
         </button>
 

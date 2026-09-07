@@ -7,10 +7,23 @@ export default function ChatModelSelection({
   setHasChanges,
   selectedLLMModel,
   setSelectedLLMModel,
+  fallbackModel = "",
 }) {
   const { defaultModels, customModels, loading, downloadedModels } =
     useGetProviderModels(provider);
   if (DISABLED_PROVIDERS.includes(provider)) return null;
+
+  const discoveredModelIds = Array.isArray(customModels)
+    ? customModels.map((model) => model.id)
+    : Object.values(customModels)
+        .flat()
+        .map((model) => model.id);
+  const knownModelIds = new Set([
+    ...defaultModels,
+    ...downloadedModels.map((model) => model.id),
+    ...discoveredModelIds,
+  ]);
+  const showFallbackModel = fallbackModel && !knownModelIds.has(fallbackModel);
 
   if (loading) {
     return (
@@ -37,6 +50,11 @@ export default function ChatModelSelection({
       }}
       className="bg-zinc-900 light:bg-white text-white light:text-slate-900 text-sm rounded-lg h-8 w-full px-2.5 outline-none border border-zinc-900 light:border-slate-400 cursor-pointer"
     >
+      {showFallbackModel && (
+        <optgroup label="Configured model">
+          <option value={fallbackModel}>{fallbackModel}</option>
+        </optgroup>
+      )}
       {defaultModels.length > 0 && (
         <optgroup label="General models">
           {defaultModels.map((model) => {

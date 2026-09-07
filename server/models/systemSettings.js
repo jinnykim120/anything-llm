@@ -982,6 +982,8 @@ const SystemSettings = {
       GenericOpenAiTokenLimit: process.env.GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT,
       GenericOpenAiKey: !!process.env.GENERIC_OPEN_AI_API_KEY,
       GenericOpenAiMaxTokens: process.env.GENERIC_OPEN_AI_MAX_TOKENS,
+      GenericOpenAiReasoningEffort:
+        process.env.GENERIC_OPEN_AI_REASONING_EFFORT,
 
       // Foundry Keys
       FoundryBasePath: process.env.FOUNDRY_BASE_PATH,

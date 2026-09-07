@@ -15,6 +15,19 @@ const Classification = {
       });
   },
 
+  addDocType: async (value) => {
+    return await fetch(`${API_BASE}/classification/taxonomy/doc-type`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ value }),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { error: e.message };
+      });
+  },
+
   documents: async () => {
     return await fetch(`${API_BASE}/classification/documents`, {
       headers: baseHeaders(),

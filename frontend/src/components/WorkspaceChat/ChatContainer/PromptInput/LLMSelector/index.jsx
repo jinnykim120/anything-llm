@@ -8,6 +8,8 @@ import { PROVIDER_SETUP_EVENT, SAVE_LLM_SELECTOR_EVENT } from "./action";
 import {
   WORKSPACE_LLM_PROVIDERS,
   autoScrollToSelectedLLMProvider,
+  getConfiguredWorkspaceLLMProviders,
+  getSystemModelForProvider,
   hasMissingCredentials,
   validatedModelSelection,
 } from "./utils";
@@ -29,9 +31,8 @@ export default function LLMSelectorModal({
   const [selectedLLMProvider, setSelectedLLMProvider] = useState(null);
   const [selectedLLMModel, setSelectedLLMModel] = useState("");
   const [selectedRouterId, setSelectedRouterId] = useState(null);
-  const [availableProviders, setAvailableProviders] = useState(
-    WORKSPACE_LLM_PROVIDERS
-  );
+  const [configuredProviders, setConfiguredProviders] = useState([]);
+  const [availableProviders, setAvailableProviders] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [missingCredentials, setMissingCredentials] = useState(false);
@@ -42,31 +43,38 @@ export default function LLMSelectorModal({
     Promise.all([Workspace.bySlug(slug), System.keys()])
       .then(([workspace, systemSettings]) => {
         const savedProvider =
-          workspace.chatProvider ?? systemSettings.LLMProvider;
-        const savedModel = workspace.chatModel ?? systemSettings.LLMModel;
+          workspace?.chatProvider ?? systemSettings?.LLMProvider;
+        const configured = getConfiguredWorkspaceLLMProviders(
+          systemSettings,
+          [workspace?.chatProvider, initialProvider].filter(Boolean)
+        );
         const providerToSelect = initialProvider ?? savedProvider;
+        const modelToSelect =
+          workspace?.chatProvider === providerToSelect && workspace?.chatModel
+            ? workspace.chatModel
+            : getSystemModelForProvider(systemSettings, providerToSelect);
 
+        setConfiguredProviders(configured);
+        setAvailableProviders(configured);
         setSettings(systemSettings);
         setSelectedLLMProvider(providerToSelect);
         autoScrollToSelectedLLMProvider(providerToSelect);
-        setSelectedLLMModel(savedModel);
+        setSelectedLLMModel(modelToSelect);
         setSelectedRouterId(
-          workspace.router_id || systemSettings?.ModelRouterId || null
+          workspace?.router_id || systemSettings?.ModelRouterId || null
         );
-
-        if (initialProvider && initialProvider !== savedProvider) {
+        setMissingCredentials(
+          hasMissingCredentials(systemSettings, providerToSelect)
+        );
+        if (initialProvider && initialProvider !== savedProvider)
           setHasChanges(true);
-          setMissingCredentials(
-            hasMissingCredentials(systemSettings, initialProvider)
-          );
-        }
       })
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, initialProvider]);
 
   function handleSearch(e) {
     const searchTerm = e.target.value.toLowerCase();
-    const filteredProviders = WORKSPACE_LLM_PROVIDERS.filter((provider) =>
+    const filteredProviders = configuredProviders.filter((provider) =>
       provider.name.toLowerCase().includes(searchTerm)
     );
     setAvailableProviders(filteredProviders);
@@ -74,11 +82,13 @@ export default function LLMSelectorModal({
 
   function handleProviderSelection(provider) {
     setSelectedLLMProvider(provider);
-    setAvailableProviders(WORKSPACE_LLM_PROVIDERS);
+    setAvailableProviders(configuredProviders);
     autoScrollToSelectedLLMProvider(provider, 50);
-    document.getElementById("llm-search-input").value = "";
+    const searchInput = document.getElementById("llm-search-input");
+    if (searchInput) searchInput.value = "";
     setHasChanges(true);
     setMissingCredentials(hasMissingCredentials(settings, provider));
+    setSelectedLLMModel(getSystemModelForProvider(settings, provider));
   }
 
   async function handleSave() {
@@ -165,6 +175,7 @@ export default function LLMSelectorModal({
                 setHasChanges={setHasChanges}
                 selectedLLMModel={selectedLLMModel}
                 setSelectedLLMModel={setSelectedLLMModel}
+                fallbackModel={selectedLLMModel}
               />
             ))}
         </div>

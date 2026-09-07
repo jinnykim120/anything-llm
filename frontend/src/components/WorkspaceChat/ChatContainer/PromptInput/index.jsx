@@ -18,6 +18,7 @@ import usePromptInputStorage from "@/hooks/usePromptInputStorage";
 import ToolsMenu, { TOOLS_MENU_KEYBOARD_EVENT } from "./ToolsMenu";
 import { useSearchParams } from "react-router-dom";
 import { useIsAgentSessionActive } from "@/utils/chat/agent";
+import ArchiveUploadButton from "@/components/WorkspaceChat/ArchiveUpload";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";
 export const PROMPT_INPUT_EVENT = "set_prompt_input";
@@ -377,7 +378,9 @@ export default function PromptInput({
               <div className="flex justify-between items-center pt-3.5 pb-3">
                 <div className="flex items-center gap-x-0.25">
                   <div className="flex items-center gap-x-1">
-                    {!archiveMode && (
+                    {archiveMode ? (
+                      <ArchiveUploadButton workspaceSlug={workspace?.slug} />
+                    ) : (
                       <>
                         <AttachItem
                           workspaceSlug={workspaceSlug}

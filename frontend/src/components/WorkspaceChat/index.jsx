@@ -58,9 +58,14 @@ export default function WorkspaceChat({ loading, workspace }) {
         return false;
       }
 
+      // The archive landing route is always a clean starting point. Existing
+      // conversations remain available from the left-hand 기록 list, while
+      // opening the archive itself never drops a user back into an old query.
       const chatHistory = threadSlug
         ? await Workspace.threads.chatHistory(workspace.slug, threadSlug)
-        : await Workspace.chatHistory(workspace.slug);
+        : workspace.slug === "archive-full"
+          ? []
+          : await Workspace.chatHistory(workspace.slug);
 
       setLoaded({
         key: `${workspace.slug}:${threadSlug ?? "default"}`,

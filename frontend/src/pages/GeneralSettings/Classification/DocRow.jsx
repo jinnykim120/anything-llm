@@ -6,8 +6,10 @@ import {
   ArrowRight,
   Broom,
 } from "@phosphor-icons/react";
+import { Link } from "react-router-dom";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
+import paths from "@/utils/paths";
 
 const SENS_LABEL = {
   general: "일반 범용",
@@ -16,7 +18,13 @@ const SENS_LABEL = {
 };
 const CONFIRMABLE = ["general", "confidential"];
 
-export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
+export default function DocRow({
+  doc,
+  taxonomy,
+  onConfirmed,
+  reload,
+  onTaxonomyUpdated,
+}) {
   const cls = doc.classification;
   // Only a definite call pre-fills the select; "uncertain" / no proposal → the
   // human must pick.
@@ -32,6 +40,9 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
   const [moving, setMoving] = useState(false);
   const [dedupeKeep, setDedupeKeep] = useState({}); // workspace slug -> docId to keep
   const [dedupingWs, setDedupingWs] = useState(null);
+  const [addingDocType, setAddingDocType] = useState(false);
+  const [newDocType, setNewDocType] = useState("");
+  const [savingDocType, setSavingDocType] = useState(false);
 
   useEffect(() => {
     if (!cls) return;
@@ -53,6 +64,11 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
   const confirmableOptions = (
     taxonomy?.sensitivity?.confirmable || CONFIRMABLE
   ).filter(Boolean);
+  const docTypeOptions = [
+    ...new Set(
+      [...(taxonomy?.doc_type?.suggested || []), docType].filter(Boolean)
+    ),
+  ];
 
   async function confirm() {
     if (!CONFIRMABLE.includes(sensitivity))
@@ -71,6 +87,30 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
     if (res?.error) return showToast(`확정 실패: ${res.error}`, "error");
     showToast("분류 확정됨", "success");
     onConfirmed(res.classification);
+  }
+
+  function selectDocType(value) {
+    if (value === "__custom__") {
+      setAddingDocType(true);
+      setNewDocType("");
+      return;
+    }
+    setAddingDocType(false);
+    setDocType(value);
+  }
+
+  async function addDocumentType() {
+    const value = newDocType.replace(/\s+/g, " ").trim();
+    if (!value) return showToast("추가할 문서 종류를 입력하세요.", "error");
+    setSavingDocType(true);
+    const res = await Classification.addDocType(value);
+    setSavingDocType(false);
+    if (res?.error) return showToast(`종류 추가 실패: ${res.error}`, "error");
+    setDocType(res.value || value);
+    setNewDocType("");
+    setAddingDocType(false);
+    onTaxonomyUpdated?.(res.taxonomy);
+    showToast(`문서 종류 “${res.value || value}”를 추가했습니다.`, "success");
   }
 
   const lowConfidence =
@@ -275,6 +315,28 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
         </p>
       )}
 
+      {doc.workspaces?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-theme-text-secondary">문서함에서 확인:</span>
+          {doc.workspaces.map((workspace) => {
+            const search = new URLSearchParams();
+            if (docType.trim()) search.set("type", docType.trim());
+            search.set("hash", doc.contentHash);
+            return (
+              <Link
+                key={workspace.slug}
+                to={paths.workspace.library(workspace.slug, {
+                  search: search.toString(),
+                })}
+                className="inline-flex items-center gap-x-1 rounded border border-theme-button-primary/40 px-2 py-1 font-semibold text-theme-button-primary hover:bg-theme-button-primary/10"
+              >
+                {workspace.slug} 열기
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">민감도</span>
@@ -297,17 +359,41 @@ export default function DocRow({ doc, taxonomy, onConfirmed, reload }) {
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">종류</span>
-          <input
-            list={`doctype-${doc.contentHash}`}
-            value={docType}
-            onChange={(e) => setDocType(e.target.value)}
+          <select
+            value={addingDocType ? "__custom__" : docType}
+            onChange={(e) => selectDocType(e.target.value)}
             className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-          />
-          <datalist id={`doctype-${doc.contentHash}`}>
-            {(taxonomy?.doc_type?.suggested || []).map((v) => (
-              <option key={v} value={v} />
+          >
+            <option value="">— 선택 —</option>
+            {docTypeOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
             ))}
-          </datalist>
+            <option value="__custom__">＋ 문서 종류 직접 추가…</option>
+          </select>
+          {addingDocType && (
+            <div className="flex gap-1">
+              <input
+                autoFocus
+                value={newDocType}
+                onChange={(e) => setNewDocType(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addDocumentType();
+                }}
+                placeholder="예: 점검보고서"
+                className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+              />
+              <button
+                type="button"
+                onClick={addDocumentType}
+                disabled={savingDocType}
+                className="shrink-0 rounded-md bg-theme-button-primary px-2 text-[11px] font-semibold text-white disabled:opacity-50"
+              >
+                {savingDocType ? "추가 중…" : "추가"}
+              </button>
+            </div>
+          )}
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">분야</span>

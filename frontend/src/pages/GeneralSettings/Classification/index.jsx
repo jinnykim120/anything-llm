@@ -100,6 +100,7 @@ export default function ClassificationReview() {
                   doc={doc}
                   taxonomy={taxonomy}
                   reload={load}
+                  onTaxonomyUpdated={setTaxonomy}
                   onConfirmed={(cls) =>
                     setDocs((prev) =>
                       prev.map((d) =>

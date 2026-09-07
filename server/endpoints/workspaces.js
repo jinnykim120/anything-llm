@@ -815,6 +815,15 @@ function workspaceEndpoints(app) {
 
         const Collector = new CollectorApi();
         const { originalname } = request.file;
+        // Archive uploads may provide a single-level classification folder
+        // and lightweight metadata. These fields must be sent before the file
+        // part so multer exposes them on request.body.
+        const { folderName = null, metadata: _metadata = "{}" } =
+          reqBody(request);
+        const metadata =
+          typeof _metadata === "string"
+            ? safeJsonParse(_metadata, {})
+            : _metadata;
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
@@ -828,12 +837,16 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const { success, reason, documents } =
-          await Collector.processDocument(originalname);
+        const { success, reason, documents } = await Collector.processDocument(
+          originalname,
+          metadata
+        );
         if (!success || documents?.length === 0) {
           response.status(500).json({ success: false, error: reason }).end();
           return;
         }
+
+        if (folderName) moveProcessedDocsToFolder(documents, folderName);
 
         Collector.log(
           `Document ${originalname} uploaded processed and successfully. It is now available in documents.`
@@ -843,6 +856,7 @@ function workspaceEndpoints(app) {
           "document_uploaded",
           {
             documentName: originalname,
+            ...(folderName ? { folder: folderName } : {}),
           },
           response.locals?.user?.id
         );

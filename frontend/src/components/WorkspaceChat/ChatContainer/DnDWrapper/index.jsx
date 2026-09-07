@@ -7,6 +7,7 @@ import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import FileUploadWarningModal from "./FileUploadWarningModal";
 import pluralize from "pluralize";
+import { OPEN_ARCHIVE_UPLOAD_EVENT } from "@/components/WorkspaceChat/ArchiveUpload";
 
 export const DndUploaderContext = createContext();
 export const REMOVE_ATTACHMENT_EVENT = "ATTACHMENT_REMOVE";
@@ -422,11 +423,28 @@ export function DnDFileUploaderProvider({
   );
 }
 
-export default function DnDFileUploaderWrapper({ children }) {
+export default function DnDFileUploaderWrapper({
+  children,
+  archiveMode = false,
+}) {
   const { onDrop, ready, dragging, setDragging } =
     useContext(DndUploaderContext);
+
+  function handleDrop(acceptedFiles, rejections) {
+    if (archiveMode) {
+      setDragging(false);
+      window.dispatchEvent(
+        new CustomEvent(OPEN_ARCHIVE_UPLOAD_EVENT, {
+          detail: { files: acceptedFiles, rejections },
+        })
+      );
+      return;
+    }
+    onDrop(acceptedFiles, rejections);
+  }
+
   const { getRootProps, getInputProps } = useDropzone({
-    onDrop,
+    onDrop: handleDrop,
     disabled: !ready,
     noClick: true,
     noKeyboard: true,

@@ -40,6 +40,10 @@ import SourcesSidebar from "./SourcesSidebar";
 import MemoriesSidebar from "./MemoriesSidebar";
 import ActiveGenerationGuard from "./ActiveGenerationGuard";
 
+function archiveScopeLabel(scope) {
+  return scope === "전체" ? "전체 문서" : `${scope} 아카이브`;
+}
+
 export default function ChatContainer({
   workspace,
   threadSlug = null,
@@ -56,10 +60,41 @@ export default function ChatContainer({
   const pendingMessageChecked = useRef(false);
   const pendingResetRef = useRef(false);
   const activeThreadSlug = threadSlug;
+  const [archiveScope, setArchiveScope] = useState(
+    () => localStorage.getItem("archive-scope") || "전체"
+  );
+  const [archiveSearchMode, setArchiveSearchMode] = useState(
+    workspace?.vectorSearchMode || "default"
+  );
 
   const isEmpty =
     chatHistory.length === 0 && !sessionStorage.getItem(PENDING_HOME_MESSAGE);
   const isArchive = workspace?.slug === "archive-full";
+
+  useEffect(() => {
+    function handleArchiveScopeChange(event) {
+      setArchiveScope(event.detail?.scope || "전체");
+    }
+
+    window.addEventListener("archive-scope-changed", handleArchiveScopeChange);
+    const handleSearchModeChange = (event) => {
+      setArchiveSearchMode(event.detail?.mode || "default");
+    };
+    window.addEventListener(
+      "archive-search-mode-changed",
+      handleSearchModeChange
+    );
+    return () => {
+      window.removeEventListener(
+        "archive-scope-changed",
+        handleArchiveScopeChange
+      );
+      window.removeEventListener(
+        "archive-search-mode-changed",
+        handleSearchModeChange
+      );
+    };
+  }, []);
 
   /**
    * Keep chat history bottom-padding in sync with the prompt input's
@@ -490,17 +525,21 @@ export default function ChatContainer({
               threadSlug={activeThreadSlug}
             />
           )}
-          <div className="flex-1 min-w-0 relative md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
+          <div
+            className={`relative h-full min-w-0 flex-1 w-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border md:rounded-[16px] ${isArchive ? "bg-zinc-900/90 light:bg-white/90" : "bg-zinc-900 light:bg-white"}`}
+          >
             {isMobile && <SidebarMobileHeader />}
-            {!isArchive && (
-              <WorkspaceModelPicker workspaceSlug={workspace.slug} />
-            )}
-            <DnDFileUploaderWrapper>
+            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <DnDFileUploaderWrapper archiveMode={isArchive}>
               <div className="flex flex-col h-full w-full items-center justify-center">
                 <div className="flex flex-col items-center w-full max-w-[750px]">
                   {isArchive && (
-                    <div className="mb-5 inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-500 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                      공정거래 아카이브 · 전체 문서 · Default 검색
+                    <div className="mb-5 inline-flex items-center rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] font-medium text-slate-500 shadow-sm backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-400">
+                      {archiveScopeLabel(archiveScope)} · 문서{" "}
+                      {workspace?.documents?.length || 232}개 ·{" "}
+                      {archiveSearchMode === "rerank"
+                        ? "정밀 검색 · ONNX"
+                        : "기본 검색"}
                     </div>
                   )}
                   <h1 className="text-white text-xl md:text-2xl mb-11 text-center">
@@ -527,7 +566,10 @@ export default function ChatContainer({
                     }
                   />
                   {isArchive ? (
-                    <ArchiveSuggestions sendCommand={sendCommand} />
+                    <ArchiveActions
+                      sendCommand={sendCommand}
+                      workspace={workspace}
+                    />
                   ) : (
                     <QuickActions
                       hasAvailableWorkspace={!!workspace}
@@ -547,6 +589,11 @@ export default function ChatContainer({
                           ?.click()
                       }
                     />
+                  )}
+                  {isArchive && (
+                    <p className="mt-8 text-center text-[10px] text-zinc-500 dark:text-zinc-600">
+                      정책지원팀이 자료 기반 업무의 효율화를 위해 설계했습니다.
+                    </p>
                   )}
                 </div>
                 {!isArchive && (
@@ -579,12 +626,12 @@ export default function ChatContainer({
             threadSlug={activeThreadSlug}
           />
         )}
-        <div className="flex-1 min-w-0 relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
+        <div
+          className={`relative h-full min-w-0 flex-1 overflow-hidden border-none text-white light:border-solid light:border light:border-theme-modal-border light:text-slate-900 md:rounded-[16px] ${isArchive ? "bg-zinc-900/90 light:bg-white/90" : "bg-zinc-900 light:bg-white"}`}
+        >
           {isMobile && <SidebarMobileHeader />}
-          {!isArchive && (
-            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
-          )}
-          <DnDFileUploaderWrapper>
+          <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+          <DnDFileUploaderWrapper archiveMode={isArchive}>
             <div className="flex flex-col h-full w-full pb-20 md:pb-0">
               <div className="contents">
                 <MetricsProvider>
@@ -622,22 +669,42 @@ export default function ChatContainer({
   );
 }
 
-function ArchiveSuggestions({ sendCommand }) {
-  const suggestions = [
-    "이 문서의 목적은 무엇인가요?",
-    "관련 조항의 적용 요건은 무엇인가요?",
-    "답변의 원본 페이지를 보여주세요.",
+function ArchiveActions({ sendCommand, workspace }) {
+  const navigate = useNavigate();
+  const actions = [
+    {
+      title: "문서함 열기",
+      description: "원문, 폴더, 분류 상태를 확인합니다.",
+      onClick: () => navigate(paths.workspace.library(workspace.slug)),
+    },
+    {
+      title: "자료 업로드",
+      description: "분류를 선택해 아카이브에 바로 저장합니다.",
+      onClick: () => window.dispatchEvent(new Event("open-archive-upload")),
+    },
+    {
+      title: "근거 확인",
+      description: "답변의 출처와 원본 위치를 함께 요청합니다.",
+      onClick: () =>
+        sendCommand({ text: "답변에 사용된 출처와 원본 위치를 보여줘." }),
+    },
   ];
+
   return (
     <div className="mt-4 grid w-full max-w-[750px] gap-2 px-3 sm:grid-cols-3 sm:px-0">
-      {suggestions.map((suggestion) => (
+      {actions.map((action) => (
         <button
-          key={suggestion}
+          key={action.title}
           type="button"
-          onClick={() => sendCommand({ text: suggestion })}
-          className="min-h-[54px] rounded border border-slate-200 bg-white px-3 py-2 text-left text-xs leading-5 text-slate-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 light:border-slate-200 light:bg-white light:text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+          onClick={action.onClick}
+          className="min-h-[70px] rounded border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-blue-400 hover:bg-blue-50 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
         >
-          {suggestion}
+          <span className="block text-xs font-semibold text-slate-700 dark:text-zinc-200">
+            {action.title}
+          </span>
+          <span className="mt-1 block text-[10px] leading-4 text-slate-500 dark:text-zinc-500">
+            {action.description}
+          </span>
         </button>
       ))}
     </div>

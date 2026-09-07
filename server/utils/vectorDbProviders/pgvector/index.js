@@ -413,6 +413,169 @@ class PGVector extends VectorDatabase {
     return 1 - distance;
   }
 
+  /**
+   * Extract useful words for the database fallback search. Dense embeddings
+   * are the primary retrieval path, but an exact product/document name should
+   * still be found when the local embedding model is unavailable or returns no
+   * candidates. Korean case particles are removed so queries such as
+   * "우리동네GS 실적은?" match chunks containing "우리동네GS" and "실적".
+   */
+  static lexicalSearchTerms(input = "") {
+    const stopWords = new Set([
+      "그리고",
+      "그런데",
+      "대해",
+      "대한",
+      "무엇",
+      "어떤",
+      "알려줘",
+      "알려주세요",
+      "해주세요",
+      "해줘",
+      "the",
+      "and",
+      "what",
+      "which",
+      "how",
+      "about",
+      "please",
+    ]);
+    const particles = [
+      "으로부터",
+      "로부터",
+      "에서는",
+      "에게서",
+      "으로는",
+      "이라는",
+      "이라고",
+      "까지는",
+      "부터는",
+      "에서는",
+      "에게",
+      "에서",
+      "으로",
+      "까지",
+      "부터",
+      "처럼",
+      "보다",
+      "마다",
+      "조차",
+      "은",
+      "는",
+      "이",
+      "가",
+      "을",
+      "를",
+      "에",
+      "의",
+      "도",
+      "만",
+      "로",
+      "와",
+      "과",
+      "요",
+    ];
+
+    return String(input)
+      .toLocaleLowerCase("ko-KR")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .split(/\s+/)
+      .map((term) => {
+        for (const particle of particles) {
+          if (term.endsWith(particle) && term.length - particle.length >= 2)
+            return term.slice(0, -particle.length);
+        }
+        return term;
+      })
+      .filter(
+        (term, index, terms) =>
+          term.length >= 2 &&
+          !stopWords.has(term) &&
+          terms.indexOf(term) === index
+      );
+  }
+
+  /**
+   * Search indexed text/title fields without requiring an embedding model.
+   * This is intentionally a fallback: it protects exact Korean names and
+   * numbers from becoming an empty-context answer during local ONNX pressure.
+   */
+  async lexicalSearchResponse({
+    client,
+    namespace,
+    input,
+    similarityThreshold = 0.25,
+    topN = 4,
+    filterIdentifiers = [],
+  }) {
+    const terms = PGVector.lexicalSearchTerms(input);
+    const empty = { contextTexts: [], sourceDocuments: [], scores: [] };
+    if (!terms.length) return empty;
+
+    const patterns = terms.map((term) => `%${term}%`);
+    const limit = Math.max(50, Math.min(500, Number(topN) * 25));
+    const response = await client.query(
+      `SELECT metadata FROM "${PGVector.tableName()}"
+       WHERE namespace = $1
+         AND concat_ws(' ',
+           metadata->>'text',
+           metadata->>'title',
+           metadata->>'sourceDocument',
+           metadata->>'chunkSource'
+         ) ILIKE ANY($2::text[])
+       LIMIT $3`,
+      [namespace, patterns, limit]
+    );
+
+    const ranked = response.rows
+      .map(({ metadata }) => {
+        const searchable = [
+          metadata?.text,
+          metadata?.title,
+          metadata?.sourceDocument,
+          metadata?.chunkSource,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("ko-KR");
+        const matchedTerms = terms.filter((term) =>
+          searchable.includes(term)
+        );
+        if (!matchedTerms.length) return null;
+
+        const title = `${metadata?.title || ""} ${metadata?.sourceDocument || ""}`
+          .toLocaleLowerCase("ko-KR");
+        const matchRatio = matchedTerms.length / terms.length;
+        const titleBonus = matchedTerms.some((term) => title.includes(term))
+          ? 0.15
+          : 0;
+        const score = Math.min(0.99, 0.35 + matchRatio * 0.5 + titleBonus);
+        return { metadata, score, matchedTerms: matchedTerms.length };
+      })
+      .filter(
+        (item) =>
+          item &&
+          item.score >= similarityThreshold &&
+          !filterIdentifiers.includes(sourceIdentifier(item.metadata))
+      )
+      .sort(
+        (a, b) =>
+          b.matchedTerms - a.matchedTerms ||
+          b.score - a.score ||
+          (a.metadata?.chunk_index ?? 0) - (b.metadata?.chunk_index ?? 0)
+      )
+      .slice(0, topN);
+
+    return {
+      contextTexts: ranked.map(({ metadata }) => metadata.text),
+      sourceDocuments: ranked.map(({ metadata, score }) => ({
+        ...metadata,
+        score,
+      })),
+      scores: ranked.map(({ score }) => score),
+    };
+  }
+
   async namespaceCount(namespace = null) {
     if (!(await this.dbTableExists())) return 0;
     let connection = null;
@@ -996,25 +1159,44 @@ class PGVector extends VectorDatabase {
         };
       }
 
-      const queryVector = await LLMConnector.embedTextInput(input);
-      const searchResult = rerank
-        ? await this.rerankedSimilarityResponse({
-            client: connection,
-            namespace,
-            query: input,
-            queryVector,
-            similarityThreshold,
-            topN,
-            filterIdentifiers,
-          })
-        : await this.similarityResponse({
-            client: connection,
-            namespace,
-            queryVector,
-            similarityThreshold,
-            topN,
-            filterIdentifiers,
-          });
+      let searchResult = null;
+      try {
+        const queryVector = await LLMConnector.embedTextInput(input);
+        searchResult = rerank
+          ? await this.rerankedSimilarityResponse({
+              client: connection,
+              namespace,
+              query: input,
+              queryVector,
+              similarityThreshold,
+              topN,
+              filterIdentifiers,
+            })
+          : await this.similarityResponse({
+              client: connection,
+              namespace,
+              queryVector,
+              similarityThreshold,
+              topN,
+              filterIdentifiers,
+            });
+      } catch (err) {
+        this.logger(
+          `Dense search unavailable; using lexical fallback: ${err.message}`
+        );
+      }
+
+      if (!searchResult?.contextTexts?.length) {
+        searchResult = await this.lexicalSearchResponse({
+          client: connection,
+          namespace,
+          input,
+          similarityThreshold,
+          topN,
+          filterIdentifiers,
+        });
+      }
+
       const result = await this.expandSections({
         client: connection,
         namespace,
@@ -1031,7 +1213,14 @@ class PGVector extends VectorDatabase {
         message: false,
       };
     } catch (err) {
-      return { error: err.message, success: false };
+      this.logger(`Similarity search failed: ${err.message}`);
+      return {
+        contextTexts: [],
+        sources: [],
+        message: null,
+        error: err.message,
+        success: false,
+      };
     } finally {
       if (connection) await connection.end();
     }

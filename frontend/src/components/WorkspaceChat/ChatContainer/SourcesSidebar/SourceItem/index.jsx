@@ -11,6 +11,17 @@ export default function SourceItem({ source, onClick, active = false }) {
   const customImage = getCustomImage(info?.icon);
   const subtitle = info?.isUrl ? info?.text : t("chat_window.document");
   const hasOriginal = !!source?.has_original;
+  const citedPages = [
+    ...new Set(
+      (source?.chunks || [])
+        .map((chunk) => Number(chunk.page) || 0)
+        .filter(Boolean)
+    ),
+  ];
+  const section = (source?.chunks?.[0]?.section_path || "")
+    .split(">")
+    .pop()
+    .trim();
 
   return (
     <button
@@ -38,6 +49,13 @@ export default function SourceItem({ source, onClick, active = false }) {
           {t("chat_window.source_count", { count: source.references })}
           {hasOriginal ? " · 원본 보기" : ""}
         </p>
+        {(citedPages.length > 0 || section) && (
+          <p className="truncate text-zinc-500 light:text-slate-400">
+            {citedPages.length > 0 && `p.${citedPages.join(", ")}`}
+            {citedPages.length > 0 && section ? " · " : ""}
+            {section}
+          </p>
+        )}
       </div>
     </button>
   );

@@ -63,9 +63,9 @@ class ClaudeCliLLM {
   #appendContext(contextTexts = []) {
     if (!contextTexts?.length) return "";
     return (
-      "\nContext:\n" +
+      "\n\nRetrieved document context (use these passages as the only source of factual answers):\n" +
       contextTexts
-        .map((text, i) => `[CONTEXT ${i}]:\n${text}\n[END CONTEXT ${i}]\n\n`)
+        .map((text, i) => `[${i}]:\n${text}\n[END ${i}]\n\n`)
         .join("")
     );
   }
@@ -116,7 +116,11 @@ class ClaudeCliLLM {
       "", // pure text generation — no tool use
       "--settings",
       '{"disableAllHooks":true}',
-      "--exclude-dynamic-system-prompt-sections",
+      // The CLI otherwise discovers repository/user CLAUDE.md instructions.
+      // This connector already supplies the complete application prompt and
+      // retrieved documents, so project instructions must not replace them.
+      "--safe-mode",
+      "--no-session-persistence",
       "--output-format",
       format,
     ];

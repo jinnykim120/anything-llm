@@ -1,6 +1,6 @@
 # Auto Docu UI design plan
 
-Status: design decisions captured on 2026-09-03. The first implementation slice (landing, archive shell, theme, management, and document room) was added on 2026-09-04; evidence-panel refinements and browser verification remain next.
+Status: design decisions captured on 2026-09-03. The first implementation slice (landing, archive shell, theme, management, and document room) was added on 2026-09-04. Evidence-panel controls and browser verification are now covered; live retrieval benchmarking remains pending until the archive is embedded again.
 
 ## Product direction
 
@@ -8,7 +8,7 @@ The product is a document-grounded archive QA workspace. The first screen should
 
 The visual reference combines:
 
-- IBM Carbon-inspired structure: light canvas, charcoal text, IBM Blue `#0f62fe` as the primary accent, 1px hairlines, square geometry, 4px spacing rhythm, and restrained elevation.
+- IBM Carbon-inspired structure: dark charcoal canvas by default (with a light alternative), IBM Blue `#0f62fe` as the primary accent, 1px hairlines, square geometry, 4px spacing rhythm, and restrained elevation.
 - Raycast-inspired first impression: one strong message, one clear primary action, and a simple abstract product visual that explains the flow without stock photography.
 
 This is inspiration only. Do not use IBM or Raycast logos, copy, or proprietary artwork.
@@ -21,9 +21,16 @@ Recommended hero copy:
 
 > 데이터의 흐름을 읽고, 근거를 따라 답합니다.
 
+The product name `Document Expansion LLM` is the primary hero heading; the Korean
+message sits below it as the explanatory lead.
+
 Supporting copy:
 
-> PDF·HWP·PPTX 등 다양한 문서를 맥락 단위로 읽고 저장합니다. 질문에 답할 때는 원본에 근거한 결과만 보여주며, 출처와 페이지, 실제 원본 위치까지 함께 확인할 수 있습니다.
+> 문서의 맥락을 읽어 저장하고, 질문에 답할 때는 원본에 근거한 결과만 보여드립니다.
+
+The evidence cue sits beside the landing actions:
+
+> 출처와 페이지, 실제 원본 위치까지 한 화면에서 확인하세요.
 
 The workspace empty-state copy is:
 
@@ -39,14 +46,13 @@ Landing actions:
 
 Landing visual:
 
-- Original SVG/CSS artwork, not a stock image.
-- Geometric document cards and a single connected data/evidence line representing `문서 → 맥락 → 근거 → 답변`.
-- IBM Blue and charcoal on a light canvas; no noisy 3D scene.
+- A custom inline SVG data-flow field contained inside the right hero column: four colored archive/context/source/evidence nodes feed multiple curved streams into a translucent evidence-bubble cloud. Keep the graphic within the column so it never pushes into the copy or all the way off the viewport. Do not place the reference bitmap itself in the page.
+- IBM Blue and charcoal on a dark canvas by default (light mode remains available); no noisy 3D scene.
 - Slow, optional motion only; respect `prefers-reduced-motion`.
 
 The footer should include a restrained credit:
 
-> 정책지원팀이 문서 업무의 정확성과 추적 가능성을 위해 설계했습니다.
+> 정책지원팀이 자료 기반 업무의 효율화를 위해 설계했습니다.
 
 ## Main workspace shell
 
@@ -74,10 +80,11 @@ Keep this rail deliberately quiet. It is a history navigator, not an administrat
 
 Visible elements only:
 
-- workspace name (for example, `공정거래 아카이브`)
-- `질의 아카이브` heading with a small `최근 질문과 답변` helper
+- product wordmark `Document Expansion LLM` and archive label `archiving data`
+- archive scope selector: `전체`, `실적`, `법규`, `대외`
+- `질의 아카이브` heading with a nearby `+ 새채팅` action
 - a short list of history items
-- bottom actions: `기록 검색` and `+ 새 질의`
+- `기록 검색` inside the query section
 - one `관리` entry
 
 Default history order is latest-first. After a new question, show `현재 질문과 관련된 기록` above `최근 질의`; provide a small `관련순 / 최신순` switch. Use concise generated titles rather than full question paragraphs.
@@ -92,7 +99,7 @@ The empty state uses the copy above and three suggested questions, such as:
 - `관련 조항의 적용 요건은 무엇인가요?`
 - `답변의 원본 페이지를 보여주세요.`
 
-The prompt area should expose the current scope as a compact chip, for example `공정거래 아카이브 · 전체 문서 · Default 검색`. The input placeholder remains short: `문서에 대해 질문해 보세요.`
+The prompt area should expose the current scope as a compact chip, for example `전체 문서 · 문서 232개 · Default 검색`. The input placeholder remains short: `문서에 대해 질문해 보세요.`
 
 Answer actions should prioritize practical work: copy with citations, save, export, regenerate, related question, and show evidence used.
 
@@ -142,8 +149,8 @@ Hide inherited features that are not part of the archive QA product: Agent, MCP,
 
 ## Theme and identity
 
-- Light theme is the default.
-- A bottom-right theme control switches to dark mode and persists the user's choice.
+- Dark theme is the default.
+- A bottom-right theme control switches to light mode and persists the user's choice.
 - New logo: an original geometric mark where document shapes are connected by one continuous evidence line (`데이터 → 맥락 → 근거`). It must work as a sidebar mark, favicon, and monochrome icon.
 
 ## Data scope affordance
