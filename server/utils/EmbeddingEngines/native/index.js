@@ -24,9 +24,7 @@ class NativeEmbedder {
   static assertLoadMemory(model) {
     if (!String(model).includes("bge-m3")) return;
 
-    const configured = Number(
-      process.env.NATIVE_EMBEDDING_MIN_FREE_MEMORY_MB
-    );
+    const configured = Number(process.env.NATIVE_EMBEDDING_MIN_FREE_MEMORY_MB);
     const minimumMb = Number.isFinite(configured) ? configured : 2_560;
     if (minimumMb <= 0) return;
 

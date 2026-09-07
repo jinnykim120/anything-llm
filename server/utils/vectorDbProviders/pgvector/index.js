@@ -538,13 +538,13 @@ class PGVector extends VectorDatabase {
           .filter(Boolean)
           .join(" ")
           .toLocaleLowerCase("ko-KR");
-        const matchedTerms = terms.filter((term) =>
-          searchable.includes(term)
-        );
+        const matchedTerms = terms.filter((term) => searchable.includes(term));
         if (!matchedTerms.length) return null;
 
-        const title = `${metadata?.title || ""} ${metadata?.sourceDocument || ""}`
-          .toLocaleLowerCase("ko-KR");
+        const title =
+          `${metadata?.title || ""} ${metadata?.sourceDocument || ""}`.toLocaleLowerCase(
+            "ko-KR"
+          );
         const matchRatio = matchedTerms.length / terms.length;
         const titleBonus = matchedTerms.some((term) => title.includes(term))
           ? 0.15

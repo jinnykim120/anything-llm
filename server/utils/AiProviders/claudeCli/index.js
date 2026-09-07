@@ -9,6 +9,9 @@
 //          CLAUDE_CLI_TIMEOUT_MS=180000
 //          CLAUDE_CLI_TOKEN_LIMIT=200000
 const { spawn } = require("child_process");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const { NativeEmbedder } = require("../../EmbeddingEngines/native");
 const {
@@ -64,9 +67,7 @@ class ClaudeCliLLM {
     if (!contextTexts?.length) return "";
     return (
       "\n\nRetrieved document context (use these passages as the only source of factual answers):\n" +
-      contextTexts
-        .map((text, i) => `[${i}]:\n${text}\n[END ${i}]\n\n`)
-        .join("")
+      contextTexts.map((text, i) => `[${i}]:\n${text}\n[END ${i}]\n\n`).join("")
     );
   }
 
@@ -107,7 +108,7 @@ class ClaudeCliLLM {
     return { system, prompt: `${turns.join("\n\n")}\n\nAssistant:` };
   }
 
-  #baseArgs(system, format) {
+  #baseArgs(format) {
     const args = [
       "-p",
       "--model",
@@ -124,34 +125,62 @@ class ClaudeCliLLM {
       "--output-format",
       format,
     ];
-    if (system) args.push("--system-prompt", system);
     if (format === "stream-json")
       args.push("--verbose", "--include-partial-messages");
     return args;
   }
 
+  /**
+   * The system prompt carries the full retrieved context (§05 THE ONE CHANGE
+   * THAT MATTERS can push this past dozens of chunks), so it must never go on
+   * argv: Windows silently caps a spawned command line far below what a
+   * multi-chunk RAG prompt needs, and `spawn()` throws ENAMETOOLONG the
+   * moment the assembled string crosses that limit — the chat request then
+   * fails outright instead of degrading gracefully. Write it to a throwaway
+   * file instead and pass `--system-prompt-file`, which has no such limit.
+   */
+  #writeSystemPromptFile(system) {
+    if (!system) return null;
+    const file = path.join(os.tmpdir(), `claude-cli-system-${uuidv4()}.txt`);
+    fs.writeFileSync(file, system, "utf8");
+    return file;
+  }
+
+  #cleanupSystemPromptFile(file) {
+    if (!file) return;
+    fs.unlink(file, () => {});
+  }
+
   /** Spawn `claude -p`, feed the prompt on stdin, return { stdout, code }. */
-  #spawn(args, promptStdin) {
+  #spawn(args, promptStdin, system = "") {
+    const systemPromptFile = this.#writeSystemPromptFile(system);
+    const finalArgs = systemPromptFile
+      ? [...args, "--system-prompt-file", systemPromptFile]
+      : args;
     return new Promise((resolve, reject) => {
-      const child = spawn(this.bin, args, {
+      const child = spawn(this.bin, finalArgs, {
         env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
       });
       let out = "";
       let err = "";
+      const cleanup = () => this.#cleanupSystemPromptFile(systemPromptFile);
       const killer = setTimeout(() => {
         child.kill("SIGKILL");
+        cleanup();
         reject(new Error(`claude -p timed out after ${this.timeout}ms`));
       }, this.timeout);
       child.stdout.on("data", (d) => (out += d.toString()));
       child.stderr.on("data", (d) => (err += d.toString()));
       child.on("error", (e) => {
         clearTimeout(killer);
+        cleanup();
         reject(
           new Error(`claude CLI not runnable (${this.bin}): ${e.message}`)
         );
       });
       child.on("close", (code) => {
         clearTimeout(killer);
+        cleanup();
         if (code !== 0)
           return reject(
             new Error(`claude -p exited ${code}: ${(err || out).slice(0, 300)}`)
@@ -166,7 +195,7 @@ class ClaudeCliLLM {
   async getChatCompletion(messages = null, _opts = {}) {
     const { system, prompt } = this.#flatten(messages);
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
-      this.#spawn(this.#baseArgs(system, "json"), prompt).then((raw) => {
+      this.#spawn(this.#baseArgs("json"), prompt, system).then((raw) => {
         let j;
         try {
           j = JSON.parse(raw.trim().split("\n").filter(Boolean).pop());
@@ -210,10 +239,15 @@ class ClaudeCliLLM {
   }
 
   /** An async generator over `claude -p --output-format stream-json` events. */
-  async *#streamEvents(args, promptStdin) {
-    const child = spawn(this.bin, args, {
+  async *#streamEvents(args, promptStdin, system = "") {
+    const systemPromptFile = this.#writeSystemPromptFile(system);
+    const finalArgs = systemPromptFile
+      ? [...args, "--system-prompt-file", systemPromptFile]
+      : args;
+    const child = spawn(this.bin, finalArgs, {
       env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
     });
+    const cleanup = () => this.#cleanupSystemPromptFile(systemPromptFile);
     const killer = setTimeout(() => child.kill("SIGKILL"), this.timeout);
     child.stdin.write(promptStdin);
     child.stdin.end();
@@ -257,6 +291,7 @@ class ClaudeCliLLM {
       }
     } finally {
       clearTimeout(killer);
+      cleanup();
       child.kill();
     }
   }
@@ -264,8 +299,9 @@ class ClaudeCliLLM {
   async streamGetChatCompletion(messages = null, _opts = {}) {
     const { system, prompt } = this.#flatten(messages);
     const generator = this.#streamEvents(
-      this.#baseArgs(system, "stream-json"),
-      prompt
+      this.#baseArgs("stream-json"),
+      prompt,
+      system
     );
     return LLMPerformanceMonitor.measureStream({
       func: Promise.resolve(generator),
@@ -344,7 +380,7 @@ class ClaudeCliLLM {
    */
   async agentComplete(messages = []) {
     const { system, prompt } = this.#flatten(messages);
-    const raw = await this.#spawn(this.#baseArgs(system, "json"), prompt);
+    const raw = await this.#spawn(this.#baseArgs("json"), prompt, system);
     let j;
     try {
       j = JSON.parse(raw.trim().split("\n").filter(Boolean).pop());
@@ -363,8 +399,9 @@ class ClaudeCliLLM {
   async *agentStream(messages = []) {
     const { system, prompt } = this.#flatten(messages);
     for await (const evt of this.#streamEvents(
-      this.#baseArgs(system, "stream-json"),
-      prompt
+      this.#baseArgs("stream-json"),
+      prompt,
+      system
     )) {
       if (evt?.text) {
         yield { choices: [{ delta: { content: evt.text } }] };
