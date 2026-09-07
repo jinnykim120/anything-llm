@@ -125,6 +125,35 @@ to a dedicated service; lowering the candidate cap further would make the
 current `topN=8` contract unsafe because the provider intentionally keeps a
 minimum of 10 candidates.
 
+### 2026-09-07 — reranker batch-size experiment
+
+The current `onnx-community/bge-reranker-v2-m3-ONNX` model was measured with
+`RERANKER_MAX_BATCH_SIZE` values 2, 4, and 6. The candidate cap remained 10 for
+all runs. Each run used `archive-full` (232 documents), eight questions, one
+iteration per question, and zero errors.
+
+| batch size | average | p50 | p95/max | retrieval MRR | answer quality |
+|------------|---------|-----|---------|---------------|----------------|
+| 2 | `9,528 ms` | `9,275 ms` | `14,300 ms` | `1.000` | mean f `0.994`, c `0.981`, ca `0.994` |
+| 4 | `10,521 ms` | `9,701 ms` | `16,096 ms` | `1.000` | mean f `1.000`, c `0.988`, ca `1.000` |
+| 6 | `10,850 ms` | `9,413 ms` | `20,112 ms` | `1.000` | mean f `1.000`, c `1.000`, ca `1.000` |
+
+Reports:
+
+- Batch 2: `perf-archive-full-2026-09-07T05-49-09-021Z.json`,
+  `2026-09-07T05-53-19-334Z.json`, `answers-2026-09-07T05-58-13-520Z.json`
+- Batch 4: `perf-archive-full-2026-09-07T05-59-42-270Z.json`,
+  `2026-09-07T06-04-37-799Z.json`, `answers-2026-09-07T06-09-52-414Z.json`
+- Batch 6: `perf-archive-full-2026-09-07T06-10-49-095Z.json`,
+  `2026-09-07T06-15-41-009Z.json`, `answers-2026-09-07T06-20-47-158Z.json`
+
+Batch 4 and 6 did not improve latency on this CPU host. Batch 6 also had the
+largest p95 spike. The local runtime was restored to
+`RERANKER_MAX_BATCH_SIZE="2"`, which remains the safest and fastest measured
+configuration. The bottleneck is model inference itself, not only the number
+of batches. Further improvement requires a smaller/quantized compatible model
+or a separate inference service.
+
 ## 2026-08-28 — reranker swapped to multilingual (P0a follow-up)
 
 Changed `server/utils/EmbeddingRerankers/native/index.js` default model
