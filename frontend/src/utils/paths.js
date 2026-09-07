@@ -122,8 +122,8 @@ export default {
     chats: () => {
       return "/settings/workspace-chats";
     },
-    classification: () => {
-      return "/settings/classification";
+    classification: (options = {}) => {
+      return applyOptions("/settings/classification", options);
     },
     llmPreference: () => {
       return "/settings/llm-preference";
@@ -175,8 +175,8 @@ export default {
       return `/settings/model-routers/${id}`;
     },
     systemPromptVariables: () => "/settings/system-prompt-variables",
-    logs: () => {
-      return "/settings/event-logs";
+    logs: (options = {}) => {
+      return applyOptions("/settings/event-logs", options);
     },
     privacy: () => {
       return "/settings/privacy";

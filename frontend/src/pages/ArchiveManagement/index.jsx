@@ -46,7 +46,7 @@ const MANAGEMENT_ITEMS = [
     title: "시스템 상태",
     description: "서버와 수집기의 최근 동작을 확인할 수 있습니다.",
     icon: Pulse,
-    href: paths.settings.logs,
+    href: (slug) => paths.settings.logs({ search: `workspace=${slug}` }),
     action: "상태 확인",
   },
 ];

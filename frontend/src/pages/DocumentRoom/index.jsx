@@ -84,6 +84,8 @@ export default function DocumentRoom() {
   );
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedHashes, setSelectedHashes] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +164,39 @@ export default function DocumentRoom() {
   const selectedClassification = selected
     ? classificationsByHash.get(contentHash(selected)) || null
     : null;
+
+  function toggleSelected(document) {
+    const hash = contentHash(document);
+    if (!hash) return;
+    setSelectedHashes((current) => {
+      const next = new Set(current);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    if (!selectedHashes.size) return;
+    if (
+      !window.confirm(
+        `${selectedHashes.size}개 문서를 모든 작업공간에서 삭제할까요?`
+      )
+    )
+      return;
+    setDeleting(true);
+    const locations = documents
+      .filter((document) => selectedHashes.has(contentHash(document)))
+      .map((document) => document.docpath)
+      .filter(Boolean);
+    const result = await Workspace.deleteDocuments(slug, locations);
+    setDeleting(false);
+    if (result?.error) return window.alert(`삭제 실패: ${result.error}`);
+    setSelectedHashes(new Set());
+    setSelected(null);
+    setLoading(true);
+    window.location.reload();
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
@@ -273,12 +308,24 @@ export default function DocumentRoom() {
 
             <section className="min-h-0 overflow-y-auto border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
-                <p className="text-xs font-semibold">
-                  {selectedFolder}{" "}
-                  <span className="ml-1 font-normal text-slate-400 dark:text-zinc-600">
-                    {filteredDocuments.length}
-                  </span>
-                </p>
+                <div className="flex items-center gap-3">
+                  <p className="text-xs font-semibold">
+                    {selectedFolder}{" "}
+                    <span className="ml-1 font-normal text-slate-400 dark:text-zinc-600">
+                      {filteredDocuments.length}
+                    </span>
+                  </p>
+                  {selectedHashes.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={deleteSelected}
+                      disabled={deleting}
+                      className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                    >
+                      {deleting ? "삭제 중…" : `${selectedHashes.size}개 삭제`}
+                    </button>
+                  )}
+                </div>
                 <span className="text-[11px] text-slate-400 dark:text-zinc-600">
                   최신 등록순
                 </span>
@@ -299,12 +346,17 @@ export default function DocumentRoom() {
                   const Icon = typeLabel(document) === "PDF" ? FilePdf : File;
                   const metadata = safeMetadata(document.metadata);
                   return (
-                    <button
+                    <div
                       key={document.id || document.docpath}
-                      type="button"
-                      onClick={() => setSelected(document)}
                       className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 dark:border-zinc-800/80 ${active ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-zinc-800/60"}`}
                     >
+                      <input
+                        type="checkbox"
+                        checked={selectedHashes.has(contentHash(document))}
+                        onChange={() => toggleSelected(document)}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`${filename(document)} 선택`}
+                      />
                       <Icon
                         size={19}
                         className={
@@ -313,7 +365,11 @@ export default function DocumentRoom() {
                             : "text-slate-400 dark:text-zinc-500"
                         }
                       />
-                      <span className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => setSelected(document)}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <span
                           className={`block truncate text-xs font-medium ${active ? "text-blue-700 dark:text-blue-300" : "text-slate-700 dark:text-zinc-300"}`}
                         >
@@ -330,11 +386,11 @@ export default function DocumentRoom() {
                             ? ` · ${metadata.title}`
                             : ""}
                         </span>
-                      </span>
+                      </button>
                       <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                         적재됨
                       </span>
-                    </button>
+                    </div>
                   );
                 })}
             </section>

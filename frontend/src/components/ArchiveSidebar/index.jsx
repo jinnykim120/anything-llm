@@ -38,7 +38,8 @@ const MANAGEMENT_ITEMS = [
     title: "분류 검수",
     description: "문서 종류와 분야를 확정하고 문서함에서 확인합니다.",
     icon: Tag,
-    href: () => paths.settings.classification(),
+    href: (slug) =>
+      paths.settings.classification({ search: `workspace=${slug}` }),
   },
   {
     key: "query",
@@ -52,7 +53,7 @@ const MANAGEMENT_ITEMS = [
     title: "시스템 상태",
     description: "서버와 수집기의 동작 상태를 확인합니다.",
     icon: Pulse,
-    href: () => paths.settings.logs(),
+    href: (slug) => paths.settings.logs({ search: `workspace=${slug}` }),
   },
 ];
 

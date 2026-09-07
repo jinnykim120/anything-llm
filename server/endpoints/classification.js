@@ -14,10 +14,16 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { taxonomy, DOC_TYPE } = require("../utils/classification/taxonomy");
+const {
+  taxonomy,
+  DOC_TYPE,
+  SENSITIVITY,
+  normalizeSensitivity,
+} = require("../utils/classification/taxonomy");
 const { DocumentClassification } = require("../models/documentClassification");
 const { Document } = require("../models/documents");
 const { Workspace } = require("../models/workspace");
+const { purgeDocument } = require("../utils/files/purgeDocument");
 
 const CUSTOM_DOC_TYPES_SETTING = "archive_document_types";
 
@@ -55,8 +61,9 @@ async function taxonomyWithDocumentTypes() {
  * with the workspaces it appears in and a sample title. Reads the parsed doc
  * JSON for the hash (metadata lives there, not on a column).
  */
-async function archiveDocuments() {
+async function archiveDocuments(workspaceSlug = null) {
   const rows = await prisma.workspace_documents.findMany({
+    ...(workspaceSlug ? { where: { workspace: { slug: workspaceSlug } } } : {}),
     include: { workspace: { select: { slug: true, name: true, tier: true } } },
   });
   const byHash = new Map();
@@ -173,9 +180,10 @@ function classificationEndpoints(app) {
   app.get(
     "/classification/documents",
     [validatedRequest, flexUserRoleValid([ROLES.all])],
-    async (_request, response) => {
+    async (request, response) => {
       try {
-        const docs = await archiveDocuments();
+        const workspaceSlug = String(request.query?.workspace || "").trim();
+        const docs = await archiveDocuments(workspaceSlug || null);
         const classifications = await DocumentClassification.where({});
         const byHash = Object.fromEntries(
           classifications.map((c) => [c.contentHash, c])
@@ -237,6 +245,7 @@ function classificationEndpoints(app) {
             parseConfidence: d.parseConfidence,
             workspaces: wsList,
             duplicateCount: d.docpaths.length,
+            documentLocations: d.docpaths,
             duplicatesByWorkspace,
             classification: cls
               ? {
@@ -272,12 +281,104 @@ function classificationEndpoints(app) {
   );
 
   app.post(
+    "/classification/confirm-bulk",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const {
+          contentHashes = [],
+          sensitivity,
+          docType,
+          domain,
+          tags = [],
+        } = reqBody(request);
+        const hashes = [
+          ...new Set(
+            (Array.isArray(contentHashes) ? contentHashes : [])
+              .map((hash) => String(hash || "").trim())
+              .filter(Boolean)
+          ),
+        ];
+        if (!hashes.length)
+          return response.status(400).json({ error: "문서를 선택하세요." });
+        if (
+          !SENSITIVITY.confirmable.includes(normalizeSensitivity(sensitivity))
+        )
+          return response
+            .status(400)
+            .json({ error: "일괄 확정할 민감도를 지정하세요." });
+
+        const userId = response.locals?.user?.id || null;
+        const results = [];
+        for (const contentHash of hashes) {
+          results.push(
+            await DocumentClassification.confirm({
+              contentHash,
+              sensitivity,
+              docType,
+              domain,
+              tags,
+              userId,
+            })
+          );
+        }
+        const failed = results.filter((result) => result.error);
+        response.status(200).json({
+          confirmed: results.length - failed.length,
+          failed: failed.length,
+          errors: failed.map((result) => result.error),
+        });
+      } catch (e) {
+        console.error("POST /classification/confirm-bulk", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  app.delete(
+    "/classification/documents",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { contentHashes = [] } = reqBody(request);
+        const hashes = [
+          ...new Set(
+            (Array.isArray(contentHashes) ? contentHashes : [])
+              .map((hash) => String(hash || "").trim())
+              .filter(Boolean)
+          ),
+        ];
+        if (!hashes.length)
+          return response.status(400).json({ error: "문서를 선택하세요." });
+
+        const docs = await archiveDocuments();
+        const locations = [
+          ...new Set(
+            docs
+              .filter((doc) => hashes.includes(doc.contentHash))
+              .flatMap((doc) => doc.docpaths)
+          ),
+        ];
+        for (const location of locations) await purgeDocument(location);
+        response
+          .status(200)
+          .json({ deleted: hashes.length, locations: locations.length });
+      } catch (e) {
+        console.error("DELETE /classification/documents", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  app.post(
     "/classification/propose",
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
     async (request, response) => {
       try {
-        const { contentHash = null } = reqBody(request);
-        const docs = await archiveDocuments();
+        const { contentHash = null, workspace = null } = reqBody(request);
+        const docs = await archiveDocuments(
+          String(workspace || "").trim() || null
+        );
         const existing = Object.fromEntries(
           (await DocumentClassification.where({})).map((c) => [
             c.contentHash,

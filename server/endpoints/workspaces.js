@@ -914,6 +914,36 @@ function workspaceEndpoints(app) {
     }
   );
 
+  app.delete(
+    "/workspace/:slug/remove-and-unembed-bulk",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async function (request, response) {
+      try {
+        const { slug = null } = request.params;
+        const { documentLocations = [] } = reqBody(request);
+        const user = await userFromSession(request, response);
+        const currWorkspace = multiUserMode(response)
+          ? await Workspace.getWithUser(user, { slug })
+          : await Workspace.get({ slug });
+        if (
+          !currWorkspace ||
+          !Array.isArray(documentLocations) ||
+          !documentLocations.length
+        )
+          return response.status(400).json({ error: "문서를 선택하세요." });
+
+        const uniqueLocations = [
+          ...new Set(documentLocations.map(String).filter(Boolean)),
+        ];
+        for (const location of uniqueLocations) await purgeDocument(location);
+        response.status(200).json({ deleted: uniqueLocations.length });
+      } catch (e) {
+        console.error(e.message, e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
   app.get(
     "/workspace/:slug/prompt-history",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],

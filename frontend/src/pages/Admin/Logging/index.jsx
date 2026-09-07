@@ -8,9 +8,13 @@ import LogRow from "./LogRow";
 import showToast from "@/utils/toast";
 import CTAButton from "@/components/lib/CTAButton";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
+import ArchiveSidebar from "@/components/ArchiveSidebar";
+import paths from "@/utils/paths";
 
 export default function AdminLogs() {
   const query = useQuery();
+  const workspaceSlug = query.get("workspace");
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [offset, setOffset] = useState(Number(query.get("offset") || 0));
@@ -55,12 +59,28 @@ export default function AdminLogs() {
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
+      {workspaceSlug ? (
+        <ArchiveSidebar
+          slug={workspaceSlug}
+          view="management"
+          activeManagement="status"
+        />
+      ) : (
+        <Sidebar />
+      )}
       <div
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
       >
         <div className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px] md:py-6 py-16">
+          {workspaceSlug && (
+            <Link
+              to={paths.workspace.chat(workspaceSlug)}
+              className="mb-4 inline-flex items-center gap-2 text-xs font-medium text-theme-text-secondary hover:text-theme-text-primary"
+            >
+              ← 작업 화면으로 돌아가기
+            </Link>
+          )}
           <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
             <div className="flex gap-x-4 items-center">
               <p className="text-lg leading-6 font-bold text-theme-text-primary">

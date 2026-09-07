@@ -19,7 +19,9 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: "localhost"
+    // Allow the minimal LAN test deployment to reach the dev UI from another
+    // device on the same Wi-Fi network. Production should use a real proxy.
+    host: "0.0.0.0"
   },
   define: {
     "process.env": process.env

@@ -1,23 +1,48 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import Sidebar from "@/components/SettingsSidebar";
+import ArchiveSidebar from "@/components/ArchiveSidebar";
 import { isMobile } from "react-device-detect";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
-import { Sparkle, ArrowClockwise } from "@phosphor-icons/react";
+import { Funnel, Sparkle, ArrowClockwise } from "@phosphor-icons/react";
 import CTAButton from "@/components/lib/CTAButton";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
 import DocRow from "./DocRow";
+import paths from "@/utils/paths";
+
+const SENS_LABEL = {
+  general: "일반 범용",
+  confidential: "격리·민감",
+  uncertain: "판단 보류",
+};
 
 export default function ClassificationReview() {
+  const [searchParams] = useSearchParams();
+  const workspaceSlug = searchParams.get("workspace");
   const [loading, setLoading] = useState(true);
   const [proposing, setProposing] = useState(false);
   const [docs, setDocs] = useState([]);
   const [taxonomy, setTaxonomy] = useState(null);
+  const [selectedHashes, setSelectedHashes] = useState(() => new Set());
+  const [bulkValues, setBulkValues] = useState({
+    sensitivity: "",
+    docType: "",
+    domain: "",
+  });
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [filters, setFilters] = useState({
+    sensitivity: "all",
+    docType: "all",
+    domain: "all",
+    status: "all",
+    sort: "latest",
+  });
 
   async function load() {
     const [d, t] = await Promise.all([
-      Classification.documents(),
+      Classification.documents(workspaceSlug),
       Classification.taxonomy(),
     ]);
     setDocs(d);
@@ -27,29 +52,163 @@ export default function ClassificationReview() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [workspaceSlug]);
 
   async function proposeAll() {
     setProposing(true);
-    const res = await Classification.propose();
+    const res = await Classification.propose(null, workspaceSlug);
     setProposing(false);
     if (res?.error) return showToast(`분류 실패: ${res.error}`, "error");
     showToast(`${res.proposed}건 분류 제안 완료`, "success");
     load();
   }
 
+  function toggleSelected(hash) {
+    setSelectedHashes((current) => {
+      const next = new Set(current);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      return next;
+    });
+  }
+
+  async function confirmSelected() {
+    if (!selectedHashes.size || !bulkValues.sensitivity)
+      return showToast("문서와 민감도를 선택하세요.", "error");
+    setBulkSaving(true);
+    const result = await Classification.confirmBulk([...selectedHashes], {
+      sensitivity: bulkValues.sensitivity,
+      ...(bulkValues.docType.trim()
+        ? { docType: bulkValues.docType.trim() }
+        : {}),
+      ...(bulkValues.domain.trim() ? { domain: bulkValues.domain.trim() } : {}),
+      tags: [],
+    });
+    setBulkSaving(false);
+    if (result?.error)
+      return showToast(`일괄 확정 실패: ${result.error}`, "error");
+    showToast(`${result.confirmed || 0}건 일괄 확정 완료`, "success");
+    setSelectedHashes(new Set());
+    await load();
+  }
+
+  async function deleteSelected() {
+    if (!selectedHashes.size) return;
+    if (
+      !window.confirm(
+        `${selectedHashes.size}개 문서를 모든 작업공간에서 삭제할까요?`
+      )
+    )
+      return;
+    setBulkSaving(true);
+    const result = await Classification.deleteDocuments([...selectedHashes]);
+    setBulkSaving(false);
+    if (result?.error) return showToast(`삭제 실패: ${result.error}`, "error");
+    showToast(`${result.deleted || 0}건 삭제 완료`, "success");
+    setSelectedHashes(new Set());
+    await load();
+  }
+
   const pending = docs.filter(
     (d) => !d.classification || d.classification.status !== "confirmed"
   ).length;
 
+  const filterOptions = useMemo(() => {
+    const values = (getValue) =>
+      [...new Set(docs.map(getValue).filter(Boolean))].sort((a, b) =>
+        String(a).localeCompare(String(b), "ko")
+      );
+
+    return {
+      sensitivities: values((doc) => doc.classification?.sensitivity),
+      docTypes: values((doc) => doc.classification?.docType),
+      domains: values((doc) => doc.classification?.domain),
+    };
+  }, [docs]);
+
+  const visibleDocs = useMemo(() => {
+    const filtered = docs.filter((doc) => {
+      const classification = doc.classification;
+      const status =
+        classification?.status === "confirmed"
+          ? "confirmed"
+          : classification
+            ? "proposed"
+            : "unclassified";
+
+      return (
+        (filters.sensitivity === "all" ||
+          classification?.sensitivity === filters.sensitivity) &&
+        (filters.docType === "all" ||
+          classification?.docType === filters.docType) &&
+        (filters.domain === "all" ||
+          classification?.domain === filters.domain) &&
+        (filters.status === "all" || status === filters.status)
+      );
+    });
+
+    return filtered.sort((a, b) => {
+      if (filters.sort === "title")
+        return String(a.title || "").localeCompare(String(b.title || ""), "ko");
+
+      if (filters.sort === "status") {
+        const statusRank = (doc) =>
+          doc.classification?.status === "confirmed"
+            ? 2
+            : doc.classification
+              ? 1
+              : 0;
+        return statusRank(a) - statusRank(b);
+      }
+
+      const dateOf = (doc) =>
+        new Date(
+          doc.classification?.updatedAt || doc.updatedAt || doc.createdAt || 0
+        ).getTime();
+      return filters.sort === "oldest"
+        ? dateOf(a) - dateOf(b)
+        : dateOf(b) - dateOf(a);
+    });
+  }, [docs, filters]);
+
+  function updateFilter(name, value) {
+    setFilters((current) => ({ ...current, [name]: value }));
+  }
+
+  function resetFilters() {
+    setFilters({
+      sensitivity: "all",
+      docType: "all",
+      domain: "all",
+      status: "all",
+      sort: "latest",
+    });
+  }
+
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
+      {workspaceSlug ? (
+        <ArchiveSidebar
+          slug={workspaceSlug}
+          view="management"
+          activeManagement="classification"
+        />
+      ) : (
+        <Sidebar />
+      )}
       <div
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
       >
         <div className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px] md:py-6 py-16">
+          {workspaceSlug && (
+            <Link
+              to={paths.workspace.chat(workspaceSlug)}
+              className="mb-4 inline-flex items-center gap-2 text-xs font-medium text-theme-text-secondary hover:text-theme-text-primary"
+            >
+              ← 작업 화면으로 돌아가기
+            </Link>
+          )}
           <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
             <div className="flex gap-x-4 items-center">
               <p className="text-lg leading-6 font-bold text-theme-text-primary">
@@ -80,6 +239,143 @@ export default function ClassificationReview() {
             </button>
           </div>
 
+          {!loading && docs.length > 0 && (
+            <div className="mb-4 rounded-lg border border-white/10 bg-theme-bg-primary p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-x-1.5 text-xs font-semibold text-theme-text-primary">
+                  <Funnel className="h-4 w-4" />
+                  분류 필터
+                  <span className="font-normal text-theme-text-secondary">
+                    {visibleDocs.length}/{docs.length}건
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="text-[11px] text-theme-text-secondary hover:text-theme-text-primary"
+                >
+                  필터 초기화
+                </button>
+              </div>
+              {selectedHashes.size > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-blue-500/20 bg-blue-500/5 p-2">
+                  <span className="text-[11px] font-semibold text-theme-text-primary">
+                    {selectedHashes.size}건 선택
+                  </span>
+                  <select
+                    value={bulkValues.sensitivity}
+                    onChange={(e) =>
+                      setBulkValues((v) => ({
+                        ...v,
+                        sensitivity: e.target.value,
+                      }))
+                    }
+                    className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
+                  >
+                    <option value="">민감도 선택</option>
+                    <option value="general">일반 범용</option>
+                    <option value="confidential">격리·민감</option>
+                  </select>
+                  <input
+                    value={bulkValues.docType}
+                    onChange={(e) =>
+                      setBulkValues((v) => ({ ...v, docType: e.target.value }))
+                    }
+                    placeholder="종류(선택)"
+                    className="w-28 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
+                  />
+                  <input
+                    value={bulkValues.domain}
+                    onChange={(e) =>
+                      setBulkValues((v) => ({ ...v, domain: e.target.value }))
+                    }
+                    placeholder="분야(선택)"
+                    className="w-28 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={confirmSelected}
+                    disabled={bulkSaving}
+                    className="rounded bg-theme-button-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                  >
+                    {bulkSaving ? "처리 중…" : "선택 문서 일괄 확정"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deleteSelected}
+                    disabled={bulkSaving}
+                    className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                  >
+                    선택 문서 삭제
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <select
+                  value={filters.sensitivity}
+                  onChange={(e) => updateFilter("sensitivity", e.target.value)}
+                  aria-label="민감도 필터"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="all">민감도: 전체</option>
+                  {filterOptions.sensitivities.map((value) => (
+                    <option key={value} value={value}>
+                      민감도: {SENS_LABEL[value] || value}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.docType}
+                  onChange={(e) => updateFilter("docType", e.target.value)}
+                  aria-label="문서 종류 필터"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="all">종류: 전체</option>
+                  {filterOptions.docTypes.map((value) => (
+                    <option key={value} value={value}>
+                      종류: {value}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.domain}
+                  onChange={(e) => updateFilter("domain", e.target.value)}
+                  aria-label="분야 필터"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="all">분야: 전체</option>
+                  {filterOptions.domains.map((value) => (
+                    <option key={value} value={value}>
+                      분야: {value}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.status}
+                  onChange={(e) => updateFilter("status", e.target.value)}
+                  aria-label="검수 상태 필터"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="all">상태: 전체</option>
+                  <option value="unclassified">미분류</option>
+                  <option value="proposed">제안됨</option>
+                  <option value="confirmed">확정</option>
+                </select>
+                <select
+                  value={filters.sort}
+                  onChange={(e) => updateFilter("sort", e.target.value)}
+                  aria-label="문서 정렬"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="latest">정렬: 최신순</option>
+                  <option value="oldest">정렬: 오래된순</option>
+                  <option value="status">정렬: 검수 상태순</option>
+                  <option value="title">정렬: 문서명순</option>
+                </select>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <Skeleton.default
               height={90}
@@ -92,25 +388,39 @@ export default function ClassificationReview() {
             <p className="text-sm text-theme-text-secondary py-8">
               아카이브에 문서가 없습니다.
             </p>
+          ) : visibleDocs.length === 0 ? (
+            <p className="text-sm text-theme-text-secondary py-8">
+              선택한 필터에 해당하는 문서가 없습니다.
+            </p>
           ) : (
             <div className="flex flex-col gap-y-3">
-              {docs.map((doc) => (
-                <DocRow
-                  key={doc.contentHash}
-                  doc={doc}
-                  taxonomy={taxonomy}
-                  reload={load}
-                  onTaxonomyUpdated={setTaxonomy}
-                  onConfirmed={(cls) =>
-                    setDocs((prev) =>
-                      prev.map((d) =>
-                        d.contentHash === doc.contentHash
-                          ? { ...d, classification: cls }
-                          : d
-                      )
-                    )
-                  }
-                />
+              {visibleDocs.map((doc) => (
+                <div key={doc.contentHash} className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedHashes.has(doc.contentHash)}
+                    onChange={() => toggleSelected(doc.contentHash)}
+                    aria-label={`${doc.title} 선택`}
+                    className="mt-5 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <DocRow
+                      doc={doc}
+                      taxonomy={taxonomy}
+                      reload={load}
+                      onTaxonomyUpdated={setTaxonomy}
+                      onConfirmed={(cls) =>
+                        setDocs((prev) =>
+                          prev.map((d) =>
+                            d.contentHash === doc.contentHash
+                              ? { ...d, classification: cls }
+                              : d
+                          )
+                        )
+                      }
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           )}

@@ -278,6 +278,18 @@ const Workspace = {
     const data = await response.json();
     return { response, data };
   },
+  deleteDocuments: async function (slug, documentLocations = []) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/remove-and-unembed-bulk`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ documentLocations }),
+        headers: baseHeaders(),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
   parseFile: async function (slug, formData) {
     const response = await fetch(`${API_BASE}/workspace/${slug}/parse`, {
       method: "POST",

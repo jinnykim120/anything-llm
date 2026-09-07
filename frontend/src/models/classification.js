@@ -28,8 +28,11 @@ const Classification = {
       });
   },
 
-  documents: async () => {
-    return await fetch(`${API_BASE}/classification/documents`, {
+  documents: async (workspace = null) => {
+    const query = workspace
+      ? `?workspace=${encodeURIComponent(workspace)}`
+      : "";
+    return await fetch(`${API_BASE}/classification/documents${query}`, {
       headers: baseHeaders(),
     })
       .then((res) => res.json())
@@ -41,11 +44,15 @@ const Classification = {
   },
 
   // contentHash omitted → classify everything not yet confirmed.
-  propose: async (contentHash = null) => {
+  propose: async (contentHash = null, workspace = null) => {
+    const body = {
+      ...(contentHash ? { contentHash } : {}),
+      ...(workspace ? { workspace } : {}),
+    };
     return await fetch(`${API_BASE}/classification/propose`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify(contentHash ? { contentHash } : {}),
+      body: JSON.stringify(body),
     })
       .then((res) => res.json())
       .catch((e) => {
@@ -65,6 +72,35 @@ const Classification = {
         console.error(e);
         return { error: e.message };
       });
+  },
+
+  confirmBulk: async (
+    contentHashes,
+    { sensitivity, docType, domain, tags }
+  ) => {
+    return await fetch(`${API_BASE}/classification/confirm-bulk`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({
+        contentHashes,
+        sensitivity,
+        docType,
+        domain,
+        tags,
+      }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+
+  deleteDocuments: async (contentHashes) => {
+    return await fetch(`${API_BASE}/classification/documents`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+      body: JSON.stringify({ contentHashes }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
   },
 
   move: async (contentHash, fromWorkspace, toWorkspace) => {

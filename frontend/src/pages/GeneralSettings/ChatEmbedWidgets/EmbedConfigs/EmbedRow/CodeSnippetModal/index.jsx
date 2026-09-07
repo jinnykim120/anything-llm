@@ -46,11 +46,13 @@ https://github.com/Mintplex-Labs/anythingllm-embed/blob/main/README.md
 
 const ScriptTag = ({ embed }) => {
   const [copied, setCopied] = useState(false);
+  // Keep generated snippets usable when the dev UI is opened from another
+  // device on the LAN instead of hard-coding localhost.
   const scriptHost = import.meta.env.DEV
-    ? "http://localhost:3000"
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
     : window.location.origin;
   const serverHost = import.meta.env.DEV
-    ? "http://localhost:3001"
+    ? `${window.location.protocol}//${window.location.hostname}:3001`
     : window.location.origin;
   const snippet = createScriptTagSnippet(embed, scriptHost, serverHost);
   const theme =
