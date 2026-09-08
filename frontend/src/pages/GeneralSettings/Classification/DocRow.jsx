@@ -45,6 +45,9 @@ export default function DocRow({
   const [addingDocType, setAddingDocType] = useState(false);
   const [newDocType, setNewDocType] = useState("");
   const [savingDocType, setSavingDocType] = useState(false);
+  const [addingAxis, setAddingAxis] = useState(null);
+  const [newAxisValue, setNewAxisValue] = useState("");
+  const [savingAxis, setSavingAxis] = useState(false);
 
   useEffect(() => {
     if (!cls) return;
@@ -134,6 +137,69 @@ export default function DocRow({
     setAddingDocType(false);
     onTaxonomyUpdated?.(res.taxonomy);
     showToast(`문서 종류 “${res.value || value}”를 추가했습니다.`, "success");
+  }
+
+  async function addAxisValue(axis) {
+    const value = newAxisValue.replace(/\s+/g, " ").trim();
+    if (!value) return showToast("추가할 항목을 입력하세요.", "error");
+    setSavingAxis(true);
+    const res = await Classification.addAxisValue(axis, value);
+    setSavingAxis(false);
+    if (res?.error)
+      return showToast(`분류 항목 추가 실패: ${res.error}`, "error");
+    if (axis === "workType") setWorkType(res.value || value);
+    if (axis === "businessUnit") setBusinessUnit(res.value || value);
+    if (axis === "domain") setDomain(res.value || value);
+    setNewAxisValue("");
+    setAddingAxis(null);
+    onTaxonomyUpdated?.(res.taxonomy);
+  }
+
+  function axisSelect(axis, value, setValue, options) {
+    return (
+      <>
+        <select
+          value={value}
+          onChange={(event) => {
+            if (event.target.value === "__custom__") {
+              setAddingAxis(axis);
+              setNewAxisValue("");
+              return;
+            }
+            setValue(event.target.value);
+          }}
+          className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+        >
+          <option value="">— 선택 —</option>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+          <option value="__custom__">＋ 직접 추가…</option>
+        </select>
+        {addingAxis === axis && (
+          <div className="mt-1 flex gap-1">
+            <input
+              autoFocus
+              value={newAxisValue}
+              onChange={(event) => setNewAxisValue(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && addAxisValue(axis)}
+              placeholder="새 항목"
+              className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1.5 border border-white/10 outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => addAxisValue(axis)}
+              disabled={savingAxis}
+              className="rounded bg-theme-button-primary px-2 text-[11px] text-white disabled:opacity-50"
+            >
+              추가
+            </button>
+          </div>
+        )}
+      </>
+    );
   }
 
   const lowConfidence =
@@ -248,6 +314,22 @@ export default function DocRow({
         </p>
       )}
 
+      {(doc.uploaders || []).length > 0 && (
+        <p className="text-[11px] text-theme-text-secondary">
+          업로드자:{" "}
+          {doc.uploaders
+            .map((u) =>
+              [
+                u.username || (u.userId ? `사용자 #${u.userId}` : null),
+                u.orgUnit,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            )
+            .join(", ")}
+        </p>
+      )}
+
       {(doc.duplicatesByWorkspace || []).length > 0 && (
         <div className="flex flex-col gap-y-2 text-[11px] bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
           {doc.duplicatesByWorkspace.map(({ workspace, docs }) => {
@@ -337,33 +419,16 @@ export default function DocRow({
           <span className="text-[11px] text-theme-text-secondary">
             업무 분류
           </span>
-          <select
-            value={workType}
-            onChange={(e) => setWorkType(e.target.value)}
-            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-          >
-            <option value="">— 선택 —</option>
-            {workTypeOptions.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+          {axisSelect("workType", workType, setWorkType, workTypeOptions)}
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">사업부</span>
-          <select
-            value={businessUnit}
-            onChange={(e) => setBusinessUnit(e.target.value)}
-            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-          >
-            <option value="">— 선택 —</option>
-            {businessUnitOptions.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+          {axisSelect(
+            "businessUnit",
+            businessUnit,
+            setBusinessUnit,
+            businessUnitOptions
+          )}
         </label>
       </div>
 
@@ -455,18 +520,7 @@ export default function DocRow({
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">분야</span>
-          <select
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-          >
-            <option value="">— 선택 —</option>
-            {domainOptions.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+          {axisSelect("domain", domain, setDomain, domainOptions)}
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">

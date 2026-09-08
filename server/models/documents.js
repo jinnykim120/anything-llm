@@ -153,6 +153,10 @@ const Document = {
         filename: path.split(/[/\\]/).pop(),
         docpath: path,
         workspaceId: workspace.id,
+        uploadedByUserId: userId ? Number(userId) : null,
+        // Filled when the organization directory is connected. Keep the
+        // upload-time snapshot separate from the classification axes.
+        uploadedByOrgUnit: null,
         metadata: JSON.stringify(metadata),
       };
 

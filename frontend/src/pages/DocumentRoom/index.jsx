@@ -403,22 +403,23 @@ export default function DocumentRoom() {
                               </span>
                             </button>
                             <div className="ml-5 border-l border-slate-200 pl-2 dark:border-zinc-800">
-                              {unit.types.map((type) => (
-                                <button
-                                  key={type.key}
-                                  type="button"
-                                  onClick={() => setSelectedFolder(type.key)}
-                                  className={`mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === type.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
-                                >
-                                  <Folder size={14} />
-                                  <span className="min-w-0 flex-1 truncate">
-                                    {type.docType}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 dark:text-zinc-600">
-                                    {type.items.length}
-                                  </span>
-                                </button>
-                              ))}
+                              {unit.types.length > 1 &&
+                                unit.types.map((type) => (
+                                  <button
+                                    key={type.key}
+                                    type="button"
+                                    onClick={() => setSelectedFolder(type.key)}
+                                    className={`mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === type.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
+                                  >
+                                    <Folder size={14} />
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {type.docType}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 dark:text-zinc-600">
+                                      {type.items.length}
+                                    </span>
+                                  </button>
+                                ))}
                             </div>
                           </div>
                         ))}

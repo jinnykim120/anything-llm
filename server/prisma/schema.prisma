@@ -55,6 +55,8 @@ model workspace_documents {
   docpath              String
   workspaceId          Int
   metadata             String?
+  uploadedByUserId     Int?
+  uploadedByOrgUnit    String?
   pinned               Boolean?              @default(false)
   watched              Boolean?              @default(false)
   createdAt            DateTime              @default(now())

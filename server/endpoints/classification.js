@@ -28,6 +28,11 @@ const { Workspace } = require("../models/workspace");
 const { purgeDocument } = require("../utils/files/purgeDocument");
 
 const CUSTOM_DOC_TYPES_SETTING = "archive_document_types";
+const CUSTOM_AXIS_SETTINGS = {
+  workType: "archive_work_types",
+  businessUnit: "archive_business_units",
+  domain: "archive_domains",
+};
 
 async function storedDocumentTypes() {
   const setting = await prisma.system_settings
@@ -38,6 +43,15 @@ async function storedDocumentTypes() {
     .filter((value) => typeof value === "string")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+async function storedAxisValues(label) {
+  if (!label) return [];
+  const setting = await prisma.system_settings
+    .findUnique({ where: { label } })
+    .catch(() => null);
+  const values = safeJsonParse(setting?.value, []);
+  return Array.isArray(values) ? values.filter(Boolean) : [];
 }
 
 async function documentTypeOptions() {
@@ -58,6 +72,7 @@ async function axisOptions(field, suggested) {
   return [
     ...new Set([
       ...suggested,
+      ...(await storedAxisValues(CUSTOM_AXIS_SETTINGS[field])),
       ...rows.map((row) => row[field]).filter(Boolean),
     ]),
   ];
@@ -111,9 +126,16 @@ async function archiveDocuments(workspaceSlug = null) {
         // holding it more than once (pre-dedup-fix leftovers, races) is the
         // thing the cleanup UI targets.
         byWorkspace: new Map(),
+        uploaders: [],
       });
     }
     const entry = byHash.get(hash);
+    if (wd.uploadedByUserId || wd.uploadedByOrgUnit) {
+      entry.uploaders.push({
+        userId: wd.uploadedByUserId || null,
+        orgUnit: wd.uploadedByOrgUnit || null,
+      });
+    }
     const slug = wd.workspace?.slug || String(wd.workspaceId);
     entry.workspaces.push({ slug, tier: wd.workspace?.tier || null });
     entry.docpaths.push(wd.docpath);
@@ -197,6 +219,38 @@ function classificationEndpoints(app) {
     }
   );
 
+  app.post(
+    "/classification/taxonomy/axis",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { axis, value } = reqBody(request);
+        const label = CUSTOM_AXIS_SETTINGS[axis];
+        const normalized = String(value || "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!label || !normalized || normalized.length > 80)
+          return response
+            .status(400)
+            .json({ error: "유효하지 않은 분류 항목입니다." });
+        const current = await storedAxisValues(label);
+        const values = [...new Set([...current, normalized])].slice(0, 100);
+        await prisma.system_settings.upsert({
+          where: { label },
+          update: { value: JSON.stringify(values) },
+          create: { label, value: JSON.stringify(values) },
+        });
+        response.status(200).json({
+          value: normalized,
+          taxonomy: await taxonomyWithDocumentTypes(),
+        });
+      } catch (e) {
+        console.error("POST /classification/taxonomy/axis", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
   app.get(
     "/classification/documents",
     [validatedRequest, flexUserRoleValid([ROLES.all])],
@@ -222,6 +276,21 @@ function classificationEndpoints(app) {
             })
           : [];
         const confirmerById = new Map(confirmers.map((u) => [u.id, u]));
+        const uploaderIds = [
+          ...new Set(
+            docs
+              .flatMap((d) => d.uploaders || [])
+              .map((u) => u.userId)
+              .filter((id) => Number.isInteger(id))
+          ),
+        ];
+        const uploaders = uploaderIds.length
+          ? await prisma.users.findMany({
+              where: { id: { in: uploaderIds } },
+              select: { id: true, username: true },
+            })
+          : [];
+        const uploaderById = new Map(uploaders.map((u) => [u.id, u]));
         const allWorkspaces = await prisma.workspaces.findMany({
           select: { slug: true, name: true, tier: true },
         });
@@ -273,6 +342,18 @@ function classificationEndpoints(app) {
                   confirmedByUser: confirmerById.get(cls.confirmedBy) || null,
                 }
               : null,
+            uploaders: [
+              ...new Map(
+                (d.uploaders || []).map((u) => [
+                  `${u.userId || ""}:${u.orgUnit || ""}`,
+                  {
+                    userId: u.userId,
+                    username: uploaderById.get(u.userId)?.username || null,
+                    orgUnit: u.orgUnit,
+                  },
+                ])
+              ).values(),
+            ],
             held,
             effectiveSensitivity:
               cls?.status === "confirmed" && cls.sensitivity === "general"
@@ -510,10 +591,13 @@ function classificationEndpoints(app) {
     async (request, response) => {
       try {
         const { contentHash } = request.params;
-        const { sensitivity, docType, domain, tags } = reqBody(request);
+        const { sensitivity, workType, businessUnit, docType, domain, tags } =
+          reqBody(request);
         const { classification, error } = await DocumentClassification.confirm({
           contentHash,
           sensitivity,
+          workType,
+          businessUnit,
           docType,
           domain,
           tags,
