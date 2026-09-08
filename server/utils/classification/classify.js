@@ -11,6 +11,8 @@ const {
   normalizeSensitivity,
   DOC_TYPE,
   DOMAIN,
+  WORK_TYPE,
+  BUSINESS_UNIT,
 } = require("./taxonomy");
 const { safeJsonParse } = require("../http");
 
@@ -25,6 +27,14 @@ ${taxonomy()
     decide. Do NOT use it as a lazy default; only when the document really
     could plausibly be either.
 
+work_type — the business workflow. Prefer one of:
+  ${WORK_TYPE.suggested.join(", ")}
+  (use another short Korean label only if none fit)
+
+business_unit — the owning business unit. Prefer one of:
+  ${BUSINESS_UNIT.suggested.join(", ")}
+  (use another short Korean label only if none fit)
+
 doc_type — the document kind. Prefer one of:
   ${DOC_TYPE.suggested.join(", ")}
   (use another short Korean label only if none fit)
@@ -36,7 +46,7 @@ domain — the subject area. Prefer one of:
 tags — 2 to 5 short Korean keywords.
 
 Respond with ONLY:
-{"sensitivity":"general|confidential|uncertain","doc_type":"...","domain":"...","tags":["..."],
+{"sensitivity":"general|confidential|uncertain","work_type":"...","business_unit":"...","doc_type":"...","domain":"...","tags":["..."],
  "rationale":"one Korean sentence explaining the sensitivity call"}`;
 
 function buildPrompt({ title, docSource, parsePath, text }) {
@@ -86,6 +96,8 @@ async function classifyDocument(doc = {}) {
       .slice(0, 40);
   return {
     sensitivity: normalizeSensitivity(parsed.sensitivity),
+    work_type: clean(parsed.work_type) || "기타",
+    business_unit: clean(parsed.business_unit) || "기타",
     doc_type: clean(parsed.doc_type) || "기타",
     domain: clean(parsed.domain) || "기타",
     tags: Array.isArray(parsed.tags)

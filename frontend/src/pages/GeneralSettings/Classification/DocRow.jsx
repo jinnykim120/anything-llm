@@ -32,6 +32,8 @@ export default function DocRow({
     ? cls.sensitivity
     : "";
   const [sensitivity, setSensitivity] = useState(initialSens);
+  const [workType, setWorkType] = useState(cls?.workType || "");
+  const [businessUnit, setBusinessUnit] = useState(cls?.businessUnit || "");
   const [docType, setDocType] = useState(cls?.docType || "");
   const [domain, setDomain] = useState(cls?.domain || "");
   const [tags, setTags] = useState((cls?.tags || []).join(", "));
@@ -49,6 +51,8 @@ export default function DocRow({
     setSensitivity(
       CONFIRMABLE.includes(cls.sensitivity) ? cls.sensitivity : ""
     );
+    setWorkType(cls.workType || "");
+    setBusinessUnit(cls.businessUnit || "");
     setDocType(cls.docType || "");
     setDomain(cls.domain || "");
     setTags((cls.tags || []).join(", "));
@@ -69,6 +73,23 @@ export default function DocRow({
       [...(taxonomy?.doc_type?.suggested || []), docType].filter(Boolean)
     ),
   ];
+  const domainOptions = [
+    ...new Set(
+      [...(taxonomy?.domain?.suggested || []), domain].filter(Boolean)
+    ),
+  ].sort((a, b) => String(a).localeCompare(String(b), "ko"));
+  const workTypeOptions = [
+    ...new Set(
+      [...(taxonomy?.work_type?.suggested || []), workType].filter(Boolean)
+    ),
+  ];
+  const businessUnitOptions = [
+    ...new Set(
+      [...(taxonomy?.business_unit?.suggested || []), businessUnit].filter(
+        Boolean
+      )
+    ),
+  ];
 
   async function confirm() {
     if (!CONFIRMABLE.includes(sensitivity))
@@ -76,6 +97,8 @@ export default function DocRow({
     setSaving(true);
     const res = await Classification.confirm(doc.contentHash, {
       sensitivity,
+      workType,
+      businessUnit,
       docType: docType.trim(),
       domain: domain.trim(),
       tags: tags
@@ -309,6 +332,41 @@ export default function DocRow({
         </div>
       )}
 
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <label className="flex flex-col gap-y-1">
+          <span className="text-[11px] text-theme-text-secondary">
+            업무 분류
+          </span>
+          <select
+            value={workType}
+            onChange={(e) => setWorkType(e.target.value)}
+            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+          >
+            <option value="">— 선택 —</option>
+            {workTypeOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-y-1">
+          <span className="text-[11px] text-theme-text-secondary">사업부</span>
+          <select
+            value={businessUnit}
+            onChange={(e) => setBusinessUnit(e.target.value)}
+            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+          >
+            <option value="">— 선택 —</option>
+            {businessUnitOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       {cls?.rationale && !confirmed && (
         <p className="text-[11px] text-theme-text-secondary italic border-l-2 border-white/10 pl-2">
           {cls.rationale}
@@ -397,17 +455,18 @@ export default function DocRow({
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">분야</span>
-          <input
-            list={`domain-${doc.contentHash}`}
+          <select
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
             className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-          />
-          <datalist id={`domain-${doc.contentHash}`}>
-            {(taxonomy?.domain?.suggested || []).map((v) => (
-              <option key={v} value={v} />
+          >
+            <option value="">— 선택 —</option>
+            {domainOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
             ))}
-          </datalist>
+          </select>
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">

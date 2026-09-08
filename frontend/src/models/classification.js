@@ -61,11 +61,21 @@ const Classification = {
       });
   },
 
-  confirm: async (contentHash, { sensitivity, docType, domain, tags }) => {
+  confirm: async (
+    contentHash,
+    { sensitivity, workType, businessUnit, docType, domain, tags }
+  ) => {
     return await fetch(`${API_BASE}/classification/${contentHash}/confirm`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ sensitivity, docType, domain, tags }),
+      body: JSON.stringify({
+        sensitivity,
+        workType,
+        businessUnit,
+        docType,
+        domain,
+        tags,
+      }),
     })
       .then((res) => res.json())
       .catch((e) => {
@@ -76,7 +86,7 @@ const Classification = {
 
   confirmBulk: async (
     contentHashes,
-    { sensitivity, docType, domain, tags }
+    { sensitivity, workType, businessUnit, docType, domain, tags }
   ) => {
     return await fetch(`${API_BASE}/classification/confirm-bulk`, {
       method: "POST",
@@ -84,6 +94,8 @@ const Classification = {
       body: JSON.stringify({
         contentHashes,
         sensitivity,
+        workType,
+        businessUnit,
         docType,
         domain,
         tags,
@@ -114,6 +126,26 @@ const Classification = {
         console.error(e);
         return { error: e.message };
       });
+  },
+
+  moveType: async (contentHash, docType) => {
+    return await fetch(`${API_BASE}/classification/${contentHash}/type`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ docType }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+
+  moveTypes: async (contentHashes, docType) => {
+    return await fetch(`${API_BASE}/classification/types`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ contentHashes, docType }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
   },
 
   // Collapse duplicate rows for this content_hash within one workspace down

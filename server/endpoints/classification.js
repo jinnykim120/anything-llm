@@ -17,6 +17,8 @@ const {
 const {
   taxonomy,
   DOC_TYPE,
+  WORK_TYPE,
+  BUSINESS_UNIT,
   SENSITIVITY,
   normalizeSensitivity,
 } = require("../utils/classification/taxonomy");
@@ -49,9 +51,27 @@ async function documentTypeOptions() {
   return [...new Set([...DOC_TYPE.suggested, ...stored, ...used])];
 }
 
+async function axisOptions(field, suggested) {
+  const rows = await prisma.document_classifications
+    .findMany({ select: { [field]: true } })
+    .catch(() => []);
+  return [
+    ...new Set([
+      ...suggested,
+      ...rows.map((row) => row[field]).filter(Boolean),
+    ]),
+  ];
+}
+
 async function taxonomyWithDocumentTypes() {
   return {
     ...taxonomy(),
+    work_type: {
+      suggested: await axisOptions("workType", WORK_TYPE.suggested),
+    },
+    business_unit: {
+      suggested: await axisOptions("businessUnit", BUSINESS_UNIT.suggested),
+    },
     doc_type: { suggested: await documentTypeOptions() },
   };
 }
@@ -289,6 +309,8 @@ function classificationEndpoints(app) {
           contentHashes = [],
           sensitivity,
           docType,
+          workType,
+          businessUnit,
           domain,
           tags = [],
         } = reqBody(request);
@@ -315,6 +337,8 @@ function classificationEndpoints(app) {
             await DocumentClassification.confirm({
               contentHash,
               sensitivity,
+              workType,
+              businessUnit,
               docType,
               domain,
               tags,
@@ -330,6 +354,66 @@ function classificationEndpoints(app) {
         });
       } catch (e) {
         console.error("POST /classification/confirm-bulk", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  app.post(
+    "/classification/:contentHash/type",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { contentHash } = request.params;
+        const { docType = "" } = reqBody(request);
+        const current = await DocumentClassification.get(contentHash);
+        if (!current)
+          return response
+            .status(404)
+            .json({ error: "분류 정보를 찾을 수 없습니다." });
+        const row = await prisma.document_classifications.update({
+          where: { contentHash },
+          data: { docType: String(docType).trim() || null },
+        });
+        response.status(200).json({
+          classification: DocumentClassification._serialize(row),
+          error: null,
+        });
+      } catch (e) {
+        console.error("POST /classification/:contentHash/type", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  app.post(
+    "/classification/types",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { contentHashes = [], docType = "" } = reqBody(request);
+        const hashes = [
+          ...new Set(
+            (Array.isArray(contentHashes) ? contentHashes : [])
+              .map((hash) => String(hash || "").trim())
+              .filter(Boolean)
+          ),
+        ];
+        const normalizedType = String(docType).trim();
+        if (!hashes.length)
+          return response.status(400).json({ error: "문서를 선택하세요." });
+        if (!normalizedType)
+          return response
+            .status(400)
+            .json({ error: "이동할 분류 폴더를 선택하세요." });
+
+        const result = await prisma.document_classifications.updateMany({
+          where: { contentHash: { in: hashes } },
+          data: { docType: normalizedType },
+        });
+        response.status(200).json({ updated: result.count, error: null });
+      } catch (e) {
+        console.error("POST /classification/types", e);
         response.status(500).json({ error: e.message });
       }
     }

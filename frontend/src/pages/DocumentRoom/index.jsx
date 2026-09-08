@@ -65,6 +65,11 @@ function classificationFolder(document, classificationsByHash) {
   return "미분류";
 }
 
+function classificationValue(document, classificationsByHash, key) {
+  const classification = classificationsByHash.get(contentHash(document));
+  return classification?.[key]?.trim() || "미분류";
+}
+
 function typeLabel(document) {
   const extension = filename(document).split(".").pop()?.toLowerCase();
   return extension ? extension.toUpperCase() : "문서";
@@ -86,6 +91,7 @@ export default function DocumentRoom() {
   const [loading, setLoading] = useState(true);
   const [selectedHashes, setSelectedHashes] = useState(() => new Set());
   const [deleting, setDeleting] = useState(false);
+  const [moving, setMoving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,15 +146,92 @@ export default function DocumentRoom() {
     });
   }, [classificationsByHash, documents]);
 
+  const folderTree = useMemo(() => {
+    const workTypes = new Map();
+    for (const document of documents) {
+      const workType = classificationValue(
+        document,
+        classificationsByHash,
+        "workType"
+      );
+      const businessUnit = classificationValue(
+        document,
+        classificationsByHash,
+        "businessUnit"
+      );
+      const docType = classificationValue(
+        document,
+        classificationsByHash,
+        "docType"
+      );
+      if (!workTypes.has(workType)) workTypes.set(workType, new Map());
+      const units = workTypes.get(workType);
+      if (!units.has(businessUnit)) units.set(businessUnit, new Map());
+      const types = units.get(businessUnit);
+      if (!types.has(docType)) types.set(docType, []);
+      types.get(docType).push(document);
+    }
+    return [...workTypes.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "ko"))
+      .map(([workType, units]) => ({
+        workType,
+        key: `work:${workType}`,
+        items: [...units.values()].flatMap((types) =>
+          [...types.values()].flat()
+        ),
+        units: [...units.entries()]
+          .sort(([a], [b]) => a.localeCompare(b, "ko"))
+          .map(([businessUnit, types]) => ({
+            businessUnit,
+            key: `unit:${workType}:${businessUnit}`,
+            items: [...types.values()].flat(),
+            types: [...types.entries()]
+              .sort(([a], [b]) => a.localeCompare(b, "ko"))
+              .map(([docType, items]) => ({
+                docType,
+                key: `type:${workType}:${businessUnit}:${docType}`,
+                items,
+              })),
+          })),
+      }));
+  }, [classificationsByHash, documents]);
+
   const filteredDocuments = useMemo(() => {
-    const folderDocuments =
-      selectedFolder === "전체 문서"
-        ? documents
-        : documents.filter(
-            (document) =>
-              classificationFolder(document, classificationsByHash) ===
-              selectedFolder
-          );
+    let folderDocuments = documents;
+    if (selectedFolder.startsWith("work:")) {
+      const workType = selectedFolder.slice("work:".length);
+      folderDocuments = documents.filter(
+        (document) =>
+          classificationValue(document, classificationsByHash, "workType") ===
+          workType
+      );
+    } else if (selectedFolder.startsWith("unit:")) {
+      const [, workType, businessUnit] = selectedFolder.split(":");
+      folderDocuments = documents.filter(
+        (document) =>
+          classificationValue(document, classificationsByHash, "workType") ===
+            workType &&
+          classificationValue(
+            document,
+            classificationsByHash,
+            "businessUnit"
+          ) === businessUnit
+      );
+    } else if (selectedFolder.startsWith("type:")) {
+      const [, workType, businessUnit, docType] = selectedFolder.split(":");
+      folderDocuments = documents.filter(
+        (document) =>
+          classificationValue(document, classificationsByHash, "workType") ===
+            workType &&
+          classificationValue(
+            document,
+            classificationsByHash,
+            "businessUnit"
+          ) === businessUnit &&
+          classificationValue(document, classificationsByHash, "docType") ===
+            docType
+      );
+    }
     const normalized = query.trim().toLowerCase();
     if (!normalized) return folderDocuments;
     return folderDocuments.filter((document) =>
@@ -194,6 +277,17 @@ export default function DocumentRoom() {
     if (result?.error) return window.alert(`삭제 실패: ${result.error}`);
     setSelectedHashes(new Set());
     setSelected(null);
+    setLoading(true);
+    window.location.reload();
+  }
+
+  async function moveSelectedToFolder(docType) {
+    if (!selectedHashes.size || !docType) return;
+    setMoving(true);
+    const result = await Classification.moveTypes([...selectedHashes], docType);
+    setMoving(false);
+    if (result?.error) return window.alert(`이동 실패: ${result.error}`);
+    setSelectedHashes(new Set());
     setLoading(true);
     window.location.reload();
   }
@@ -245,36 +339,38 @@ export default function DocumentRoom() {
               <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-600">
                 분류 폴더
               </p>
-              {folders.map(([folder, items]) => {
-                const isRoot = folder === "전체 문서";
-                if (!isRoot && !expanded["전체 문서"]) return null;
-                const isOpen = expanded[folder];
+              <button
+                type="button"
+                onClick={() => setSelectedFolder("전체 문서")}
+                className={`mb-1 flex w-full items-center gap-1.5 rounded px-2 py-2 text-left text-xs font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === "전체 문서" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-700 dark:text-zinc-300"}`}
+              >
+                <FolderOpen size={15} className="text-blue-600" />
+                <span className="min-w-0 flex-1 truncate">전체 문서</span>
+                <span className="text-[10px] text-slate-400 dark:text-zinc-600">
+                  {documents.length}
+                </span>
+              </button>
+              {folderTree.map((work) => {
+                const workOpen = expanded[work.key];
                 return (
-                  <div
-                    key={folder}
-                    className={`mb-1 ${
-                      isRoot
-                        ? ""
-                        : "ml-3 border-l border-slate-200 pl-2 dark:border-zinc-800"
-                    }`}
-                  >
+                  <div key={work.key} className="mb-1 ml-1">
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedFolder(folder);
+                        setSelectedFolder(work.key);
                         setExpanded((prev) => ({
                           ...prev,
-                          [folder]: !prev[folder],
+                          [work.key]: !prev[work.key],
                         }));
                       }}
-                      className={`flex w-full items-center gap-1.5 rounded px-2 py-2 text-left text-xs font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === folder ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-700 dark:text-zinc-300"}`}
+                      className={`flex w-full items-center gap-1.5 rounded px-2 py-2 text-left text-xs font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === work.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-700 dark:text-zinc-300"}`}
                     >
-                      {isOpen ? (
+                      {workOpen ? (
                         <CaretDown size={13} />
                       ) : (
                         <CaretRight size={13} />
                       )}
-                      {isOpen ? (
+                      {workOpen ? (
                         <FolderOpen size={15} className="text-blue-600" />
                       ) : (
                         <Folder
@@ -282,22 +378,49 @@ export default function DocumentRoom() {
                           className="text-slate-400 dark:text-zinc-500"
                         />
                       )}
-                      <span className="min-w-0 flex-1 truncate">{folder}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {work.workType}
+                      </span>
                       <span className="text-[10px] text-slate-400 dark:text-zinc-600">
-                        {items.length}
+                        {work.items.length}
                       </span>
                     </button>
-                    {isOpen && !isRoot && (
-                      <div className="ml-7 border-l border-slate-200 pl-2 dark:border-zinc-800">
-                        {items.slice(0, 5).map((document) => (
-                          <button
-                            key={document.id || document.docpath}
-                            type="button"
-                            onClick={() => setSelected(document)}
-                            className="block w-full truncate rounded px-2 py-1.5 text-left text-[11px] text-slate-500 hover:bg-slate-50 hover:text-blue-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-blue-300"
-                          >
-                            {filename(document)}
-                          </button>
+                    {workOpen && (
+                      <div className="ml-5 border-l border-slate-200 pl-2 dark:border-zinc-800">
+                        {work.units.map((unit) => (
+                          <div key={unit.key} className="mb-1">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedFolder(unit.key)}
+                              className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === unit.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
+                            >
+                              <Folder size={14} />
+                              <span className="min-w-0 flex-1 truncate">
+                                {unit.businessUnit}
+                              </span>
+                              <span className="text-[10px] text-slate-400 dark:text-zinc-600">
+                                {unit.items.length}
+                              </span>
+                            </button>
+                            <div className="ml-5 border-l border-slate-200 pl-2 dark:border-zinc-800">
+                              {unit.types.map((type) => (
+                                <button
+                                  key={type.key}
+                                  type="button"
+                                  onClick={() => setSelectedFolder(type.key)}
+                                  className={`mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === type.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
+                                >
+                                  <Folder size={14} />
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {type.docType}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 dark:text-zinc-600">
+                                    {type.items.length}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -316,14 +439,41 @@ export default function DocumentRoom() {
                     </span>
                   </p>
                   {selectedHashes.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={deleteSelected}
-                      disabled={deleting}
-                      className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
-                    >
-                      {deleting ? "삭제 중…" : `${selectedHashes.size}개 삭제`}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <select
+                        defaultValue=""
+                        onChange={(event) => {
+                          moveSelectedToFolder(event.target.value);
+                          event.target.value = "";
+                        }}
+                        disabled={moving || deleting}
+                        aria-label="선택 문서를 다른 분류 폴더로 이동"
+                        className="max-w-40 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+                      >
+                        <option value="">폴더 이동…</option>
+                        {folders
+                          .map(([folder]) => folder)
+                          .filter(
+                            (folder) =>
+                              folder !== "전체 문서" && folder !== "미분류"
+                          )
+                          .map((folder) => (
+                            <option key={folder} value={folder}>
+                              {folder}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={deleteSelected}
+                        disabled={deleting || moving}
+                        className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                      >
+                        {deleting
+                          ? "삭제 중…"
+                          : `${selectedHashes.size}개 삭제`}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <span className="text-[11px] text-slate-400 dark:text-zinc-600">

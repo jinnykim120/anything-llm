@@ -9,7 +9,16 @@ const {
 } = require("../utils/classification/taxonomy");
 
 const DocumentClassification = {
-  writable: ["sensitivity", "docType", "domain", "tags", "status", "rationale"],
+  writable: [
+    "sensitivity",
+    "workType",
+    "businessUnit",
+    "docType",
+    "domain",
+    "tags",
+    "status",
+    "rationale",
+  ],
 
   _serialize(row) {
     if (!row) return null;
@@ -46,6 +55,8 @@ const DocumentClassification = {
   upsertProposal: async function ({
     contentHash,
     sensitivity,
+    workType,
+    businessUnit,
     docType,
     domain,
     tags = [],
@@ -61,6 +72,8 @@ const DocumentClassification = {
 
     const data = {
       sensitivity: normalizeSensitivity(sensitivity),
+      workType: workType || null,
+      businessUnit: businessUnit || null,
       docType: docType || null,
       domain: domain || null,
       tags: JSON.stringify(Array.isArray(tags) ? tags : []),
@@ -87,6 +100,8 @@ const DocumentClassification = {
   confirm: async function ({
     contentHash,
     sensitivity,
+    workType,
+    businessUnit,
     docType,
     domain,
     tags,
@@ -115,6 +130,10 @@ const DocumentClassification = {
       ...(sensitivity !== undefined
         ? { sensitivity: normalizeSensitivity(sensitivity) }
         : {}),
+      ...(workType !== undefined ? { workType: workType || null } : {}),
+      ...(businessUnit !== undefined
+        ? { businessUnit: businessUnit || null }
+        : {}),
       ...(docType !== undefined ? { docType: docType || null } : {}),
       ...(domain !== undefined ? { domain: domain || null } : {}),
       ...(tags !== undefined
@@ -129,6 +148,8 @@ const DocumentClassification = {
         create: {
           contentHash,
           sensitivity: normalizeSensitivity(sensitivity ?? "confidential"),
+          workType: workType || null,
+          businessUnit: businessUnit || null,
           docType: docType || null,
           domain: domain || null,
           tags: JSON.stringify(Array.isArray(tags) ? tags : []),
@@ -172,6 +193,8 @@ const DocumentClassification = {
     const row = await this.upsertProposal({
       contentHash: doc.contentHash,
       sensitivity: result.sensitivity,
+      workType: result.work_type,
+      businessUnit: result.business_unit,
       docType: result.doc_type,
       domain: result.domain,
       tags: result.tags,

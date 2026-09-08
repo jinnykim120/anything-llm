@@ -28,12 +28,17 @@ export default function ClassificationReview() {
   const [selectedHashes, setSelectedHashes] = useState(() => new Set());
   const [bulkValues, setBulkValues] = useState({
     sensitivity: "",
+    workType: "",
+    businessUnit: "",
     docType: "",
     domain: "",
   });
   const [bulkSaving, setBulkSaving] = useState(false);
   const [filters, setFilters] = useState({
+    query: "",
     sensitivity: "all",
+    workType: "all",
+    businessUnit: "all",
     docType: "all",
     domain: "all",
     status: "all",
@@ -78,6 +83,12 @@ export default function ClassificationReview() {
     setBulkSaving(true);
     const result = await Classification.confirmBulk([...selectedHashes], {
       sensitivity: bulkValues.sensitivity,
+      ...(bulkValues.workType.trim()
+        ? { workType: bulkValues.workType.trim() }
+        : {}),
+      ...(bulkValues.businessUnit.trim()
+        ? { businessUnit: bulkValues.businessUnit.trim() }
+        : {}),
       ...(bulkValues.docType.trim()
         ? { docType: bulkValues.docType.trim() }
         : {}),
@@ -121,14 +132,50 @@ export default function ClassificationReview() {
 
     return {
       sensitivities: values((doc) => doc.classification?.sensitivity),
-      docTypes: values((doc) => doc.classification?.docType),
-      domains: values((doc) => doc.classification?.domain),
+      workTypes: [
+        ...new Set([
+          ...(taxonomy?.work_type?.suggested || []),
+          ...docs.map((doc) => doc.classification?.workType).filter(Boolean),
+        ]),
+      ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
+      businessUnits: [
+        ...new Set([
+          ...(taxonomy?.business_unit?.suggested || []),
+          ...docs
+            .map((doc) => doc.classification?.businessUnit)
+            .filter(Boolean),
+        ]),
+      ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
+      docTypes: [
+        ...new Set([
+          ...(taxonomy?.doc_type?.suggested || []),
+          ...docs.map((doc) => doc.classification?.docType).filter(Boolean),
+        ]),
+      ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
+      domains: [
+        ...new Set([
+          ...(taxonomy?.domain?.suggested || []),
+          ...docs.map((doc) => doc.classification?.domain).filter(Boolean),
+        ]),
+      ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
     };
-  }, [docs]);
+  }, [docs, taxonomy]);
 
   const visibleDocs = useMemo(() => {
     const filtered = docs.filter((doc) => {
       const classification = doc.classification;
+      const searchText = [
+        doc.title,
+        doc.docSource,
+        classification?.docType,
+        classification?.workType,
+        classification?.businessUnit,
+        classification?.domain,
+        ...(classification?.tags || []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase("ko-KR");
       const status =
         classification?.status === "confirmed"
           ? "confirmed"
@@ -137,8 +184,16 @@ export default function ClassificationReview() {
             : "unclassified";
 
       return (
+        (!filters.query ||
+          searchText.includes(
+            filters.query.trim().toLocaleLowerCase("ko-KR")
+          )) &&
         (filters.sensitivity === "all" ||
           classification?.sensitivity === filters.sensitivity) &&
+        (filters.workType === "all" ||
+          classification?.workType === filters.workType) &&
+        (filters.businessUnit === "all" ||
+          classification?.businessUnit === filters.businessUnit) &&
         (filters.docType === "all" ||
           classification?.docType === filters.docType) &&
         (filters.domain === "all" ||
@@ -171,13 +226,31 @@ export default function ClassificationReview() {
     });
   }, [docs, filters]);
 
+  const visibleHashes = visibleDocs.map((doc) => doc.contentHash);
+  const allVisibleSelected =
+    visibleHashes.length > 0 &&
+    visibleHashes.every((hash) => selectedHashes.has(hash));
+
+  function toggleAllVisible() {
+    setSelectedHashes((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected)
+        visibleHashes.forEach((hash) => next.delete(hash));
+      else visibleHashes.forEach((hash) => next.add(hash));
+      return next;
+    });
+  }
+
   function updateFilter(name, value) {
     setFilters((current) => ({ ...current, [name]: value }));
   }
 
   function resetFilters() {
     setFilters({
+      query: "",
       sensitivity: "all",
+      workType: "all",
+      businessUnit: "all",
       docType: "all",
       domain: "all",
       status: "all",
@@ -249,6 +322,16 @@ export default function ClassificationReview() {
                     {visibleDocs.length}/{docs.length}건
                   </span>
                 </div>
+                <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-theme-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    disabled={!visibleDocs.length}
+                    aria-label="현재 필터 결과 전체 선택"
+                  />
+                  현재 필터 결과 전체 선택
+                </label>
                 <button
                   type="button"
                   onClick={resetFilters}
@@ -276,22 +359,69 @@ export default function ClassificationReview() {
                     <option value="general">일반 범용</option>
                     <option value="confidential">격리·민감</option>
                   </select>
-                  <input
+                  <select
+                    value={bulkValues.workType}
+                    onChange={(e) =>
+                      setBulkValues((v) => ({ ...v, workType: e.target.value }))
+                    }
+                    aria-label="일괄 확정 업무 분류"
+                    className="w-28 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
+                  >
+                    <option value="">업무 분류(선택)</option>
+                    {filterOptions.workTypes.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={bulkValues.businessUnit}
+                    onChange={(e) =>
+                      setBulkValues((v) => ({
+                        ...v,
+                        businessUnit: e.target.value,
+                      }))
+                    }
+                    aria-label="일괄 확정 사업부"
+                    className="w-28 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
+                  >
+                    <option value="">사업부(선택)</option>
+                    {filterOptions.businessUnits.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     value={bulkValues.docType}
                     onChange={(e) =>
                       setBulkValues((v) => ({ ...v, docType: e.target.value }))
                     }
-                    placeholder="종류(선택)"
+                    aria-label="일괄 확정 문서 종류"
                     className="w-28 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
-                  />
-                  <input
+                  >
+                    <option value="">종류 선택(선택)</option>
+                    {filterOptions.docTypes.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     value={bulkValues.domain}
                     onChange={(e) =>
                       setBulkValues((v) => ({ ...v, domain: e.target.value }))
                     }
-                    placeholder="분야(선택)"
+                    aria-label="일괄 확정 분야"
                     className="w-28 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
-                  />
+                  >
+                    <option value="">분야 선택(선택)</option>
+                    {filterOptions.domains.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     onClick={confirmSelected}
@@ -311,6 +441,13 @@ export default function ClassificationReview() {
                 </div>
               )}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <input
+                  value={filters.query}
+                  onChange={(e) => updateFilter("query", e.target.value)}
+                  placeholder="문서명·파일명·종류·분야 검색"
+                  aria-label="분류 검수 문서 검색"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none sm:col-span-2 lg:col-span-2"
+                />
                 <select
                   value={filters.sensitivity}
                   onChange={(e) => updateFilter("sensitivity", e.target.value)}
@@ -321,6 +458,32 @@ export default function ClassificationReview() {
                   {filterOptions.sensitivities.map((value) => (
                     <option key={value} value={value}>
                       민감도: {SENS_LABEL[value] || value}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.workType}
+                  onChange={(e) => updateFilter("workType", e.target.value)}
+                  aria-label="업무 분류 필터"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="all">업무 분류: 전체</option>
+                  {filterOptions.workTypes.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.businessUnit}
+                  onChange={(e) => updateFilter("businessUnit", e.target.value)}
+                  aria-label="사업부 필터"
+                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                >
+                  <option value="all">사업부: 전체</option>
+                  {filterOptions.businessUnits.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
                     </option>
                   ))}
                 </select>

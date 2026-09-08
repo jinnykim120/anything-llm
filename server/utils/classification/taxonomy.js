@@ -1,8 +1,10 @@
 // [auto-docu P4] The classification axes. See classification-scheme memory.
 //
 //   sensitivity — CLOSED. drives workspace routing + access control.
-//   doc_type    — SUGGESTED list; the classifier may propose another value.
-//   domain      — SUGGESTED list; the classifier may propose another value.
+//   work_type   — SUGGESTED business workflow classification.
+//   business_unit — SUGGESTED organizational ownership.
+//   doc_type    — SUGGESTED document kind.
+//   domain      — SUGGESTED subject area.
 //   tags        — free-form keywords.
 
 const SENSITIVITY = {
@@ -46,6 +48,30 @@ const DOC_TYPE = {
   ],
 };
 
+const WORK_TYPE = {
+  suggested: [
+    "법규검토",
+    "계약·협약",
+    "실적관리",
+    "정책지원",
+    "교육·홍보",
+    "경영지원",
+    "기타",
+  ],
+};
+
+const BUSINESS_UNIT = {
+  suggested: [
+    "전사",
+    "유통BU",
+    "홈쇼핑BU",
+    "편의점BU",
+    "수퍼마켓BU",
+    "정책지원팀",
+    "기타",
+  ],
+};
+
 const DOMAIN = {
   suggested: [
     "공정거래",
@@ -72,6 +98,8 @@ function taxonomy() {
       conservativeDefault: SENSITIVITY.conservativeDefault,
       rule: SENSITIVITY.rule,
     },
+    work_type: { suggested: WORK_TYPE.suggested },
+    business_unit: { suggested: BUSINESS_UNIT.suggested },
     doc_type: { suggested: DOC_TYPE.suggested },
     domain: { suggested: DOMAIN.suggested },
   };
@@ -120,5 +148,7 @@ module.exports = {
   sensitivityForAccess,
   SENSITIVITY,
   DOC_TYPE,
+  WORK_TYPE,
+  BUSINESS_UNIT,
   DOMAIN,
 };
