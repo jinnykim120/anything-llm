@@ -146,6 +146,7 @@ export default function DocumentRoom() {
     });
   }, [classificationsByHash, documents]);
 
+  // Document room folder tree: 업무 분류 → 사업부까지만 (종류는 폴더에 없음).
   const folderTree = useMemo(() => {
     const workTypes = new Map();
     for (const document of documents) {
@@ -159,39 +160,23 @@ export default function DocumentRoom() {
         classificationsByHash,
         "businessUnit"
       );
-      const docType = classificationValue(
-        document,
-        classificationsByHash,
-        "docType"
-      );
       if (!workTypes.has(workType)) workTypes.set(workType, new Map());
       const units = workTypes.get(workType);
-      if (!units.has(businessUnit)) units.set(businessUnit, new Map());
-      const types = units.get(businessUnit);
-      if (!types.has(docType)) types.set(docType, []);
-      types.get(docType).push(document);
+      if (!units.has(businessUnit)) units.set(businessUnit, []);
+      units.get(businessUnit).push(document);
     }
     return [...workTypes.entries()]
       .sort(([a], [b]) => a.localeCompare(b, "ko"))
       .map(([workType, units]) => ({
         workType,
         key: `work:${workType}`,
-        items: [...units.values()].flatMap((types) =>
-          [...types.values()].flat()
-        ),
+        items: [...units.values()].flat(),
         units: [...units.entries()]
           .sort(([a], [b]) => a.localeCompare(b, "ko"))
-          .map(([businessUnit, types]) => ({
+          .map(([businessUnit, items]) => ({
             businessUnit,
             key: `unit:${workType}:${businessUnit}`,
-            items: [...types.values()].flat(),
-            types: [...types.entries()]
-              .sort(([a], [b]) => a.localeCompare(b, "ko"))
-              .map(([docType, items]) => ({
-                docType,
-                key: `type:${workType}:${businessUnit}:${docType}`,
-                items,
-              })),
+            items,
           })),
       }));
   }, [classificationsByHash, documents]);
@@ -216,20 +201,6 @@ export default function DocumentRoom() {
             classificationsByHash,
             "businessUnit"
           ) === businessUnit
-      );
-    } else if (selectedFolder.startsWith("type:")) {
-      const [, workType, businessUnit, docType] = selectedFolder.split(":");
-      folderDocuments = documents.filter(
-        (document) =>
-          classificationValue(document, classificationsByHash, "workType") ===
-            workType &&
-          classificationValue(
-            document,
-            classificationsByHash,
-            "businessUnit"
-          ) === businessUnit &&
-          classificationValue(document, classificationsByHash, "docType") ===
-            docType
       );
     }
     const normalized = query.trim().toLowerCase();
@@ -388,40 +359,20 @@ export default function DocumentRoom() {
                     {workOpen && (
                       <div className="ml-5 border-l border-slate-200 pl-2 dark:border-zinc-800">
                         {work.units.map((unit) => (
-                          <div key={unit.key} className="mb-1">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedFolder(unit.key)}
-                              className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === unit.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
-                            >
-                              <Folder size={14} />
-                              <span className="min-w-0 flex-1 truncate">
-                                {unit.businessUnit}
-                              </span>
-                              <span className="text-[10px] text-slate-400 dark:text-zinc-600">
-                                {unit.items.length}
-                              </span>
-                            </button>
-                            <div className="ml-5 border-l border-slate-200 pl-2 dark:border-zinc-800">
-                              {unit.types.length > 1 &&
-                                unit.types.map((type) => (
-                                  <button
-                                    key={type.key}
-                                    type="button"
-                                    onClick={() => setSelectedFolder(type.key)}
-                                    className={`mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === type.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
-                                  >
-                                    <Folder size={14} />
-                                    <span className="min-w-0 flex-1 truncate">
-                                      {type.docType}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 dark:text-zinc-600">
-                                      {type.items.length}
-                                    </span>
-                                  </button>
-                                ))}
-                            </div>
-                          </div>
+                          <button
+                            key={unit.key}
+                            type="button"
+                            onClick={() => setSelectedFolder(unit.key)}
+                            className={`mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] hover:bg-slate-50 dark:hover:bg-zinc-800 ${selectedFolder === unit.key ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300" : "text-slate-500 dark:text-zinc-500"}`}
+                          >
+                            <Folder size={14} />
+                            <span className="min-w-0 flex-1 truncate">
+                              {unit.businessUnit}
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-600">
+                              {unit.items.length}
+                            </span>
+                          </button>
                         ))}
                       </div>
                     )}

@@ -66,6 +66,7 @@ async function documentTypeOptions() {
 }
 
 async function axisOptions(field, suggested) {
+  if (field === "workType") return [...suggested];
   const rows = await prisma.document_classifications
     .findMany({ select: { [field]: true } })
     .catch(() => []);

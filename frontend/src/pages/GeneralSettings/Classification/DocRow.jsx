@@ -115,6 +115,14 @@ export default function DocRow({
     onConfirmed(res.classification);
   }
 
+  const hasClassificationChanges =
+    sensitivity !== initialSens ||
+    workType !== (cls?.workType || "") ||
+    businessUnit !== (cls?.businessUnit || "") ||
+    docType !== (cls?.docType || "") ||
+    domain !== (cls?.domain || "") ||
+    tags !== (cls?.tags || []).join(", ");
+
   function selectDocType(value) {
     if (value === "__custom__") {
       setAddingDocType(true);
@@ -414,53 +422,14 @@ export default function DocRow({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">
-            업무 분류
-          </span>
-          {axisSelect("workType", workType, setWorkType, workTypeOptions)}
-        </label>
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">사업부</span>
-          {axisSelect(
-            "businessUnit",
-            businessUnit,
-            setBusinessUnit,
-            businessUnitOptions
-          )}
-        </label>
-      </div>
-
       {cls?.rationale && !confirmed && (
         <p className="text-[11px] text-theme-text-secondary italic border-l-2 border-white/10 pl-2">
           {cls.rationale}
         </p>
       )}
 
-      {doc.workspaces?.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="text-theme-text-secondary">문서함에서 확인:</span>
-          {doc.workspaces.map((workspace) => {
-            const search = new URLSearchParams();
-            if (docType.trim()) search.set("type", docType.trim());
-            search.set("hash", doc.contentHash);
-            return (
-              <Link
-                key={workspace.slug}
-                to={paths.workspace.library(workspace.slug, {
-                  search: search.toString(),
-                })}
-                className="inline-flex items-center gap-x-1 rounded border border-theme-button-primary/40 px-2 py-1 font-semibold text-theme-button-primary hover:bg-theme-button-primary/10"
-              >
-                {workspace.slug} 열기
-              </Link>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+      {/* 필드 순서: 민감도 > 업무 분류 > 사업부 > 종류 > 분야 > 태그 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">민감도</span>
           <select
@@ -479,6 +448,21 @@ export default function DocRow({
               </option>
             ))}
           </select>
+        </label>
+        <label className="flex flex-col gap-y-1">
+          <span className="text-[11px] text-theme-text-secondary">
+            업무 분류
+          </span>
+          {axisSelect("workType", workType, setWorkType, workTypeOptions)}
+        </label>
+        <label className="flex flex-col gap-y-1">
+          <span className="text-[11px] text-theme-text-secondary">사업부</span>
+          {axisSelect(
+            "businessUnit",
+            businessUnit,
+            setBusinessUnit,
+            businessUnitOptions
+          )}
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">종류</span>
@@ -534,6 +518,30 @@ export default function DocRow({
         </label>
       </div>
 
+      {doc.workspaces?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-theme-text-secondary">문서함에서 확인:</span>
+          {doc.workspaces.map((workspace) => {
+            const search = new URLSearchParams();
+            if (workType.trim()) search.set("work", workType.trim());
+            if (businessUnit.trim()) search.set("unit", businessUnit.trim());
+            if (docType.trim()) search.set("type", docType.trim());
+            search.set("hash", doc.contentHash);
+            return (
+              <Link
+                key={workspace.slug}
+                to={paths.workspace.library(workspace.slug, {
+                  search: search.toString(),
+                })}
+                className="inline-flex items-center gap-x-1 rounded border border-blue-500 bg-blue-500 px-2 py-1 font-semibold text-white shadow-sm hover:border-blue-600 hover:bg-blue-600"
+              >
+                {workspace.slug} 열기
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex justify-end">
         <button
           onClick={confirm}
@@ -541,7 +549,13 @@ export default function DocRow({
           className="flex items-center gap-x-1.5 text-xs font-semibold text-white bg-theme-button-primary hover:bg-theme-button-primary-hover px-3 py-1.5 rounded-md disabled:opacity-50"
         >
           <CheckCircle className="h-4 w-4" weight="bold" />
-          {saving ? "저장 중…" : confirmed ? "재확정" : "확정"}
+          {saving
+            ? "저장 중…"
+            : confirmed && !hasClassificationChanges
+              ? "변경 후 저장"
+              : confirmed
+                ? "변경 저장"
+                : "확정"}
         </button>
       </div>
     </div>

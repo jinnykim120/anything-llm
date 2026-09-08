@@ -132,12 +132,9 @@ export default function ClassificationReview() {
 
     return {
       sensitivities: values((doc) => doc.classification?.sensitivity),
-      workTypes: [
-        ...new Set([
-          ...(taxonomy?.work_type?.suggested || []),
-          ...docs.map((doc) => doc.classification?.workType).filter(Boolean),
-        ]),
-      ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
+      workTypes: [...new Set([...(taxonomy?.work_type?.suggested || [])])].sort(
+        (a, b) => String(a).localeCompare(String(b), "ko")
+      ),
       businessUnits: [
         ...new Set([
           ...(taxonomy?.business_unit?.suggested || []),

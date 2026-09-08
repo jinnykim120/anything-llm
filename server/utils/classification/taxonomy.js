@@ -49,15 +49,7 @@ const DOC_TYPE = {
 };
 
 const WORK_TYPE = {
-  suggested: [
-    "법규검토",
-    "계약·협약",
-    "실적관리",
-    "정책지원",
-    "교육·홍보",
-    "경영지원",
-    "기타",
-  ],
+  suggested: ["동반성장", "공정거래", "기타"],
 };
 
 const BUSINESS_UNIT = {
