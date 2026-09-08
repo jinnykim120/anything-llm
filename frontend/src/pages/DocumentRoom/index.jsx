@@ -78,20 +78,18 @@ function typeLabel(document) {
 export default function DocumentRoom() {
   const { slug = "archive-full" } = useParams();
   const [searchParams] = useSearchParams();
-  const requestedFolder = searchParams.get("type")?.trim() || "";
+  const requestedWork = searchParams.get("work")?.trim() || "";
+  const requestedUnit = searchParams.get("unit")?.trim() || "";
   const requestedHash = searchParams.get("hash")?.trim() || "";
   const [workspace, setWorkspace] = useState(null);
   const [classifications, setClassifications] = useState([]);
   const [selected, setSelected] = useState(null);
   const [expanded, setExpanded] = useState(() => ({ "전체 문서": true }));
-  const [selectedFolder, setSelectedFolder] = useState(
-    requestedFolder || "전체 문서"
-  );
+  const [selectedFolder, setSelectedFolder] = useState("전체 문서");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedHashes, setSelectedHashes] = useState(() => new Set());
   const [deleting, setDeleting] = useState(false);
-  const [moving, setMoving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,11 +105,16 @@ export default function DocumentRoom() {
             )
           : null;
         setSelected(linked || workspaceDocuments[0] || null);
-        setSelectedFolder(requestedFolder || "전체 문서");
-        if (requestedFolder) {
+        const requestedFolder = requestedWork
+          ? requestedUnit
+            ? `unit:${requestedWork}:${requestedUnit}`
+            : `work:${requestedWork}`
+          : "전체 문서";
+        setSelectedFolder(requestedFolder);
+        if (requestedWork) {
           setExpanded((previous) => ({
             ...previous,
-            [requestedFolder]: true,
+            [`work:${requestedWork}`]: true,
           }));
         }
         setLoading(false);
@@ -120,7 +123,7 @@ export default function DocumentRoom() {
     return () => {
       cancelled = true;
     };
-  }, [requestedFolder, requestedHash, slug]);
+  }, [requestedHash, requestedUnit, requestedWork, slug]);
 
   const documents = workspace?.documents || [];
   const classificationsByHash = useMemo(
@@ -132,20 +135,6 @@ export default function DocumentRoom() {
       ),
     [classifications]
   );
-  const folders = useMemo(() => {
-    const map = new Map([["전체 문서", documents]]);
-    for (const document of documents) {
-      const folder = classificationFolder(document, classificationsByHash);
-      if (!map.has(folder)) map.set(folder, []);
-      map.get(folder).push(document);
-    }
-    return [...map.entries()].sort(([a], [b]) => {
-      const order = (name) =>
-        name === "전체 문서" ? 0 : name === "미분류" ? 1 : 2;
-      return order(a) - order(b) || a.localeCompare(b, "ko");
-    });
-  }, [classificationsByHash, documents]);
-
   // Document room folder tree: 업무 분류 → 사업부까지만 (종류는 폴더에 없음).
   const folderTree = useMemo(() => {
     const workTypes = new Map();
@@ -248,17 +237,6 @@ export default function DocumentRoom() {
     if (result?.error) return window.alert(`삭제 실패: ${result.error}`);
     setSelectedHashes(new Set());
     setSelected(null);
-    setLoading(true);
-    window.location.reload();
-  }
-
-  async function moveSelectedToFolder(docType) {
-    if (!selectedHashes.size || !docType) return;
-    setMoving(true);
-    const result = await Classification.moveTypes([...selectedHashes], docType);
-    setMoving(false);
-    if (result?.error) return window.alert(`이동 실패: ${result.error}`);
-    setSelectedHashes(new Set());
     setLoading(true);
     window.location.reload();
   }
@@ -392,33 +370,10 @@ export default function DocumentRoom() {
                   </p>
                   {selectedHashes.size > 0 && (
                     <div className="flex items-center gap-2">
-                      <select
-                        defaultValue=""
-                        onChange={(event) => {
-                          moveSelectedToFolder(event.target.value);
-                          event.target.value = "";
-                        }}
-                        disabled={moving || deleting}
-                        aria-label="선택 문서를 다른 분류 폴더로 이동"
-                        className="max-w-40 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
-                      >
-                        <option value="">폴더 이동…</option>
-                        {folders
-                          .map(([folder]) => folder)
-                          .filter(
-                            (folder) =>
-                              folder !== "전체 문서" && folder !== "미분류"
-                          )
-                          .map((folder) => (
-                            <option key={folder} value={folder}>
-                              {folder}
-                            </option>
-                          ))}
-                      </select>
                       <button
                         type="button"
                         onClick={deleteSelected}
-                        disabled={deleting || moving}
+                        disabled={deleting}
                         className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
                       >
                         {deleting

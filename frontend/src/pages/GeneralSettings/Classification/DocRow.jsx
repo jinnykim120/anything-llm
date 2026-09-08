@@ -163,7 +163,7 @@ export default function DocRow({
     onTaxonomyUpdated?.(res.taxonomy);
   }
 
-  function axisSelect(axis, value, setValue, options) {
+  function axisSelect(axis, value, setValue, options, allowCustom = true) {
     return (
       <>
         <select
@@ -184,7 +184,7 @@ export default function DocRow({
               {option}
             </option>
           ))}
-          <option value="__custom__">＋ 직접 추가…</option>
+          {allowCustom && <option value="__custom__">＋ 직접 추가…</option>}
         </select>
         {addingAxis === axis && (
           <div className="mt-1 flex gap-1">
@@ -453,7 +453,13 @@ export default function DocRow({
           <span className="text-[11px] text-theme-text-secondary">
             업무 분류
           </span>
-          {axisSelect("workType", workType, setWorkType, workTypeOptions)}
+          {axisSelect(
+            "workType",
+            workType,
+            setWorkType,
+            workTypeOptions,
+            false
+          )}
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">사업부</span>
@@ -525,7 +531,6 @@ export default function DocRow({
             const search = new URLSearchParams();
             if (workType.trim()) search.set("work", workType.trim());
             if (businessUnit.trim()) search.set("unit", businessUnit.trim());
-            if (docType.trim()) search.set("type", docType.trim());
             search.set("hash", doc.contentHash);
             return (
               <Link

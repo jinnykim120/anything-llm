@@ -13,6 +13,7 @@ const {
   DOMAIN,
   WORK_TYPE,
   BUSINESS_UNIT,
+  normalizeWorkType,
 } = require("./taxonomy");
 const { safeJsonParse } = require("../http");
 
@@ -29,7 +30,7 @@ ${taxonomy()
 
 work_type — the business workflow. Prefer one of:
   ${WORK_TYPE.suggested.join(", ")}
-  (use another short Korean label only if none fit)
+  (if none fit, use "기타")
 
 business_unit — the owning business unit. Prefer one of:
   ${BUSINESS_UNIT.suggested.join(", ")}
@@ -96,7 +97,7 @@ async function classifyDocument(doc = {}) {
       .slice(0, 40);
   return {
     sensitivity: normalizeSensitivity(parsed.sensitivity),
-    work_type: clean(parsed.work_type) || "기타",
+    work_type: normalizeWorkType(parsed.work_type),
     business_unit: clean(parsed.business_unit) || "기타",
     doc_type: clean(parsed.doc_type) || "기타",
     domain: clean(parsed.domain) || "기타",

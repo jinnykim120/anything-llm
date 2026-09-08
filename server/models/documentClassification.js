@@ -6,6 +6,7 @@ const { classifyDocument } = require("../utils/classification/classify");
 const {
   normalizeSensitivity,
   SENSITIVITY,
+  normalizeWorkType,
 } = require("../utils/classification/taxonomy");
 
 const DocumentClassification = {
@@ -72,7 +73,7 @@ const DocumentClassification = {
 
     const data = {
       sensitivity: normalizeSensitivity(sensitivity),
-      workType: workType || null,
+      workType: normalizeWorkType(workType),
       businessUnit: businessUnit || null,
       docType: docType || null,
       domain: domain || null,
@@ -130,7 +131,9 @@ const DocumentClassification = {
       ...(sensitivity !== undefined
         ? { sensitivity: normalizeSensitivity(sensitivity) }
         : {}),
-      ...(workType !== undefined ? { workType: workType || null } : {}),
+      ...(workType !== undefined
+        ? { workType: normalizeWorkType(workType) }
+        : {}),
       ...(businessUnit !== undefined
         ? { businessUnit: businessUnit || null }
         : {}),
@@ -148,7 +151,7 @@ const DocumentClassification = {
         create: {
           contentHash,
           sensitivity: normalizeSensitivity(sensitivity ?? "confidential"),
-          workType: workType || null,
+          workType: normalizeWorkType(workType),
           businessUnit: businessUnit || null,
           docType: docType || null,
           domain: domain || null,

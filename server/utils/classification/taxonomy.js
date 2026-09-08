@@ -52,6 +52,13 @@ const WORK_TYPE = {
   suggested: ["동반성장", "공정거래", "기타"],
 };
 
+function normalizeWorkType(value) {
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return WORK_TYPE.suggested.includes(normalized) ? normalized : "기타";
+}
+
 const BUSINESS_UNIT = {
   suggested: [
     "전사",
@@ -141,6 +148,7 @@ module.exports = {
   SENSITIVITY,
   DOC_TYPE,
   WORK_TYPE,
+  normalizeWorkType,
   BUSINESS_UNIT,
   DOMAIN,
 };

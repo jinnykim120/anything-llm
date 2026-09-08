@@ -226,6 +226,10 @@ function classificationEndpoints(app) {
     async (request, response) => {
       try {
         const { axis, value } = reqBody(request);
+        if (axis === "workType")
+          return response.status(400).json({
+            error: "업무 분류는 동반성장, 공정거래, 기타 중에서 선택하세요.",
+          });
         const label = CUSTOM_AXIS_SETTINGS[axis];
         const normalized = String(value || "")
           .replace(/\s+/g, " ")
