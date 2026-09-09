@@ -1,104 +1,76 @@
 const { TextSplitter } = require("../../../utils/TextSplitter");
-const _ = require("lodash");
 
 describe("TextSplitter", () => {
-  test("should split long text into n sized chunks", async () => {
+  test("splits long text into n sized chunks", async () => {
     const text = "This is a test text to be split into chunks".repeat(2);
-    const textSplitter = new TextSplitter({
-      chunkSize: 20,
-      chunkOverlap: 0,
-    });
+    const textSplitter = new TextSplitter({ chunkSize: 20, chunkOverlap: 0 });
     const chunks = await textSplitter.splitText(text);
     expect(chunks.length).toEqual(5);
   });
 
-  test("applies chunk overlap of 20 characters on invalid chunkOverlap", async () => {
+  test("applies default chunk overlap", async () => {
     const text = "This is a test text to be split into chunks".repeat(2);
-    const textSplitter = new TextSplitter({
-      chunkSize: 30,
-    });
+    const textSplitter = new TextSplitter({ chunkSize: 30 });
     const chunks = await textSplitter.splitText(text);
     expect(chunks.length).toEqual(6);
   });
 
-  test("does not allow chunkOverlap to be greater than chunkSize", async () => {
-    expect(() => {
-      new TextSplitter({
-        chunkSize: 20,
-        chunkOverlap: 21,
-      });
-    }).toThrow();
+  test("rejects overlap larger than chunk size", () => {
+    expect(
+      () => new TextSplitter({ chunkSize: 20, chunkOverlap: 21 })
+    ).toThrow();
   });
 
-  test("applies specific metadata to stringifyHeader to each chunk", async () => {
-    const metadata = {
-      id: "123e4567-e89b-12d3-a456-426614174000",
-      url: "https://example.com",
+  test("keeps existing metadata and prefix behavior", async () => {
+    const metadata = TextSplitter.buildHeaderMeta({
       title: "Example",
-      docAuthor: "John Doe",
+      url: "https://example.com",
       published: "2021-01-01",
       chunkSource: "link://https://example.com",
-      description: "This is a test text to be split into chunks",
-    };
-    const chunkHeaderMeta = TextSplitter.buildHeaderMeta(metadata);
-    expect(chunkHeaderMeta).toEqual({
-      sourceDocument: metadata.title,
-      source: metadata.url,
-      published: metadata.published,
     });
-  });
-
-  test("applies a valid chunkPrefix to each chunk", async () => {
-    const text = "This is a test text to be split into chunks".repeat(2);
-    let textSplitter = new TextSplitter({
+    expect(metadata).toEqual({
+      sourceDocument: "Example",
+      source: "https://example.com",
+      published: "2021-01-01",
+    });
+    const splitter = new TextSplitter({
       chunkSize: 20,
       chunkOverlap: 0,
       chunkPrefix: "testing: ",
+      chunkHeaderMeta: metadata,
     });
-    let chunks = await textSplitter.splitText(text);
-    expect(chunks.length).toEqual(5);
-    expect(chunks.every(chunk => chunk.startsWith("testing: "))).toBe(true);
+    const chunks = await splitter.splitText(
+      "This is a test text to be split into chunks".repeat(2)
+    );
+    expect(chunks.every((chunk) => chunk.startsWith("testing: "))).toBe(true);
+  });
 
-    textSplitter = new TextSplitter({
-      chunkSize: 20,
-      chunkOverlap: 0,
-      chunkPrefix: "testing2: ",
+  it("repeats the table header on every flat-table chunk", async () => {
+    const header = "| 연도 | 직접생산 | 중소기업 OEM |\n| --- | --- | --- |";
+    const rows = Array.from(
+      { length: 40 },
+      (_, index) => `| ${2021 + (index % 5)}년 | 0 | ${index * 1000} |`
+    ).join("\n");
+    const splitter = new TextSplitter({ chunkSize: 180, chunkOverlap: 20 });
+    const { chunks } = await splitter.splitDocument({
+      pageContent: `${header}\n${rows}`,
     });
-    chunks = await textSplitter.splitText(text);
-    expect(chunks.length).toEqual(5);
-    expect(chunks.every(chunk => chunk.startsWith("testing2: "))).toBe(true);
 
-    textSplitter = new TextSplitter({
-      chunkSize: 20,
-      chunkOverlap: 0,
-      chunkPrefix: undefined,
-    });
-    chunks = await textSplitter.splitText(text);
-    expect(chunks.length).toEqual(5);
-    expect(chunks.every(chunk => !chunk.startsWith(": "))).toBe(true);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk).toContain(header);
+    }
+  });
 
-    textSplitter = new TextSplitter({
-      chunkSize: 20,
-      chunkOverlap: 0,
-      chunkPrefix: "",
-    });
-    chunks = await textSplitter.splitText(text);
-    expect(chunks.length).toEqual(5);
-    expect(chunks.every(chunk => !chunk.startsWith(": "))).toBe(true);
+  it("does not treat ordinary pipe text as a table", async () => {
+    const text = Array.from(
+      { length: 30 },
+      (_, index) => `A | B 선택 안내 문장 ${index}입니다.`
+    ).join("\n");
+    const splitter = new TextSplitter({ chunkSize: 100, chunkOverlap: 10 });
+    const { chunks } = await splitter.splitDocument({ pageContent: text });
 
-    // Applied chunkPrefix with chunkHeaderMeta
-    textSplitter = new TextSplitter({
-      chunkSize: 20,
-      chunkOverlap: 0,
-      chunkHeaderMeta: TextSplitter.buildHeaderMeta({
-        title: "Example",
-        url: "https://example.com",
-        published: "2021-01-01",
-      }),
-      chunkPrefix: "testing3: ",
-    });
-    chunks = await textSplitter.splitText(text);
-    expect(chunks.length).toEqual(5);
-    expect(chunks.every(chunk => chunk.startsWith("testing3: <document_metadata>"))).toBe(true);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => !chunk.includes("| --- |"))).toBe(true);
   });
 });

@@ -7,6 +7,8 @@ const { safeJsonParse } = require("../utils/http");
 const { getModelTag } = require("../endpoints/utils");
 const fs = require("fs");
 const path = require("path");
+const pathModule = path;
+const crypto = require("crypto");
 const documentsPath =
   process.env.NODE_ENV === "development"
     ? path.resolve(__dirname, "../storage/documents")
@@ -100,14 +102,17 @@ const Document = {
     // it. Skip an addition whose content_hash already lives in this workspace.
     const skippedDuplicates = [];
     const existingHashes = new Map();
-    const existingFilenames = new Set();
+    const existingSourceNames = new Set();
     for (const wd of await prisma.workspace_documents.findMany({
       where: { workspaceId: workspace.id },
       select: { metadata: true, filename: true },
     })) {
       const h = safeJsonParse(wd.metadata, {})?.content_hash;
       if (h) existingHashes.set(h, wd.filename);
-      if (wd.filename) existingFilenames.add(String(wd.filename).toLowerCase());
+      const metadata = safeJsonParse(wd.metadata, {});
+      for (const value of [metadata.title, metadata.docSource, wd.filename]) {
+        if (value) existingSourceNames.add(String(value).trim().toLowerCase());
+      }
     }
 
     emitProgress(workspace.slug, {
@@ -137,6 +142,16 @@ const Document = {
         continue;
       }
 
+      // Some spreadsheet sheet outputs do not carry the collector hash. Give
+      // them the same stable content hash contract as other parsed documents
+      // so classification and deduplication can see them too.
+      if (!data.content_hash && data.pageContent) {
+        data.content_hash = crypto
+          .createHash("sha256")
+          .update(String(data.pageContent).replace(/\s+/g, " ").trim())
+          .digest("hex");
+      }
+
       if (data.content_hash && existingHashes.has(data.content_hash)) {
         const dupOf = existingHashes.get(data.content_hash);
         console.log(
@@ -152,8 +167,16 @@ const Document = {
       }
 
       const filename = path.split(/[/\\]/).pop();
-      if (filename && existingFilenames.has(filename.toLowerCase())) {
-        const duplicateOf = filename;
+      const sourceName = String(data.title || data.docSource || filename)
+        .trim()
+        .toLowerCase();
+      const isGeneratedSheetName = /^sheet(?:-[^.]*)?\.json$/i.test(filename);
+      if (
+        sourceName &&
+        !isGeneratedSheetName &&
+        existingSourceNames.has(sourceName)
+      ) {
+        const duplicateOf = data.title || data.docSource || filename;
         console.log(
           `[auto-docu] skipping ${filename} — same filename already exists in ${workspace.slug}`
         );
@@ -171,10 +194,13 @@ const Document = {
       // needed for chunking — keep it out of the workspace_documents metadata row.
       // parse_path / parse_confidence are small and kept (drive the P1b re-parse queue).
       const { pageContent: _pageContent, blocks: _blocks, ...metadata } = data;
+      const storedPath = pathModule.isAbsolute(path)
+        ? pathModule.relative(documentsPath, path)
+        : path;
       const newDoc = {
         docId,
         filename,
-        docpath: path,
+        docpath: storedPath,
         workspaceId: workspace.id,
         uploadedByUserId: userId ? Number(userId) : null,
         // Filled when the organization directory is connected. Keep the
@@ -214,9 +240,13 @@ const Document = {
 
       try {
         await prisma.workspace_documents.create({ data: newDoc });
-        embedded.push(path);
+        embedded.push(storedPath);
         if (data.content_hash)
           existingHashes.set(data.content_hash, newDoc.filename);
+        for (const value of [data.title, data.docSource, newDoc.filename]) {
+          if (value)
+            existingSourceNames.add(String(value).trim().toLowerCase());
+        }
         // [auto-docu P4] opt-in: propose a classification as the doc lands, so
         // the review screen isn't empty. Fire-and-forget (an LLM call each) —
         // off by default so a bulk load doesn't hammer the LLM / hit rate limits;

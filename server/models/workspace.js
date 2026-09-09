@@ -94,9 +94,9 @@ const Workspace = {
       return threshold;
     },
     topN: (value) => {
-      if (value === null || value === undefined) return 4;
+      if (value === null || value === undefined) return 12;
       const n = parseInt(value);
-      if (isNullOrNaN(n)) return 4;
+      if (isNullOrNaN(n)) return 12;
       if (n < 1) return 1;
       return n;
     },

@@ -832,7 +832,7 @@ function workspaceEndpoints(app) {
           .toLowerCase();
         const duplicate = (existingWorkspace.documents || []).find((doc) => {
           const metadata = safeJsonParse(doc.metadata, {});
-          return [doc.filename, metadata.title, metadata.originalFilename]
+          return [metadata.title, metadata.docSource, metadata.originalFilename]
             .filter(Boolean)
             .some(
               (value) => String(value).trim().toLowerCase() === requestedName

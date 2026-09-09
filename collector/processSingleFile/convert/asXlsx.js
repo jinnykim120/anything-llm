@@ -2,6 +2,7 @@ const { v4 } = require("uuid");
 const xlsx = require("node-xlsx").default;
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const {
   createdDate,
   trashFile,
@@ -40,6 +41,18 @@ function convertToPipeTable(data) {
   const out = [line(rows[0]), Array(width).fill("---").join(" | ")];
   for (const r of rows.slice(1)) out.push(line(r));
   return out.join("\n");
+}
+
+function contentHash(text) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      String(text || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase()
+    )
+    .digest("hex");
 }
 
 async function asXlsx({
@@ -98,6 +111,7 @@ async function asXlsx({
         published: createdDate(fullFilePath),
         wordCount: totalWordCount,
         pageContent: combinedContent,
+        content_hash: contentHash(combinedContent),
         token_count_estimate: tokenizeString(combinedContent),
       };
 
@@ -138,12 +152,13 @@ async function asXlsx({
           published: createdDate(fullFilePath),
           wordCount: wordCount,
           pageContent: content,
+          content_hash: contentHash(content),
           token_count_estimate: tokenizeString(content),
         };
 
         const document = writeToServerDocuments({
           data: sheetData,
-          filename: `sheet-${slugify(name)}`,
+          filename: `sheet-${slugify(name)}-${sheetData.id}`,
           destinationOverride: outFolderPath,
           options: { parseOnly: options.parseOnly },
         });

@@ -81,7 +81,7 @@ class PGVector extends VectorDatabase {
   static rerankCandidateLimit(totalEmbeddings, topN = 4) {
     const configured = this.integerSetting(
       "RERANKER_CANDIDATE_LIMIT",
-      10,
+      30,
       10,
       50
     );

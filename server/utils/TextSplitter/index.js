@@ -184,7 +184,11 @@ class TextSplitter {
       : [];
 
     if (!blocks.length) {
-      const chunks = await this.splitText(documentData.pageContent || "");
+      const pageContent = documentData.pageContent || "";
+      const tableHeader = TextSplitter.#tableHeaderLine(pageContent);
+      const chunks = tableHeader
+        ? await this.#splitFlatTable(pageContent, tableHeader)
+        : await this.splitText(pageContent);
       return { chunks, metas: chunks.map(() => TextSplitter.emptyChunkMeta()) };
     }
 
@@ -273,6 +277,14 @@ class TextSplitter {
     return out;
   }
 
+  async #splitFlatTable(text, tableHeader) {
+    const chunks = await this.#splitter.rawSplit(text);
+    return chunks.map((chunk, index) => {
+      if (index === 0 || chunk.startsWith(tableHeader)) return chunk;
+      return `${tableHeader}\n${chunk}`;
+    });
+  }
+
   /**
    * The chunk-location fields, as STABLE SCALAR TYPES that every chunk carries
    * (0 / "" = unknown). Vector DBs infer a fixed column type from the first row,
@@ -307,10 +319,13 @@ class TextSplitter {
    * separator row if the source had one. "" when it doesn't look like a table.
    */
   static #tableHeaderLine(text = "") {
-    const lines = String(text).split("\n");
-    if (lines.length < 2 || !lines[0].includes("|")) return "";
-    const isSep = /^[\s|:-]+$/.test(lines[1]);
-    return isSep ? `${lines[0]}\n${lines[1]}` : lines[0];
+    const lines = String(text)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length < 2 || (lines[0].match(/\|/g) || []).length < 2) return "";
+    if (!/^[\s|:-]+$/.test(lines[1])) return "";
+    return `${lines[0]}\n${lines[1]}`;
   }
 
   /**
