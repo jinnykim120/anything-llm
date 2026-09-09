@@ -189,7 +189,13 @@ class TextSplitter {
       const chunks = tableHeader
         ? await this.#splitFlatTable(pageContent, tableHeader)
         : await this.splitText(pageContent);
-      return { chunks, metas: chunks.map(() => TextSplitter.emptyChunkMeta()) };
+      return {
+        chunks,
+        metas: chunks.map((_, index) => ({
+          ...TextSplitter.emptyChunkMeta(),
+          chunk_index: index,
+        })),
+      };
     }
 
     // Block-aware chunks stay paragraph-sized (not filled to the embedder max) so

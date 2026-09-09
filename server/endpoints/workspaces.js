@@ -830,10 +830,8 @@ function workspaceEndpoints(app) {
         const requestedName = String(originalname || "")
           .trim()
           .toLowerCase();
-        const spreadsheetUpload = /\.(xlsx|xls)$/i.test(originalname || "");
         const duplicate = (existingWorkspace.documents || []).find((doc) => {
           const metadata = safeJsonParse(doc.metadata, {});
-          if (spreadsheetUpload) return false;
           return [metadata.title, metadata.docSource, metadata.originalFilename]
             .filter(Boolean)
             .some(

@@ -31,15 +31,44 @@ function convertToCSV(data) {
 // better than raw CSV, and the splitter's table handling repeats the header
 // row on each chunk of a big sheet.
 function convertToPipeTable(data) {
-  const rows = data.filter((r) => Array.isArray(r) && r.some((c) => c != null));
+  const rows = data.filter(
+    (r) =>
+      Array.isArray(r) &&
+      r.some((c) => c !== null && c !== undefined && String(c).trim())
+  );
   if (!rows.length) return "";
   const cell = (c) =>
     c === null || c === undefined ? "" : String(c).replace(/\s+/g, " ").trim();
   const width = Math.max(...rows.map((r) => r.length));
   const line = (r) =>
     Array.from({ length: width }, (_, i) => cell(r[i])).join(" | ");
-  const out = [line(rows[0]), Array(width).fill("---").join(" | ")];
-  for (const r of rows.slice(1)) out.push(line(r));
+  const headerIndex = rows.findIndex((r) => {
+    const values = r.map(cell).filter(Boolean);
+    return (
+      values.includes("구분") ||
+      values.includes("직접생산") ||
+      values.includes("대기업 OEM") ||
+      values.includes("중소기업 OEM") ||
+      values.filter((value) => /출하량|생산|OEM|연도/.test(value)).length >= 2
+    );
+  });
+  const headerRows =
+    headerIndex >= 0
+      ? [rows[headerIndex], rows[headerIndex + 1]].filter(Boolean)
+      : [rows[0]];
+  const headerValues = Array.from({ length: width }, (_, index) =>
+    headerRows
+      .map((row) => cell(row[index]))
+      .filter(Boolean)
+      .join(" / ")
+  );
+  const out = [headerValues.join(" | "), Array(width).fill("---").join(" | ")];
+  const headerRowCount = headerRows.length;
+  const bodyRows = rows.filter(
+    (_, index) =>
+      index < headerIndex || index > headerIndex + headerRowCount - 1
+  );
+  for (const r of bodyRows) out.push(line(r));
   return out.join("\n");
 }
 

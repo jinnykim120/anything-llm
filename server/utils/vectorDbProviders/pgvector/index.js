@@ -552,7 +552,13 @@ class PGVector extends VectorDatabase {
           .filter(Boolean)
           .join(" ")
           .toLocaleLowerCase("ko-KR");
+        const textSearchable = String(metadata?.text || "").toLocaleLowerCase(
+          "ko-KR"
+        );
         const matchedTerms = terms.filter((term) => searchable.includes(term));
+        const matchedTextTerms = terms.filter((term) =>
+          textSearchable.includes(term)
+        );
         if (!matchedTerms.length) return null;
 
         const title =
@@ -560,11 +566,20 @@ class PGVector extends VectorDatabase {
             "ko-KR"
           );
         const matchRatio = matchedTerms.length / terms.length;
+        const textMatchRatio = matchedTextTerms.length / terms.length;
         const titleBonus = matchedTerms.some((term) => title.includes(term))
           ? 0.15
           : 0;
-        const score = Math.min(0.99, 0.35 + matchRatio * 0.5 + titleBonus);
-        return { metadata, score, matchedTerms: matchedTerms.length };
+        const score = Math.min(
+          0.99,
+          0.35 + matchRatio * 0.3 + textMatchRatio * 0.35 + titleBonus
+        );
+        return {
+          metadata,
+          score,
+          matchedTerms: matchedTerms.length,
+          matchedTextTerms: matchedTextTerms.length,
+        };
       })
       .filter(
         (item) =>
@@ -574,6 +589,7 @@ class PGVector extends VectorDatabase {
       )
       .sort(
         (a, b) =>
+          b.matchedTextTerms - a.matchedTextTerms ||
           b.matchedTerms - a.matchedTerms ||
           b.score - a.score ||
           (a.metadata?.chunk_index ?? 0) - (b.metadata?.chunk_index ?? 0)
@@ -1171,9 +1187,15 @@ class PGVector extends VectorDatabase {
       }
 
       let searchResult = null;
+      const lexicalTerms = PGVector.lexicalSearchTerms(input);
+      const exactDataQuery =
+        lexicalTerms.some((term) => /\d/.test(term)) ||
+        lexicalTerms.some((term) =>
+          ["출하량", "생산량", "판매량", "수량", "금액", "실적"].includes(term)
+        );
       try {
         const queryVector = await LLMConnector.embedTextInput(input);
-        searchResult = rerank
+        const denseResult = rerank
           ? await this.rerankedSimilarityResponse({
               client: connection,
               namespace,
@@ -1191,6 +1213,17 @@ class PGVector extends VectorDatabase {
               topN,
               filterIdentifiers,
             });
+        searchResult = exactDataQuery
+          ? await this.#preferLexicalDataMatches({
+              client: connection,
+              namespace,
+              input,
+              denseResult,
+              similarityThreshold,
+              topN,
+              filterIdentifiers,
+            })
+          : denseResult;
       } catch (err) {
         this.logger(
           `Dense search unavailable; using lexical fallback: ${err.message}`
@@ -1208,34 +1241,23 @@ class PGVector extends VectorDatabase {
         });
       }
 
-      // Exact Korean year/product queries are better served by lexical matches
-      // than by a low-confidence dense top-N result. Merge lexical hits when
-      // they add sources that dense retrieval did not return.
-      if (searchResult?.contextTexts?.length) {
-        const lexical = await this.lexicalSearchResponse({
-          client: connection,
-          namespace,
-          input,
-          similarityThreshold,
-          topN: Math.max(topN, 12),
-          filterIdentifiers,
-        });
-        const seen = new Set(
-          searchResult.sourceDocuments.map((source) => sourceIdentifier(source))
-        );
-        for (const [index, source] of lexical.sourceDocuments.entries()) {
-          if (seen.has(sourceIdentifier(source))) continue;
-          searchResult.sourceDocuments.push(source);
-          searchResult.contextTexts.push(lexical.contextTexts[index]);
-          seen.add(sourceIdentifier(source));
-        }
-      }
-
       const result = await this.expandSections({
         client: connection,
         namespace,
         result: searchResult,
       });
+
+      if (result.contextTexts.length > topN) {
+        const ranked = result.sourceDocuments
+          .map((source, index) => ({
+            source,
+            text: result.contextTexts[index],
+          }))
+          .sort((a, b) => (b.source.score || 0) - (a.source.score || 0))
+          .slice(0, topN);
+        result.sourceDocuments = ranked.map((item) => item.source);
+        result.contextTexts = ranked.map((item) => item.text);
+      }
 
       const { contextTexts, sourceDocuments } = result;
       const sources = sourceDocuments.map((metadata, i) => {
@@ -1258,6 +1280,57 @@ class PGVector extends VectorDatabase {
     } finally {
       if (connection) await connection.end();
     }
+  }
+
+  async #preferLexicalDataMatches({
+    client,
+    namespace,
+    input,
+    denseResult,
+    similarityThreshold,
+    topN,
+    filterIdentifiers,
+  }) {
+    const lexical = await this.lexicalSearchResponse({
+      client,
+      namespace,
+      input,
+      similarityThreshold,
+      topN: Math.max(topN, 20),
+      filterIdentifiers,
+    });
+    if (!lexical.contextTexts.length) return denseResult;
+
+    const rows = [
+      ...lexical.sourceDocuments.map((source, index) => ({
+        source,
+        text: lexical.contextTexts[index],
+        priority: 2,
+      })),
+      ...denseResult.sourceDocuments.map((source, index) => ({
+        source,
+        text: denseResult.contextTexts[index],
+        priority: 1,
+      })),
+    ];
+    const seen = new Set();
+    const unique = rows
+      .sort(
+        (a, b) =>
+          b.priority - a.priority ||
+          (b.source.score || 0) - (a.source.score || 0)
+      )
+      .filter(({ source }) => {
+        const key = `${source.title || ""}|${source.chunk_index ?? ""}|${source.text || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return {
+      contextTexts: unique.map((row) => row.text),
+      sourceDocuments: unique.map((row) => row.source),
+      scores: unique.map((row) => row.source.score || 0),
+    };
   }
 
   async "namespace-stats"(reqBody = {}) {
