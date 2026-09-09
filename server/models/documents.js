@@ -12,7 +12,10 @@ const crypto = require("crypto");
 const documentsPath =
   process.env.NODE_ENV === "development"
     ? path.resolve(__dirname, "../storage/documents")
-    : path.resolve(process.env.STORAGE_DIR, "documents");
+    : path.resolve(
+        process.env.STORAGE_DIR || path.resolve(__dirname, "../storage"),
+        "documents"
+      );
 
 const Document = {
   writable: ["pinned", "watched", "lastUpdatedAt"],
