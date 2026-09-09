@@ -8,44 +8,44 @@ describe("TextSplitter", () => {
     expect(chunks.length).toEqual(5);
   });
 
-  test("applies default chunk overlap", async () => {
+  test("applies chunk overlap of 20 characters on invalid chunkOverlap", async () => {
     const text = "This is a test text to be split into chunks".repeat(2);
     const textSplitter = new TextSplitter({ chunkSize: 30 });
     const chunks = await textSplitter.splitText(text);
     expect(chunks.length).toEqual(6);
   });
 
-  test("rejects overlap larger than chunk size", () => {
-    expect(
-      () => new TextSplitter({ chunkSize: 20, chunkOverlap: 21 })
-    ).toThrow();
+  test("does not allow chunkOverlap to be greater than chunkSize", () => {
+    expect(() => new TextSplitter({ chunkSize: 20, chunkOverlap: 21 })).toThrow();
   });
 
-  test("keeps existing metadata and prefix behavior", async () => {
-    const metadata = TextSplitter.buildHeaderMeta({
+  test("applies specific metadata to stringifyHeader to each chunk", () => {
+    const metadata = {
       title: "Example",
       url: "https://example.com",
       published: "2021-01-01",
       chunkSource: "link://https://example.com",
-    });
-    expect(metadata).toEqual({
+    };
+    expect(TextSplitter.buildHeaderMeta(metadata)).toEqual({
       sourceDocument: "Example",
       source: "https://example.com",
       published: "2021-01-01",
     });
-    const splitter = new TextSplitter({
+  });
+
+  test("applies a valid chunkPrefix to each chunk", async () => {
+    const text = "This is a test text to be split into chunks".repeat(2);
+    const textSplitter = new TextSplitter({
       chunkSize: 20,
       chunkOverlap: 0,
       chunkPrefix: "testing: ",
-      chunkHeaderMeta: metadata,
     });
-    const chunks = await splitter.splitText(
-      "This is a test text to be split into chunks".repeat(2)
-    );
+    const chunks = await textSplitter.splitText(text);
+    expect(chunks.length).toEqual(5);
     expect(chunks.every((chunk) => chunk.startsWith("testing: "))).toBe(true);
   });
 
-  it("repeats the table header on every flat-table chunk", async () => {
+  test("repeats the table header on every flat-table chunk", async () => {
     const header = "| 연도 | 직접생산 | 중소기업 OEM |\n| --- | --- | --- |";
     const rows = Array.from(
       { length: 40 },
@@ -57,12 +57,10 @@ describe("TextSplitter", () => {
     });
 
     expect(chunks.length).toBeGreaterThan(1);
-    for (const chunk of chunks) {
-      expect(chunk).toContain(header);
-    }
+    for (const chunk of chunks) expect(chunk).toContain(header);
   });
 
-  it("does not treat ordinary pipe text as a table", async () => {
+  test("does not treat ordinary pipe text as a table", async () => {
     const text = Array.from(
       { length: 30 },
       (_, index) => `A | B 선택 안내 문장 ${index}입니다.`
