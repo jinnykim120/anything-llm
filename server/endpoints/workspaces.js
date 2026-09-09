@@ -118,7 +118,6 @@ function workspaceEndpoints(app) {
       try {
         const Collector = new CollectorApi();
         const { originalname } = request.file;
-
         // Multipart field order matters: multer only exposes text fields on
         // request.body that were appended BEFORE the file part, so the client
         // must append folderName/metadata first. See FileUploadProgress.
@@ -411,9 +410,21 @@ function workspaceEndpoints(app) {
       try {
         const { slug } = request.params;
         const user = await userFromSession(request, response);
-        const workspace = multiUserMode(response)
+        let workspace = multiUserMode(response)
           ? await Workspace.getWithUser(user, { slug })
           : await Workspace.get({ slug });
+
+        if (workspace) {
+          const pruned = await Document.pruneMissingDocuments(
+            workspace,
+            response.locals?.user?.id
+          );
+          if (pruned.removed > 0) {
+            workspace = multiUserMode(response)
+              ? await Workspace.getWithUser(user, { slug })
+              : await Workspace.get({ slug });
+          }
+        }
 
         response.status(200).json({ workspace });
       } catch (e) {
@@ -815,6 +826,27 @@ function workspaceEndpoints(app) {
 
         const Collector = new CollectorApi();
         const { originalname } = request.file;
+        const existingWorkspace = currWorkspace;
+        const requestedName = String(originalname || "")
+          .trim()
+          .toLowerCase();
+        const duplicate = (existingWorkspace.documents || []).find((doc) => {
+          const metadata = safeJsonParse(doc.metadata, {});
+          return [doc.filename, metadata.title, metadata.originalFilename]
+            .filter(Boolean)
+            .some(
+              (value) => String(value).trim().toLowerCase() === requestedName
+            );
+        });
+        if (duplicate) {
+          return response.status(200).json({
+            success: true,
+            skipped: true,
+            reason: "duplicate_filename",
+            message: `동일한 파일명 "${originalname}"이 이미 있어 업로드를 건너뛰었습니다.`,
+            document: duplicate,
+          });
+        }
         // Archive uploads may provide a single-level classification folder
         // and lightweight metadata. These fields must be sent before the file
         // part so multer exposes them on request.body.

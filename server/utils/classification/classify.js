@@ -30,7 +30,7 @@ ${taxonomy()
 
 work_type — the business workflow. Prefer one of:
   ${WORK_TYPE.suggested.join(", ")}
-  (if none fit, use "기타")
+  (if none fit, use a short Korean label; a human will review it)
 
 business_unit — the owning business unit. Prefer one of:
   ${BUSINESS_UNIT.suggested.join(", ")}
@@ -50,12 +50,20 @@ Respond with ONLY:
 {"sensitivity":"general|confidential|uncertain","work_type":"...","business_unit":"...","doc_type":"...","domain":"...","tags":["..."],
  "rationale":"one Korean sentence explaining the sensitivity call"}`;
 
-function buildPrompt({ title, docSource, parsePath, text }) {
+function buildPrompt({ title, docSource, parsePath, text, examples = [] }) {
   const body = String(text || "")
     .replace(/<document_metadata>[\s\S]*?<\/document_metadata>/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 6000);
+  const referenceText = examples.length
+    ? `\n\n기존 확정 문서의 분류 사례입니다. 내용과 제목이 비슷한 사례가 있으면 분류 축을 우선 참고하세요. 사례를 그대로 복사하지 말고 현재 문서에 맞게 판단하세요.\n${examples
+        .map(
+          (example) =>
+            `- 제목: ${example.title}\n  업무분류: ${example.workType || "미분류"}, 사업부: ${example.businessUnit || "미분류"}, 종류: ${example.docType || "미분류"}, 분야: ${example.domain || "미분류"}`
+        )
+        .join("\n")}`
+    : "";
   return `제목: ${title || "(없음)"}
 출처: ${docSource || "(불명)"}
 파싱경로: ${parsePath || "(불명)"}
@@ -63,11 +71,11 @@ function buildPrompt({ title, docSource, parsePath, text }) {
 본문(발췌):
 ${body}
 
-위 문서를 분류해서 JSON으로만 답하세요.`;
+위 문서를 분류해서 JSON으로만 답하세요.${referenceText}`;
 }
 
 /**
- * @param {{title?:string, text:string, docSource?:string, parsePath?:string}} doc
+ * @param {{title?:string, text:string, docSource?:string, parsePath?:string, examples?:Array}} doc
  * @returns {Promise<{sensitivity:string, doc_type:string, domain:string, tags:string[], rationale:string, model:string}>}
  */
 async function classifyDocument(doc = {}) {

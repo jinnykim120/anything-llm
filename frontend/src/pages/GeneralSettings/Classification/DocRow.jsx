@@ -453,13 +453,7 @@ export default function DocRow({
           <span className="text-[11px] text-theme-text-secondary">
             업무 분류
           </span>
-          {axisSelect(
-            "workType",
-            workType,
-            setWorkType,
-            workTypeOptions,
-            false
-          )}
+          {axisSelect("workType", workType, setWorkType, workTypeOptions)}
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">사업부</span>

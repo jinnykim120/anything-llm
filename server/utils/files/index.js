@@ -729,14 +729,24 @@ function moveProcessedDocsToFolder(
     const currentFolder = path.dirname(doc.location);
     if (currentFolder === folder) continue;
 
-    const sourcePath = path.join(basePath, normalizePath(doc.location));
+    const rawLocation = String(doc.location || "").trim();
+    const sourcePath = path.isAbsolute(rawLocation)
+      ? path.resolve(rawLocation)
+      : path.resolve(basePath, normalizePath(rawLocation));
     const destinationPath = path.join(
       targetFolderPath,
       path.basename(doc.location)
     );
 
-    if (!isWithin(basePath, sourcePath) || !isWithin(basePath, destinationPath))
+    if (!isWithin(path.resolve(basePath), path.resolve(destinationPath)))
       throw new Error("Invalid file location.");
+    if (!isWithin(path.resolve(basePath), path.resolve(sourcePath))) {
+      throw new Error("Invalid file location.");
+    }
+    // Spreadsheet conversions can return a document entry whose source was
+    // already moved or merged. Keep the successful sheets instead of failing
+    // the entire upload batch.
+    if (!fs.existsSync(sourcePath)) continue;
 
     fs.renameSync(sourcePath, destinationPath);
     doc.location = path.join(folder, path.basename(doc.location));

@@ -56,7 +56,7 @@ function normalizeWorkType(value) {
   const normalized = String(value || "")
     .replace(/\s+/g, " ")
     .trim();
-  return WORK_TYPE.suggested.includes(normalized) ? normalized : "기타";
+  return normalized || "기타";
 }
 
 const BUSINESS_UNIT = {

@@ -29,6 +29,17 @@ const DocumentClassification = {
     };
   },
 
+  _isComplete(classification) {
+    return Boolean(
+      classification?.status === "confirmed" &&
+        classification.sensitivity &&
+        classification.workType &&
+        classification.businessUnit &&
+        classification.docType &&
+        classification.domain
+    );
+  },
+
   get: async function (contentHash) {
     if (!contentHash) return null;
     const row = await prisma.document_classifications
@@ -69,7 +80,7 @@ const DocumentClassification = {
     const existing = await prisma.document_classifications
       .findUnique({ where: { contentHash } })
       .catch(() => null);
-    if (existing?.status === "confirmed") return this._serialize(existing);
+    if (this._isComplete(existing)) return this._serialize(existing);
 
     const data = {
       sensitivity: normalizeSensitivity(sensitivity),
@@ -172,13 +183,13 @@ const DocumentClassification = {
 
   /**
    * Run the LLM classifier for a document and store the proposal.
-   * @param {{contentHash:string, title?:string, text:string, docSource?:string, parsePath?:string}} doc
+   * @param {{contentHash:string, title?:string, text:string, docSource?:string, parsePath?:string, examples?:Array}} doc
    */
   proposeFor: async function (doc = {}) {
     if (!doc?.contentHash || !doc?.text)
       return { classification: null, error: "contentHash and text required" };
     const existing = await this.get(doc.contentHash);
-    if (existing?.status === "confirmed")
+    if (this._isComplete(existing))
       return { classification: existing, error: null, skipped: "confirmed" };
 
     let result;
@@ -188,6 +199,7 @@ const DocumentClassification = {
         text: doc.text,
         docSource: doc.docSource,
         parsePath: doc.parsePath,
+        examples: doc.examples || [],
       });
     } catch (e) {
       return { classification: null, error: e.message };

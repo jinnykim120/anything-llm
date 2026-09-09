@@ -66,7 +66,14 @@ async function documentTypeOptions() {
 }
 
 async function axisOptions(field, suggested) {
-  if (field === "workType") return [...suggested];
+  if (field === "workType") {
+    return [
+      ...new Set([
+        ...suggested,
+        ...(await storedAxisValues(CUSTOM_AXIS_SETTINGS[field])),
+      ]),
+    ];
+  }
   const rows = await prisma.document_classifications
     .findMany({ select: { [field]: true } })
     .catch(() => []);
@@ -226,10 +233,6 @@ function classificationEndpoints(app) {
     async (request, response) => {
       try {
         const { axis, value } = reqBody(request);
-        if (axis === "workType")
-          return response.status(400).json({
-            error: "업무 분류는 동반성장, 공정거래, 기타 중에서 선택하세요.",
-          });
         const label = CUSTOM_AXIS_SETTINGS[axis];
         const normalized = String(value || "")
           .replace(/\s+/g, " ")
@@ -555,9 +558,28 @@ function classificationEndpoints(app) {
             c,
           ])
         );
+        const referenceDocs = docs
+          .map((doc) => ({ ...doc, classification: existing[doc.contentHash] }))
+          .filter(
+            (doc) =>
+              doc.classification?.status === "confirmed" &&
+              doc.classification?.sensitivity &&
+              doc.classification?.workType &&
+              doc.classification?.businessUnit &&
+              doc.classification?.docType &&
+              doc.classification?.domain
+          );
         const targets = docs.filter((d) => {
           if (contentHash) return d.contentHash === contentHash;
-          return existing[d.contentHash]?.status !== "confirmed"; // (re)propose everything not confirmed
+          const classification = existing[d.contentHash];
+          return !(
+            classification?.status === "confirmed" &&
+            classification.sensitivity &&
+            classification.workType &&
+            classification.businessUnit &&
+            classification.docType &&
+            classification.domain
+          );
         });
 
         const results = [];
@@ -567,6 +589,24 @@ function classificationEndpoints(app) {
             results.push({ contentHash: d.contentHash, error: "no text" });
             continue;
           }
+          const examples = referenceDocs
+            .filter((reference) => reference.contentHash !== d.contentHash)
+            .sort((a, b) => {
+              const extension = (title) =>
+                String(title || "")
+                  .split(".")
+                  .pop()
+                  ?.toLowerCase();
+              return (
+                Number(extension(b.title) === extension(d.title)) -
+                Number(extension(a.title) === extension(d.title))
+              );
+            })
+            .slice(0, 8)
+            .map((reference) => ({
+              title: reference.title,
+              ...reference.classification,
+            }));
           const { classification, error } =
             await DocumentClassification.proposeFor({
               contentHash: d.contentHash,
@@ -574,6 +614,7 @@ function classificationEndpoints(app) {
               text,
               docSource: d.docSource,
               parsePath: d.parsePath,
+              examples,
             });
           results.push({
             contentHash: d.contentHash,

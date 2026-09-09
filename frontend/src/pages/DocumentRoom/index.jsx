@@ -91,6 +91,23 @@ export default function DocumentRoom() {
   const [selectedHashes, setSelectedHashes] = useState(() => new Set());
   const [deleting, setDeleting] = useState(false);
 
+  async function reloadDocuments() {
+    setLoading(true);
+    const result = await Workspace.bySlug(slug);
+    setWorkspace(result);
+    const classificationResult = await Classification.documents();
+    setClassifications(classificationResult || []);
+    setSelected(
+      (result?.documents || []).find(
+        (document) => contentHash(document) === requestedHash
+      ) ||
+        result?.documents?.[0] ||
+        null
+    );
+    setSelectedHashes(new Set());
+    setLoading(false);
+  }
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([Workspace.bySlug(slug), Classification.documents()]).then(
@@ -237,8 +254,7 @@ export default function DocumentRoom() {
     if (result?.error) return window.alert(`삭제 실패: ${result.error}`);
     setSelectedHashes(new Set());
     setSelected(null);
-    setLoading(true);
-    window.location.reload();
+    await reloadDocuments();
   }
 
   return (

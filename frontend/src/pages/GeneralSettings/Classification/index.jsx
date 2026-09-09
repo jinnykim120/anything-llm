@@ -17,6 +17,20 @@ const SENS_LABEL = {
   confidential: "격리·민감",
   uncertain: "판단 보류",
 };
+const UNCLASSIFIED_LABEL = "미분류";
+
+function needsClassificationReview(doc) {
+  const classification = doc?.classification;
+  return (
+    !classification ||
+    classification.status !== "confirmed" ||
+    !classification.sensitivity ||
+    !classification.workType ||
+    !classification.businessUnit ||
+    !classification.docType ||
+    !classification.domain
+  );
+}
 
 export default function ClassificationReview() {
   const [searchParams] = useSearchParams();
@@ -120,39 +134,56 @@ export default function ClassificationReview() {
     await load();
   }
 
-  const pending = docs.filter(
-    (d) => !d.classification || d.classification.status !== "confirmed"
-  ).length;
+  const pending = docs.filter(needsClassificationReview).length;
 
   const filterOptions = useMemo(() => {
-    const values = (getValue) =>
-      [...new Set(docs.map(getValue).filter(Boolean))].sort((a, b) =>
-        String(a).localeCompare(String(b), "ko")
+    const values = (getValue) => {
+      const result = [...new Set(docs.map(getValue).filter(Boolean))].sort(
+        (a, b) => String(a).localeCompare(String(b), "ko")
       );
+      return docs.some((doc) => !getValue(doc))
+        ? [...result, UNCLASSIFIED_LABEL]
+        : result;
+    };
 
     return {
       sensitivities: values((doc) => doc.classification?.sensitivity),
-      workTypes: [...new Set([...(taxonomy?.work_type?.suggested || [])])].sort(
-        (a, b) => String(a).localeCompare(String(b), "ko")
-      ),
+      workTypes: [
+        ...new Set([
+          ...(taxonomy?.work_type?.suggested || []),
+          ...docs.map((doc) => doc.classification?.workType).filter(Boolean),
+          ...(docs.some((doc) => !doc.classification?.workType)
+            ? [UNCLASSIFIED_LABEL]
+            : []),
+        ]),
+      ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
       businessUnits: [
         ...new Set([
           ...(taxonomy?.business_unit?.suggested || []),
           ...docs
             .map((doc) => doc.classification?.businessUnit)
             .filter(Boolean),
+          ...(docs.some((doc) => !doc.classification?.businessUnit)
+            ? [UNCLASSIFIED_LABEL]
+            : []),
         ]),
       ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
       docTypes: [
         ...new Set([
           ...(taxonomy?.doc_type?.suggested || []),
           ...docs.map((doc) => doc.classification?.docType).filter(Boolean),
+          ...(docs.some((doc) => !doc.classification?.docType)
+            ? [UNCLASSIFIED_LABEL]
+            : []),
         ]),
       ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
       domains: [
         ...new Set([
           ...(taxonomy?.domain?.suggested || []),
           ...docs.map((doc) => doc.classification?.domain).filter(Boolean),
+          ...(docs.some((doc) => !doc.classification?.domain)
+            ? [UNCLASSIFIED_LABEL]
+            : []),
         ]),
       ].sort((a, b) => String(a).localeCompare(String(b), "ko")),
     };
@@ -164,17 +195,18 @@ export default function ClassificationReview() {
       const searchText = [
         doc.title,
         doc.docSource,
-        classification?.docType,
-        classification?.workType,
-        classification?.businessUnit,
-        classification?.domain,
+        classification?.docType || UNCLASSIFIED_LABEL,
+        classification?.workType || UNCLASSIFIED_LABEL,
+        classification?.businessUnit || UNCLASSIFIED_LABEL,
+        classification?.domain || UNCLASSIFIED_LABEL,
         ...(classification?.tags || []),
       ]
         .filter(Boolean)
         .join(" ")
         .toLocaleLowerCase("ko-KR");
-      const status =
-        classification?.status === "confirmed"
+      const status = needsClassificationReview(doc)
+        ? "unclassified"
+        : classification?.status === "confirmed"
           ? "confirmed"
           : classification
             ? "proposed"
@@ -188,13 +220,21 @@ export default function ClassificationReview() {
         (filters.sensitivity === "all" ||
           classification?.sensitivity === filters.sensitivity) &&
         (filters.workType === "all" ||
-          classification?.workType === filters.workType) &&
+          (filters.workType === UNCLASSIFIED_LABEL
+            ? !classification?.workType
+            : classification?.workType === filters.workType)) &&
         (filters.businessUnit === "all" ||
-          classification?.businessUnit === filters.businessUnit) &&
+          (filters.businessUnit === UNCLASSIFIED_LABEL
+            ? !classification?.businessUnit
+            : classification?.businessUnit === filters.businessUnit)) &&
         (filters.docType === "all" ||
-          classification?.docType === filters.docType) &&
+          (filters.docType === UNCLASSIFIED_LABEL
+            ? !classification?.docType
+            : classification?.docType === filters.docType)) &&
         (filters.domain === "all" ||
-          classification?.domain === filters.domain) &&
+          (filters.domain === UNCLASSIFIED_LABEL
+            ? !classification?.domain
+            : classification?.domain === filters.domain)) &&
         (filters.status === "all" || status === filters.status)
       );
     });
@@ -303,7 +343,7 @@ export default function ClassificationReview() {
             </CTAButton>
             <button
               onClick={load}
-              className="flex items-center gap-x-1.5 text-xs text-theme-text-secondary hover:text-theme-text-primary"
+              className="ml-auto flex items-center gap-x-1.5 text-xs text-theme-text-secondary hover:text-theme-text-primary"
             >
               <ArrowClockwise className="h-4 w-4" /> 새로고침
             </button>

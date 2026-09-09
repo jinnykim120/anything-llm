@@ -5,6 +5,12 @@ const { Telemetry } = require("./telemetry");
 const { EventLogs } = require("./eventLogs");
 const { safeJsonParse } = require("../utils/http");
 const { getModelTag } = require("../endpoints/utils");
+const fs = require("fs");
+const path = require("path");
+const documentsPath =
+  process.env.NODE_ENV === "development"
+    ? path.resolve(__dirname, "../storage/documents")
+    : path.resolve(process.env.STORAGE_DIR, "documents");
 
 const Document = {
   writable: ["pinned", "watched", "lastUpdatedAt"],
@@ -94,12 +100,14 @@ const Document = {
     // it. Skip an addition whose content_hash already lives in this workspace.
     const skippedDuplicates = [];
     const existingHashes = new Map();
+    const existingFilenames = new Set();
     for (const wd of await prisma.workspace_documents.findMany({
       where: { workspaceId: workspace.id },
       select: { metadata: true, filename: true },
     })) {
       const h = safeJsonParse(wd.metadata, {})?.content_hash;
       if (h) existingHashes.set(h, wd.filename);
+      if (wd.filename) existingFilenames.add(String(wd.filename).toLowerCase());
     }
 
     emitProgress(workspace.slug, {
@@ -143,6 +151,21 @@ const Document = {
         continue;
       }
 
+      const filename = path.split(/[/\\]/).pop();
+      if (filename && existingFilenames.has(filename.toLowerCase())) {
+        const duplicateOf = filename;
+        console.log(
+          `[auto-docu] skipping ${filename} — same filename already exists in ${workspace.slug}`
+        );
+        skippedDuplicates.push({ path, duplicateOf });
+        emitProgress(workspace.slug, {
+          type: "doc_failed",
+          ...docProgress,
+          error: `중복 파일명 — "${filename}"이(가) 이미 존재해 건너뜀`,
+        });
+        continue;
+      }
+
       const docId = uuidv4();
       // [auto-docu P1a] `blocks` (parse-time page/bbox units) is large and only
       // needed for chunking — keep it out of the workspace_documents metadata row.
@@ -150,7 +173,7 @@ const Document = {
       const { pageContent: _pageContent, blocks: _blocks, ...metadata } = data;
       const newDoc = {
         docId,
-        filename: path.split(/[/\\]/).pop(),
+        filename,
         docpath: path,
         workspaceId: workspace.id,
         uploadedByUserId: userId ? Number(userId) : null,
@@ -296,6 +319,26 @@ const Document = {
       userId
     );
     return true;
+  },
+
+  pruneMissingDocuments: async function (workspace, userId = null) {
+    if (!workspace?.id) return { removed: 0 };
+    const documents = await this.forWorkspace(workspace.id);
+    const missing = documents.filter((document) => {
+      const fullPath = path.resolve(documentsPath, document.docpath || "");
+      return (
+        !document.docpath ||
+        !fullPath.startsWith(`${documentsPath}${path.sep}`) ||
+        !fs.existsSync(fullPath)
+      );
+    });
+    if (!missing.length) return { removed: 0 };
+    await this.removeDocuments(
+      workspace,
+      missing.map((document) => document.docpath),
+      userId
+    );
+    return { removed: missing.length };
   },
 
   count: async function (clause = {}, limit = null) {

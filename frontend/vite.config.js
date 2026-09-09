@@ -21,7 +21,13 @@ export default defineConfig({
     port: 3000,
     // Allow the minimal LAN test deployment to reach the dev UI from another
     // device on the same Wi-Fi network. Production should use a real proxy.
-    host: "0.0.0.0"
+    host: "0.0.0.0",
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+    }
   },
   define: {
     "process.env": process.env
