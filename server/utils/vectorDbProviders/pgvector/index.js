@@ -1208,6 +1208,29 @@ class PGVector extends VectorDatabase {
         });
       }
 
+      // Exact Korean year/product queries are better served by lexical matches
+      // than by a low-confidence dense top-N result. Merge lexical hits when
+      // they add sources that dense retrieval did not return.
+      if (searchResult?.contextTexts?.length) {
+        const lexical = await this.lexicalSearchResponse({
+          client: connection,
+          namespace,
+          input,
+          similarityThreshold,
+          topN: Math.max(topN, 12),
+          filterIdentifiers,
+        });
+        const seen = new Set(
+          searchResult.sourceDocuments.map((source) => sourceIdentifier(source))
+        );
+        for (const [index, source] of lexical.sourceDocuments.entries()) {
+          if (seen.has(sourceIdentifier(source))) continue;
+          searchResult.sourceDocuments.push(source);
+          searchResult.contextTexts.push(lexical.contextTexts[index]);
+          seen.add(sourceIdentifier(source));
+        }
+      }
+
       const result = await this.expandSections({
         client: connection,
         namespace,
