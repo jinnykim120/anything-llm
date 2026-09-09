@@ -893,22 +893,32 @@ function workspaceEndpoints(app) {
           response.locals?.user?.id
         );
 
-        const document = documents[0];
-        const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
+        const locations = documents
+          .map((document) => document.location)
+          .filter(Boolean);
+        const {
+          failedToEmbed = [],
+          errors = [],
+          embedded = [],
+        } = await Document.addDocuments(
           currWorkspace,
-          [document.location],
+          locations,
           response.locals?.user?.id
         );
 
         if (failedToEmbed.length > 0)
-          return response
-            .status(200)
-            .json({ success: false, error: errors?.[0], document: null });
+          return response.status(200).json({
+            success: false,
+            error: errors?.[0],
+            embedded: embedded.length,
+            document: null,
+          });
 
         response.status(200).json({
           success: true,
           error: null,
-          document: { id: document.id, location: document.location },
+          embedded: embedded.length,
+          documents: documents.map(({ id, location }) => ({ id, location })),
         });
       } catch (e) {
         console.error(e.message, e);

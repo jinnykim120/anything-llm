@@ -180,6 +180,26 @@ async function textForHash(entry) {
   return "";
 }
 
+async function orphanedWorkspaceDocuments(workspaceSlug = null) {
+  const rows = await prisma.workspace_documents.findMany({
+    where: workspaceSlug ? { workspace: { slug: workspaceSlug } } : {},
+    include: { workspace: { select: { slug: true } } },
+  });
+  return rows
+    .map((row) => {
+      const metadata = safeJsonParse(row.metadata, {});
+      return {
+        id: row.id,
+        workspace: row.workspace?.slug || null,
+        filename: row.filename,
+        docpath: row.docpath,
+        title: metadata.title || row.filename,
+        reason: metadata.content_hash ? "" : "content_hash 없음",
+      };
+    })
+    .filter((row) => row.reason);
+}
+
 function classificationEndpoints(app) {
   if (!app) return;
 
@@ -384,6 +404,22 @@ function classificationEndpoints(app) {
         response.status(200).json({ documents: out });
       } catch (e) {
         console.error("GET /classification/documents", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  app.get(
+    "/classification/orphaned",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const workspace = String(request.query?.workspace || "").trim();
+        response.status(200).json({
+          documents: await orphanedWorkspaceDocuments(workspace || null),
+        });
+      } catch (e) {
+        console.error("GET /classification/orphaned", e);
         response.status(500).json({ error: e.message });
       }
     }

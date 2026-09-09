@@ -61,7 +61,9 @@ const SUPPORTED_NATIVE_EMBEDDING_MODELS = {
   // Later (P0b, WSL/Linux) we run the full FlagEmbedding BGE-M3 for dense+sparse (D7);
   // here we use the ONNX dense-only weights via transformers.js.
   "Xenova/bge-m3": {
-    maxConcurrentChunks: 5,
+    // BGE-M3 has a high peak memory footprint on Windows ONNX. Keep ingestion
+    // serial so large spreadsheets cannot take down the API process.
+    maxConcurrentChunks: 1,
     // The model supports 8192 tokens, but the local ONNX attention graph grows
     // quadratically with sequence length. An 8k flat spreadsheet chunk tried to
     // allocate a 2.5GB buffer on a 16GB Windows host. Block-aware documents

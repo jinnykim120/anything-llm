@@ -173,7 +173,8 @@ const Document = {
       const sourceName = String(data.title || data.docSource || filename)
         .trim()
         .toLowerCase();
-      const isGeneratedSheetName = /^sheet(?:-[^.]*)?\.json$/i.test(filename);
+      const isGeneratedSheetName =
+        /^sheet(?:-[^.]*)?(?:-[0-9a-f-]+)?\.json$/i.test(filename);
       if (
         sourceName &&
         !isGeneratedSheetName &&
