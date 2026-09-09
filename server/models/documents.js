@@ -155,7 +155,15 @@ const Document = {
           .digest("hex");
       }
 
-      if (data.content_hash && existingHashes.has(data.content_hash)) {
+      const isSpreadsheetSheet =
+        /^sheet(?:-[^.]*)?(?:-[0-9a-f-]+)?\.json$/i.test(
+          path.split(/[/\\]/).pop()
+        );
+      if (
+        data.content_hash &&
+        existingHashes.has(data.content_hash) &&
+        !isSpreadsheetSheet
+      ) {
         const dupOf = existingHashes.get(data.content_hash);
         console.log(
           `[auto-docu] skipping ${path.split(/[/\\]/).pop()} — same content as "${dupOf}" already in ${workspace.slug}`
