@@ -2,6 +2,52 @@
 
 Running log of what the harness has told us. Newest first.
 
+## 2026-09-09 — spreadsheet ingestion integrity and retrieval fix
+
+The archive QA review found that newly uploaded XLSX files could appear in the
+document room but be absent from classification review or fail to answer
+questions from spreadsheet data. This was a pipeline issue rather than a single
+workbook issue.
+
+### Root causes found
+
+- `collector/processSingleFile/convert/asXlsx.js` named each sheet with
+  `sheet-${slugify(name)}`. Korean-only sheet names collapsed to the same
+  `sheet-.json` path and could overwrite earlier sheets.
+- XLSX output did not carry the common `content_hash` metadata, so legacy
+  workspace rows could be skipped by classification grouping.
+- XLSX pipe tables used flat character splitting. Long tables lost their
+  column header in later chunks, leaving numeric rows without their field names
+  during retrieval.
+
+### Fixes
+
+- Sheet output filenames now include the per-sheet UUID:
+  `sheet-${slugify(name)}-${sheetData.id}`.
+- XLSX converters now write a normalized content hash for combined and
+  per-sheet output.
+- Flat pipe-table chunks repeat the detected header and separator lines.
+- Ordinary prose containing a pipe is not treated as a table unless the
+  markdown separator row is present.
+- Search defaults were aligned: workspace `topN` is 12 and the pgvector
+  reranker candidate default is 30.
+- Existing workspace metadata rows missing `content_hash` were backfilled from
+  their stored parsed JSON where possible.
+
+### Regression coverage
+
+- XLSX Korean/same-name sheet collision test: passed.
+- Flat table header preservation test: passed.
+- Ordinary pipe-text false-positive test: passed.
+- Existing splitter behavior tests: passed.
+- Combined focused result: **2 suites, 8 tests passed**.
+
+The full repository test run also passed 43 suites / 538 tests. Two unrelated
+environment-dependent failures remain: the workspace model test requires a
+storage environment variable in its test setup, and the FFmpeg tests require an
+FFmpeg binary on PATH. These are not related to spreadsheet ingestion or
+retrieval.
+
 ## 2026-09-07 — live regression, bug fixes, and performance correction
 
 The archive QA stack was re-run against the live local services after the
