@@ -2,6 +2,82 @@
 
 Running log of what the harness has told us. Newest first.
 
+## 2026-09-10 — v14 rebuild (P0–P5): retrieval rewrite + real corpus
+
+Full context: `docs/architecture-v14.html` (diagnosis + decisions),
+`docs/architecture-v15.html` (execution + results).
+
+### Setup change
+
+- Embedding `Xenova/bge-m3` (1024d) → `MintplexLabs/multilingual-e5-small`
+  (384d). bge-m3's ONNX peak fought this box's ~1.7GB free memory → query
+  embed was silently failing → whole search degrading to keyword-only. e5-small
+  has no memory guard (assertLoadMemory is bge-m3-only); warm query embed
+  ~0.1s vs bge-m3 ~4.8s. Restore bge-m3 on a server.
+- Single workspace `archive-full` (slug hardcoded in the custom frontend).
+  topN 12, similarityThreshold 0.15, vectorSearchMode default.
+- `performSimilaritySearch` rewritten (commit `72521f98`): removed
+  `#preferLexicalDataMatches` (was ranking keyword hits above semantic),
+  removed the silent dense→keyword fallback (embed failure now aborts with a
+  message), removed the post-expansion re-truncate. Added per-doc chunk cap +
+  additive-only lexical merge + `filterDocIds`. Fixed `distanceToSimilarity`
+  (`distance>=1 → 1` scored opposite vectors as a perfect match).
+
+### Real corpus
+
+`_samples/` → `archive-full`: 70 files, 68 documents (2 byte-identical
+skipped). parse_path: pdfjs 52 / ocr 5 / xlsx 5 / hwp-parser 3 / hwpx-owpml 1
+/ docx-mammoth 1 / pptx-text 1. All 68 classified via claudecli — doc_type:
+행정규칙 39 / 실적자료 9 / 법령 8 / 보고서 3 / 협약서 3 / 계약서 2 / 기타 3 /
+교육자료 1. work_type: 동반성장 35 / 공정거래 27 / 기타 6.
+
+### Answer quality — `eval/answers.mjs --workspace archive-full` (judge claude-sonnet-5)
+
+| metric | P5 pre-tune | P5 post-tune |
+|--------|------------|--------------|
+| faithfulness | 0.975 | **0.998** |
+| completeness | 0.544 | **0.825** |
+| citation accuracy | 0.981 | **0.984** |
+| retrieval hit | 1.000 | 1.000 |
+
+Pre-tune finding: retrieval hit the right **document** every time, but
+"전부 알려줘" questions answered 2 of 5 facts. Two causes, both fixed
+(commit `6485bc03`):
+
+1. **Per-doc cap 3 starved the doc that IS the answer.** The 판매장려금 지침
+   `III. 판단기준` section is 34 chunks; dense surfaced 3 header-ish chunks,
+   the cap kept only those. Fix: `#capPerDocument` leaves the single top-ranked
+   document uncapped (up to `topLimit`, default 40); documents #2+ still capped.
+2. **expandSections skipped the section for being > 16k chars** (판단기준 ≈
+   34k). Fix: section cap 16k → 40k, total budget 32k → 50k (the LLM is
+   claudecli with a large window). `jangryeo-axes` completeness 0.200 → 1.000.
+
+Two still below threshold post-tune:
+
+- `hwp-innovation` (completeness 0.60) — facts scattered across sections of a
+  big HWP; section expansion helps hierarchical 지침 but less so here.
+- `refusal-netincome` (completeness 0.00) — NOT a regression. The golden set
+  expects a refusal ("2024 당기순이익 없음"); the bigger corpus gained
+  sustainability reports that DO contain the figure (9,791백만원, cited). The
+  golden set is stale for a 68-doc corpus.
+
+### Retrieval smoke — `eval/run.mjs --mode default` (synthetic seed corpus)
+
+MRR 1.000, hit@1 1.000, no misses @5 — no regression (seed corpus is easy).
+
+### RapidOCR disabled
+
+Scanned/image PDFs no longer run the bundled RapidOCR (Chinese model, Korean
+garbage — measured: 3-page 협약서 → 467 chars of "HY晶"). They get a
+placeholder block + `parse_path: "image-only"`, flagged for vision ingest
+(P1d). `OCR_IMAGE_PDFS=1` to re-enable. 5 such docs in the current corpus.
+
+### Ops note
+
+nodemon on this box restarts the server on every `utils/` file save and
+sometimes crashes the restart or kills a long operation (the P5 ingest died
+once this way). Run server + collector as plain `node index.js` for long runs.
+
 ## 2026-09-09 — spreadsheet ingestion integrity and retrieval fix
 
 The archive QA review found that newly uploaded XLSX files could appear in the
