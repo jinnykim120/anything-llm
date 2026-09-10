@@ -1018,7 +1018,11 @@ class PGVector extends VectorDatabase {
   }
 
   /**
-   * Delete a document from the namespace
+   * Delete a document from the namespace.
+   * [auto-docu v14 P2] Deletes by the tracked document_vectors rows AND by a
+   * direct `metadata->>'doc_id'` sweep. The sweep is the backstop that finally
+   * clears orphan vectors when document_vectors has drifted from the table
+   * (the "I deleted it but search still returns it" bug).
    * @param {string} namespace
    * @param {string} docId
    * @returns {Promise<boolean>}
@@ -1030,17 +1034,12 @@ class PGVector extends VectorDatabase {
     let connection = null;
     try {
       connection = await this.connect();
-      const exists = await this.namespaceExists(connection, namespace);
-      if (!exists)
-        throw new Error(
-          `PGVector:deleteDocumentFromNamespace - namespace ${namespace} does not exist.`
-        );
+      if (!(await this.dbTableExists())) return true;
 
       const { DocumentVectors } = require("../../../models/vectors");
       const vectorIds = (await DocumentVectors.where({ docId })).map(
         (record) => record.vectorId
       );
-      if (vectorIds.length === 0) return;
 
       try {
         await connection.query(`BEGIN`);
@@ -1049,15 +1048,18 @@ class PGVector extends VectorDatabase {
             `DELETE FROM "${PGVector.tableName()}" WHERE id = $1`,
             [vectorId]
           );
+        const sweep = await connection.query(
+          `DELETE FROM "${PGVector.tableName()}" WHERE namespace = $1 AND metadata->>'doc_id' = $2`,
+          [namespace, docId]
+        );
         await connection.query(`COMMIT`);
+        this.logger(
+          `Deleted vectors for doc ${docId} from ${namespace} (tracked: ${vectorIds.length}, swept: ${sweep.rowCount ?? 0}).`
+        );
       } catch (err) {
         await connection.query(`ROLLBACK`);
         throw err;
       }
-
-      this.logger(
-        `Deleted ${vectorIds.length} vectors from namespace ${namespace}`
-      );
       return true;
     } catch (err) {
       this.logger(

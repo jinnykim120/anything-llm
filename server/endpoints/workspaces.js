@@ -235,10 +235,14 @@ function workspaceEndpoints(app) {
           return;
         }
 
+        // [auto-docu v14 P2] "remove from workspace" is a real delete in the
+        // single-archive model — drop the parsed source file + vector cache too
+        // (once nothing else references it) so it can't resurrect on a re-scan.
         await Document.removeDocuments(
           currWorkspace,
           deletes,
-          response.locals?.user?.id
+          response.locals?.user?.id,
+          { purgeSource: true }
         );
 
         const {
@@ -293,6 +297,31 @@ function workspaceEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // [auto-docu v14 P2] "워크스페이스 재구축" — nuke every vector for this
+  // workspace and re-embed from the parsed source files still on disk. The
+  // recovery button for when ingestion state has drifted (orphan vectors,
+  // half-deleted docs, a model/dimension change).
+  app.post(
+    "/workspace/:slug/rebuild",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { slug = null } = request.params;
+        const workspace = await Workspace.get({ slug });
+        if (!workspace) return response.sendStatus(404).end();
+
+        const result = await Document.rebuildWorkspace(
+          workspace,
+          response.locals?.user?.id ?? null
+        );
+        response.status(200).json(result);
+      } catch (e) {
+        console.error("POST /workspace/:slug/rebuild", e);
+        response.status(500).json({ error: e.message });
       }
     }
   );

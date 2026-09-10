@@ -518,12 +518,38 @@ function apiWorkspaceEndpoints(app) {
           return;
         }
 
-        await Document.removeDocuments(currWorkspace, deletes);
+        // [auto-docu v14 P2] purge the parsed source file + vector cache too, so
+        // a "remove" can't leave a file behind that a re-scan resurrects.
+        await Document.removeDocuments(currWorkspace, deletes, null, {
+          purgeSource: true,
+        });
         await Document.addDocuments(currWorkspace, adds);
         const updatedWorkspace = await Workspace.get({
           id: Number(currWorkspace.id),
         });
         response.status(200).json({ workspace: updatedWorkspace });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/v1/workspace/:slug/rebuild",
+    [validApiKey],
+    async (request, response) => {
+      /*
+      #swagger.tags = ['Workspaces']
+      #swagger.description = '[auto-docu] Nuke a workspace vector index and re-embed from the parsed source files still on disk. Recovery action for drifted ingestion state or an embedding model change.'
+      #swagger.parameters['slug'] = { in: 'path', description: 'workspace slug', required: true, type: 'string' }
+      */
+      try {
+        const { slug = null } = request.params;
+        const workspace = await Workspace.get({ slug: String(slug) });
+        if (!workspace) return response.sendStatus(404).end();
+        const result = await Document.rebuildWorkspace(workspace, null);
+        response.status(200).json(result);
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

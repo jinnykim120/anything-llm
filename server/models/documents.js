@@ -91,7 +91,13 @@ const Document = {
     }
   },
 
-  addDocuments: async function (workspace, additions = [], userId = null) {
+  addDocuments: async function (
+    workspace,
+    additions = [],
+    userId = null,
+    opts = {}
+  ) {
+    const { allowDuplicates = false } = opts;
     const VectorDb = getVectorDbClass();
     if (additions.length === 0) return { failed: [], embedded: [] };
     const { fileData } = require("../utils/files");
@@ -100,21 +106,24 @@ const Document = {
     const failedToEmbed = [];
     const errors = new Set();
 
-    // [auto-docu P4] content-hash dedup — a re-uploaded document gets a fresh
-    // docpath (new uuid) every time, so the docpath checks upstream never catch
-    // it. Skip an addition whose content_hash already lives in this workspace.
+    // [auto-docu v14 P2] content-hash dedup ONLY — a re-uploaded document gets a
+    // fresh docpath (new uuid) every time, so the docpath checks upstream never
+    // catch a byte-identical re-upload. Skip an addition whose normalized text
+    // hash already lives in this workspace.
+    //
+    // The earlier filename/title dedup was removed: a corporate archive is full
+    // of genuinely different files that share a name (붙임.pdf, 보고서.pdf), and
+    // silently skipping the second one is worse than a duplicate. Pass
+    // `opts.allowDuplicates` to skip the content-hash check too (re-ingest).
     const skippedDuplicates = [];
     const existingHashes = new Map();
-    const existingSourceNames = new Set();
-    for (const wd of await prisma.workspace_documents.findMany({
-      where: { workspaceId: workspace.id },
-      select: { metadata: true, filename: true },
-    })) {
-      const h = safeJsonParse(wd.metadata, {})?.content_hash;
-      if (h) existingHashes.set(h, wd.filename);
-      const metadata = safeJsonParse(wd.metadata, {});
-      for (const value of [metadata.title, metadata.docSource, wd.filename]) {
-        if (value) existingSourceNames.add(String(value).trim().toLowerCase());
+    if (!allowDuplicates) {
+      for (const wd of await prisma.workspace_documents.findMany({
+        where: { workspaceId: workspace.id },
+        select: { metadata: true, filename: true },
+      })) {
+        const h = safeJsonParse(wd.metadata, {})?.content_hash;
+        if (h) existingHashes.set(h, wd.filename);
       }
     }
 
@@ -155,48 +164,21 @@ const Document = {
           .digest("hex");
       }
 
-      const isSpreadsheetSheet =
-        /^sheet(?:-[^.]*)?(?:-[0-9a-f-]+)?\.json$/i.test(
-          path.split(/[/\\]/).pop()
-        );
+      const filename = path.split(/[/\\]/).pop();
       if (
+        !allowDuplicates &&
         data.content_hash &&
-        existingHashes.has(data.content_hash) &&
-        !isSpreadsheetSheet
+        existingHashes.has(data.content_hash)
       ) {
         const dupOf = existingHashes.get(data.content_hash);
         console.log(
-          `[auto-docu] skipping ${path.split(/[/\\]/).pop()} — same content as "${dupOf}" already in ${workspace.slug}`
+          `[auto-docu] skipping ${filename} — byte-identical content to "${dupOf}" already in ${workspace.slug}`
         );
         skippedDuplicates.push({ path, duplicateOf: dupOf });
         emitProgress(workspace.slug, {
           type: "doc_failed",
           ...docProgress,
-          error: `중복 문서 — "${dupOf}"와 내용이 동일해 건너뜀`,
-        });
-        continue;
-      }
-
-      const filename = path.split(/[/\\]/).pop();
-      const sourceName = String(data.title || data.docSource || filename)
-        .trim()
-        .toLowerCase();
-      const isGeneratedSheetName =
-        /^sheet(?:-[^.]*)?(?:-[0-9a-f-]+)?\.json$/i.test(filename);
-      if (
-        sourceName &&
-        !isGeneratedSheetName &&
-        existingSourceNames.has(sourceName)
-      ) {
-        const duplicateOf = data.title || data.docSource || filename;
-        console.log(
-          `[auto-docu] skipping ${filename} — same filename already exists in ${workspace.slug}`
-        );
-        skippedDuplicates.push({ path, duplicateOf });
-        emitProgress(workspace.slug, {
-          type: "doc_failed",
-          ...docProgress,
-          error: `중복 파일명 — "${filename}"이(가) 이미 존재해 건너뜀`,
+          error: `중복 문서 — "${dupOf}"와 내용이 완전히 동일해 건너뜀`,
         });
         continue;
       }
@@ -255,10 +237,6 @@ const Document = {
         embedded.push(storedPath);
         if (data.content_hash)
           existingHashes.set(data.content_hash, newDoc.filename);
-        for (const value of [data.title, data.docSource, newDoc.filename]) {
-          if (value)
-            existingSourceNames.add(String(value).trim().toLowerCase());
-        }
         // [auto-docu P4] opt-in: propose a classification as the doc lands, so
         // the review screen isn't empty. Fire-and-forget (an LLM call each) —
         // off by default so a bulk load doesn't hammer the LLM / hit rate limits;
@@ -325,16 +303,49 @@ const Document = {
     };
   },
 
-  removeDocuments: async function (workspace, removals = [], userId = null) {
+  /**
+   * Remove documents from a workspace.
+   * [auto-docu v14 P2] `opts.purgeSource` also deletes the parsed source file and
+   * its vector-cache entry once no other workspace still references that docpath
+   * — so "remove from workspace" is a real delete, not a row-only delete that
+   * leaves the file (and a stale vector cache) on disk to resurrect later.
+   * The "move to another workspace" flow must NOT pass it (it re-reads the file).
+   * @param {object} [opts]
+   * @param {boolean} [opts.purgeSource=false]
+   */
+  removeDocuments: async function (
+    workspace,
+    removals = [],
+    userId = null,
+    opts = {}
+  ) {
+    const { purgeSource = false } = opts;
     const VectorDb = getVectorDbClass();
     if (removals.length === 0) return;
+    const { purgeSourceDocument, purgeVectorCache } = require("../utils/files");
 
     for (const path of removals) {
-      const document = await this.get({
+      let document = await this.get({
         docpath: path,
         workspaceId: workspace.id,
       });
-      if (!document) continue;
+      // [auto-docu v14 P2] Tolerate a docpath that doesn't match exactly — a
+      // legacy row may hold an absolute path while the caller passes the
+      // relative one (or vice-versa). Fall back to a basename match within the
+      // workspace before giving up.
+      if (!document) {
+        const base = String(path).split(/[/\\]/).pop();
+        const candidates = await this.where({ workspaceId: workspace.id });
+        document = candidates.find(
+          (d) => String(d.docpath).split(/[/\\]/).pop() === base
+        );
+      }
+      if (!document) {
+        console.warn(
+          `[auto-docu] removeDocuments: no workspace_documents row for "${path}" in ${workspace.slug} — skipping.`
+        );
+        continue;
+      }
       await VectorDb.deleteDocumentFromNamespace(
         workspace.slug,
         document.docId
@@ -349,6 +360,20 @@ const Document = {
         });
       } catch (error) {
         console.error(error.message);
+      }
+
+      if (purgeSource) {
+        const stillReferenced = await prisma.workspace_documents.count({
+          where: { docpath: document.docpath },
+        });
+        if (stillReferenced === 0) {
+          await purgeSourceDocument(document.docpath).catch((e) =>
+            console.error("[auto-docu] purgeSourceDocument", e.message)
+          );
+          await purgeVectorCache(document.docpath).catch((e) =>
+            console.error("[auto-docu] purgeVectorCache", e.message)
+          );
+        }
       }
     }
 
@@ -381,6 +406,51 @@ const Document = {
       userId
     );
     return { removed: missing.length };
+  },
+
+  /**
+   * [auto-docu v14 P2] Rebuild a workspace's vector index from the parsed source
+   * files still on disk. The recovery action for drifted ingestion state — orphan
+   * vectors, half-deleted docs, or an embedding model / dimension change.
+   * Classifications (keyed by content_hash) survive.
+   */
+  rebuildWorkspace: async function (workspace, userId = null) {
+    if (!workspace?.id) return { requested: 0, embedded: 0, failed: [] };
+    const VectorDb = getVectorDbClass();
+    const {
+      purgeVectorCache,
+      purgeSourceDocument: _p,
+    } = require("../utils/files");
+
+    const docs = await this.forWorkspace(workspace.id);
+    const docpaths = [...new Set(docs.map((d) => d.docpath).filter(Boolean))];
+    const docIds = docs.map((d) => d.docId).filter(Boolean);
+
+    await VectorDb["delete-namespace"]({ namespace: workspace.slug }).catch(
+      (e) => console.error("[auto-docu] rebuild: delete-namespace", e.message)
+    );
+    if (docIds.length)
+      await prisma.document_vectors.deleteMany({
+        where: { docId: { in: docIds } },
+      });
+    await prisma.workspace_documents.deleteMany({
+      where: { workspaceId: workspace.id },
+    });
+    for (const p of docpaths) await purgeVectorCache(p).catch(() => {});
+
+    const {
+      embedded = [],
+      failedToEmbed = [],
+      errors = [],
+    } = await this.addDocuments(workspace, docpaths, userId, {
+      allowDuplicates: true,
+    });
+    return {
+      requested: docpaths.length,
+      embedded: embedded.length,
+      failed: failedToEmbed,
+      errors,
+    };
   },
 
   count: async function (clause = {}, limit = null) {

@@ -20,12 +20,24 @@
  *   { type: "all_complete", workspaceSlug, embedded, failed }
  */
 
+const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const prisma = require("../utils/prisma");
 const { getVectorDbClass } = require("../utils/helpers");
 const { fileData } = require("../utils/files");
 const { Telemetry } = require("../models/telemetry");
 const { safeJsonParse } = require("../utils/http");
+
+// [auto-docu v14 P2] Must match server/models/documents.js — the worker and the
+// in-process path both write workspace_documents rows and MUST agree on the
+// docpath convention (relative to storage/documents) or deletion won't match.
+const documentsPath =
+  process.env.NODE_ENV === "development"
+    ? path.resolve(__dirname, "../storage/documents")
+    : path.resolve(
+        process.env.STORAGE_DIR || path.resolve(__dirname, "../storage"),
+        "documents"
+      );
 
 const queue = [];
 const cancelled = new Set();
@@ -113,12 +125,18 @@ async function processQueue() {
     }
 
     const docId = uuidv4();
-    const { pageContent: _pageContent, ...metadata } = data;
+    // Strip pageContent AND blocks (the large parse-time page/bbox array) from
+    // the row metadata, exactly as server/models/documents.js does.
+    const { pageContent: _pageContent, blocks: _blocks, ...metadata } = data;
+    const storedPath = path.isAbsolute(filePath)
+      ? path.relative(documentsPath, filePath)
+      : filePath;
     const newDoc = {
       docId,
       filename: filePath.split(/[/\\]/).pop(),
-      docpath: filePath,
+      docpath: storedPath,
       workspaceId,
+      uploadedByUserId: userId ? Number(userId) : null,
       metadata: JSON.stringify(metadata),
     };
 

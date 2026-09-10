@@ -2297,6 +2297,39 @@
         }
       }
     },
+    "/v1/workspace/{slug}/rebuild": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "description": "[auto-docu] Nuke a workspace vector index and re-embed from the parsed source files still on disk. Recovery action for drifted ingestion state or an embedding model change.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "workspace slug"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/v1/workspace/{slug}/update-pin": {
       "post": {
         "tags": [
