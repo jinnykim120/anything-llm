@@ -24,7 +24,10 @@ async function streamChatWithWorkspace(
   chatMode = "automatic",
   user = null,
   thread = null,
-  attachments = []
+  attachments = [],
+  // [auto-docu v14 P4] restrict retrieval to these doc_ids (the archive
+  // sidebar's scope filter). null = search the whole workspace.
+  filterDocIds = null
 ) {
   const uuid = uuidv4();
   const updatedMessage = await grepCommand(message, user);
@@ -191,6 +194,7 @@ async function streamChatWithWorkspace(
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
+          filterDocIds,
           rerank: workspace?.vectorSearchMode === "rerank",
         })
       : {

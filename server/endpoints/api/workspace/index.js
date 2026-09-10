@@ -980,7 +980,7 @@ function apiWorkspaceEndpoints(app) {
     */
       try {
         const { slug } = request.params;
-        const { query, topN, scoreThreshold } = reqBody(request);
+        const { query, topN, scoreThreshold, scope = null } = reqBody(request);
         const workspace = await Workspace.get({ slug: String(slug) });
 
         if (!workspace)
@@ -1021,12 +1021,20 @@ function apiWorkspaceEndpoints(app) {
           prompt: String(query),
         });
 
+        const {
+          resolveScopeDocIds,
+        } = require("../../../utils/classification/scopeFilter");
+        const filterDocIds = await resolveScopeDocIds(workspace, scope).catch(
+          () => null
+        );
+
         const results = await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
           input: String(query),
           LLMConnector,
           similarityThreshold: parseSimilarityThreshold(),
           topN: parseTopN(),
+          filterDocIds,
           rerank: workspace?.vectorSearchMode === "rerank",
         });
 

@@ -87,6 +87,22 @@ const DOMAIN = {
   ],
 };
 
+// [auto-docu v14 P4] The archive sidebar's scope filter (전체 / 실적 / 법규 / 대외).
+// A scope narrows retrieval to documents whose confirmed/proposed `docType`
+// falls in its set. "전체" = no filter.
+const ARCHIVE_SCOPES = ["전체", "실적", "법규", "대외"];
+const SCOPE_DOC_TYPES = {
+  법규: ["법령", "행정규칙"],
+  실적: ["실적자료", "보고서", "계획서", "교육자료"],
+  대외: ["협약서", "계약서", "제안서", "회의자료", "품의서"],
+};
+
+/** doc_type values a scope covers, or null for "전체" / unknown. */
+function docTypesForScope(scope) {
+  if (!scope || scope === "전체") return null;
+  return SCOPE_DOC_TYPES[String(scope)] || null;
+}
+
 /** Everything a UI or the classifier prompt needs. */
 function taxonomy() {
   return {
@@ -151,4 +167,6 @@ module.exports = {
   normalizeWorkType,
   BUSINESS_UNIT,
   DOMAIN,
+  ARCHIVE_SCOPES,
+  docTypesForScope,
 };

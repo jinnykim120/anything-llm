@@ -2,6 +2,16 @@ import { ABORT_STREAM_EVENT } from "@/utils/chat";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders, safeJsonParse } from "@/utils/request";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
+
+// [auto-docu v14 P4] archive sidebar scope filter (per-viewer localStorage)
+function safeGetArchiveScope() {
+  try {
+    const s = localStorage.getItem("archive-scope");
+    return s && s !== "전체" ? s : null;
+  } catch {
+    return null;
+  }
+}
 import { v4 } from "uuid";
 
 const WorkspaceThread = {
@@ -110,7 +120,12 @@ const WorkspaceThread = {
         `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/stream-chat`,
         {
           method: "POST",
-          body: JSON.stringify({ message, attachments }),
+          // [auto-docu v14 P4] archive sidebar scope filter
+          body: JSON.stringify({
+            message,
+            attachments,
+            scope: safeGetArchiveScope(),
+          }),
           headers: baseHeaders(),
           signal: ctrl.signal,
           openWhenHidden: true,

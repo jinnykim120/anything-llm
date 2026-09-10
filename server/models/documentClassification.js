@@ -5,7 +5,6 @@ const { safeJsonParse } = require("../utils/http");
 const { classifyDocument } = require("../utils/classification/classify");
 const {
   normalizeSensitivity,
-  SENSITIVITY,
   normalizeWorkType,
 } = require("../utils/classification/taxonomy");
 
@@ -29,10 +28,12 @@ const DocumentClassification = {
     };
   },
 
+  // [auto-docu v14 P4] `sensitivity` is dormant for the prototype (no tier
+  // routing / access gating) — a classification is "complete" once the business
+  // axes are set. sensitivity can be filled later without a re-classify.
   _isComplete(classification) {
     return Boolean(
       classification?.status === "confirmed" &&
-        classification.sensitivity &&
         classification.workType &&
         classification.businessUnit &&
         classification.docType &&
@@ -120,17 +121,7 @@ const DocumentClassification = {
     userId = null,
   }) {
     if (!contentHash) return { classification: null, error: "no contentHash" };
-    // Confirming REQUIRES a definite call — "uncertain" / "unclassified" can't
-    // be confirmed; the doc stays held until a human picks a real tier.
-    if (
-      sensitivity !== undefined &&
-      !SENSITIVITY.confirmable.includes(normalizeSensitivity(sensitivity))
-    )
-      return {
-        classification: null,
-        error:
-          "민감도를 '일반 범용' 또는 '격리·민감'으로 지정해야 확정할 수 있습니다.",
-      };
+    // [auto-docu v14 P4] sensitivity is dormant — no longer blocks confirmation.
     const existing = await prisma.document_classifications
       .findUnique({ where: { contentHash } })
       .catch(() => null);

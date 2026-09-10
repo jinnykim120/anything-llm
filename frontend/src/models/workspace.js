@@ -5,6 +5,17 @@ import WorkspaceThread from "@/models/workspaceThread";
 import { v4 } from "uuid";
 import { ABORT_STREAM_EVENT } from "@/utils/chat";
 
+// [auto-docu v14 P4] The archive sidebar's scope filter is a per-viewer
+// localStorage value; "전체"/absent = no filter.
+function safeGetArchiveScope() {
+  try {
+    const s = localStorage.getItem("archive-scope");
+    return s && s !== "전체" ? s : null;
+  } catch {
+    return null;
+  }
+}
+
 const Workspace = {
   workspaceOrderStorageKey: "anythingllm-workspace-order",
   /** The maximum percentage of the context window that can be used for attachments */
@@ -174,7 +185,12 @@ const Workspace = {
     try {
       await fetchEventSource(`${API_BASE}/workspace/${slug}/stream-chat`, {
         method: "POST",
-        body: JSON.stringify({ message, attachments }),
+        // [auto-docu v14 P4] archive sidebar scope filter (전체/실적/법규/대외)
+        body: JSON.stringify({
+          message,
+          attachments,
+          scope: safeGetArchiveScope(),
+        }),
         headers: baseHeaders(),
         signal: ctrl.signal,
         openWhenHidden: true,
