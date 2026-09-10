@@ -323,17 +323,20 @@ describe("PGVector lexical fallback", () => {
     expect(result.success).toBe(false);
   });
 
-  it("caps chunks per document and merges only unseen lexical documents", async () => {
+  it("leaves the top document uncapped, caps the rest, merges unseen lexical docs", async () => {
     const dense = {
-      contextTexts: ["a1", "a2", "a3", "a4", "b1"],
+      contextTexts: ["a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"],
       sourceDocuments: [
         { doc_id: "A", title: "문서 A", chunk_index: 0 },
         { doc_id: "A", title: "문서 A", chunk_index: 1 },
         { doc_id: "A", title: "문서 A", chunk_index: 2 },
         { doc_id: "A", title: "문서 A", chunk_index: 3 },
         { doc_id: "B", title: "문서 B", chunk_index: 0 },
+        { doc_id: "B", title: "문서 B", chunk_index: 1 },
+        { doc_id: "B", title: "문서 B", chunk_index: 2 },
+        { doc_id: "B", title: "문서 B", chunk_index: 3 },
       ],
-      scores: [0.9, 0.88, 0.86, 0.84, 0.7],
+      scores: [0.9, 0.88, 0.86, 0.84, 0.7, 0.69, 0.68, 0.67],
     };
     const lexical = {
       contextTexts: ["a-lex", "c1"],
@@ -363,13 +366,26 @@ describe("PGVector lexical fallback", () => {
     });
     delete process.env.SEARCH_PER_DOC_CAP;
 
-    // doc A capped at 3 chunks; doc B kept; doc C added by lexical; the extra
-    // A chunk from lexical (already-seen doc) is NOT added.
-    expect(result.contextTexts).toEqual(["a1", "a2", "a3", "b1", "c1"]);
+    // lead doc A: all 4 chunks kept (uncapped). doc B: capped at 3 (b1-b3, b4
+    // dropped). doc C added by lexical; the extra A chunk from lexical (seen
+    // doc) is NOT added. Truncated to topN=12 (8 kept here).
+    expect(result.contextTexts).toEqual([
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "b1",
+      "b2",
+      "b3",
+      "c1",
+    ]);
     expect(result.sources.map((s) => s.doc_id)).toEqual([
       "A",
       "A",
       "A",
+      "A",
+      "B",
+      "B",
       "B",
       "C",
     ]);

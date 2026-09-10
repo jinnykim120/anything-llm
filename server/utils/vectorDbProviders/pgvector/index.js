@@ -1081,10 +1081,13 @@ class PGVector extends VectorDatabase {
       return result;
 
     const minHits = Number(process.env.SECTION_EXPANSION_MIN_HITS) || 2;
+    // [auto-docu v14 P5] budgets raised — a "전부 알려줘" question is answered by
+    // one whole 지침 section (판단기준 ≈ 34 chunks / ~34k chars) and the LLM is
+    // claudecli (large window). The old 16k cap skipped exactly these sections.
     const sectionMaxChars =
-      Number(process.env.SECTION_EXPANSION_SECTION_MAX_CHARS) || 16_000;
+      Number(process.env.SECTION_EXPANSION_SECTION_MAX_CHARS) || 40_000;
     const budgetMax =
-      Number(process.env.SECTION_EXPANSION_BUDGET_CHARS) || 32_000;
+      Number(process.env.SECTION_EXPANSION_BUDGET_CHARS) || 50_000;
     const topSegment = (sectionPath) =>
       String(sectionPath || "")
         .split(">")
@@ -1333,20 +1336,27 @@ class PGVector extends VectorDatabase {
   }
 
   /**
-   * Keep at most `cap` chunks per source document, preserving the incoming
-   * (dense-ranked) order.
+   * Cap chunks per document to keep results spanning the archive — BUT the
+   * single top-ranked document is left uncapped (up to `topLimit`). A question
+   * like "판단기준을 전부 알려줘" is answered by one document's whole section;
+   * capping its best doc to 3 chunks was starving the answer (completeness).
+   * Documents #2+ are still capped at `cap`.
    */
   #capPerDocument(
     { contextTexts = [], sourceDocuments = [], scores = [] },
-    cap
+    cap,
+    topLimit = 40
   ) {
     const perDoc = new Map();
     const out = { contextTexts: [], sourceDocuments: [], scores: [] };
+    let leadKey = null;
     for (let i = 0; i < sourceDocuments.length; i++) {
       const src = sourceDocuments[i] || {};
       const key = src.doc_id || src.title || `_row_${i}`;
+      if (leadKey === null) leadKey = key;
+      const limit = key === leadKey ? topLimit : cap;
       const seen = perDoc.get(key) || 0;
-      if (seen >= cap) continue;
+      if (seen >= limit) continue;
       perDoc.set(key, seen + 1);
       out.contextTexts.push(contextTexts[i]);
       out.sourceDocuments.push(src);

@@ -51,18 +51,35 @@ async function asPdf({
     doclingConfidence = docling.confidence ?? null;
   } else {
     if (pages.length === 0 || !pages.some((p) => p.pageContent?.length)) {
-      console.log(
-        `[asPDF] No embedded text for ${filename}. Attempting OCR parse.`
-      );
-      const ocrPages = await new OCRLoader({
-        targetLanguages: options?.ocr?.langList,
-      }).ocrPDF(fullFilePath);
-      blocks = ocrPages
-        .filter((p) => p.pageContent?.length)
-        .map((p, i) =>
-          pageTextToBlock(p.pageContent, p.metadata?.loc?.pageNumber ?? i + 1)
+      // [auto-docu v14 P3] Scanned / image-only PDF. The bundled RapidOCR is a
+      // Chinese model — on Korean it produces garbage (measured: 3-page 협약서 ->
+      // 467 chars of "HY晶" noise) that then pollutes retrieval. Opt in with
+      // OCR_IMAGE_PDFS=1; otherwise record a placeholder block so the doc is
+      // visible in the archive, flagged for Gemini-vision ingest later (P1d).
+      if (process.env.OCR_IMAGE_PDFS === "1") {
+        console.log(`[asPDF] No text layer in ${filename}. Running OCR.`);
+        const ocrPages = await new OCRLoader({
+          targetLanguages: options?.ocr?.langList,
+        }).ocrPDF(fullFilePath);
+        blocks = ocrPages
+          .filter((p) => p.pageContent?.length)
+          .map((p, i) =>
+            pageTextToBlock(p.pageContent, p.metadata?.loc?.pageNumber ?? i + 1)
+          );
+        parsePath = "ocr";
+      } else {
+        console.log(
+          `[asPDF] ${filename} is image-only (no text layer). Indexing a placeholder; needs vision ingest.`
         );
-      parsePath = "ocr";
+        blocks = [
+          pageTextToBlock(
+            `[이미지 기반 문서] ${filename} — 텍스트 레이어가 없어 본문을 추출하지 못했습니다. 스캔/이미지 PDF는 향후 비전 처리(P1d)로 본문을 채웁니다.`,
+            1
+          ),
+        ];
+        parsePath = "image-only";
+        doclingConfidence = 0.1;
+      }
     } else {
       for (const page of pages) {
         console.log(
