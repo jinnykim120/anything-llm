@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Expansion LLM — Architecture v14 (종합 진단 후 방향 전환)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#faf9fc; --surface:#ffffff; --surface-2:#f2f0f8; --border:#e3e0ee;
+  --text:#201e2b; --text-dim:#635f78; --text-faint:#8b87a0;
+  --accent:#7c3aed; --accent-ink:#ffffff; --accent-soft:#7c3aed14; --accent-line:#7c3aed3d;
+  --good:#0f8f52; --good-soft:#0f8f5214;
+  --warn:#a5620a; --warn-soft:#a5620a14;
+  --bad:#c4342f; --bad-soft:#c4342f14;
+  --hold:#6d5bd0; --hold-soft:#6d5bd014;
+  --mono-bg:#f2f0f8;
+  --shadow:0 1px 2px rgba(32,20,60,.06),0 8px 24px -12px rgba(32,20,60,.12);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#100f1a; --surface:#1a1826; --surface-2:#211f30; --border:#2f2c40;
+    --text:#ece9f8; --text-dim:#a49fbe; --text-faint:#726d8c;
+    --accent:#a78bfa; --accent-ink:#150f2e; --accent-soft:#a78bfa1f; --accent-line:#a78bfa4d;
+    --good:#3fd08a; --good-soft:#3fd08a1a;
+    --warn:#f0a93e; --warn-soft:#f0a93e1a;
+    --bad:#f2726d; --bad-soft:#f2726d1a;
+    --hold:#a99cf2; --hold-soft:#a99cf21a;
+    --mono-bg:#161425;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#100f1a; --surface:#1a1826; --surface-2:#211f30; --border:#2f2c40;
+  --text:#ece9f8; --text-dim:#a49fbe; --text-faint:#726d8c;
+  --accent:#a78bfa; --accent-ink:#150f2e; --accent-soft:#a78bfa1f; --accent-line:#a78bfa4d;
+  --good:#3fd08a; --good-soft:#3fd08a1a;
+  --warn:#f0a93e; --warn-soft:#f0a93e1a;
+  --bad:#f2726d; --bad-soft:#f2726d1a;
+  --hold:#a99cf2; --hold-soft:#a99cf21a;
+  --mono-bg:#161425;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"Noto Sans KR","IBM Plex Mono",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--accent-line); }
+a{ color:var(--accent); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+code, .mono, .pill, .kv dd, .cmd, td.num, .badge-commit{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+h1,h2,h3,h4{ font-weight:700; text-wrap:balance; letter-spacing:-.01em; }
+p{ line-height:1.65; }
+.container{ max-width:1160px; margin:0 auto; }
+
+.shell{ display:grid; grid-template-columns:250px 1fr; gap:0; max-width:1320px; margin:0 auto; }
+.nav{
+  position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+  padding:28px 18px 40px 28px; border-right:1px solid var(--border);
+}
+.nav-brand{ display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+.nav-mark{
+  width:26px; height:26px; border-radius:7px; background:var(--accent);
+  display:grid; place-items:center; color:var(--accent-ink); font-weight:900; font-size:13px; flex:none;
+}
+.nav-title{ font-size:13.5px; font-weight:700; line-height:1.25; }
+.nav-title small{ display:block; font-weight:500; color:var(--text-faint); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; margin-top:2px; }
+.nav-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px; }
+.nav-list a{
+  display:block; color:var(--text-dim); font-size:12.8px; padding:6px 10px; border-radius:6px;
+  border-left:2px solid transparent;
+}
+.nav-list a:hover{ color:var(--text); text-decoration:none; background:var(--surface-2); }
+.nav-list a.active{ color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); font-weight:500; }
+.nav-section-label{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); margin:16px 10px 6px; font-weight:600; }
+.nav-section-label:first-of-type{ margin-top:4px; }
+
+.mobile-nav{ display:none; }
+main{ padding:36px 44px 90px; min-width:0; }
+
+.hero{ padding-bottom:30px; border-bottom:1px solid var(--border); margin-bottom:38px; }
+.eyebrow{
+  font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:700;
+  display:flex; align-items:center; gap:8px; margin-bottom:12px;
+}
+.eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--warn); box-shadow:0 0 0 3px var(--warn-soft); }
+.hero h1{ font-size:34px; margin:0 0 8px; }
+.hero .sub{ font-size:15px; color:var(--text-dim); max-width:700px; margin:0 0 20px; }
+.hero-meta{ display:flex; flex-wrap:wrap; gap:8px; }
+.chip{
+  display:inline-flex; align-items:center; gap:6px; font-size:11.5px; padding:5px 10px;
+  border-radius:100px; border:1px solid var(--border); color:var(--text-dim); background:var(--surface);
+}
+.chip b{ color:var(--text); font-weight:600; }
+.chip.accent{ border-color:var(--accent-line); color:var(--accent); background:var(--accent-soft); }
+.chip.bad{ border-color:var(--bad); color:var(--bad); background:var(--bad-soft); }
+
+section{ margin-bottom:52px; }
+section:target, section.linked{ scroll-margin-top:20px; }
+.section-head{ display:flex; align-items:baseline; gap:12px; margin-bottom:6px; }
+.section-num{ font-size:12px; color:var(--text-faint); font-weight:600; }
+h2{ font-size:22px; margin:0; }
+.section-dek{ color:var(--text-dim); font-size:13.5px; max-width:730px; margin:6px 0 22px; }
+h3{ font-size:15.5px; margin:28px 0 10px; }
+h3:first-child{ margin-top:0; }
+
+.goals{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.goal{
+  background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px 18px 16px;
+  box-shadow:var(--shadow); display:flex; flex-direction:column; gap:8px;
+}
+.goal-num{ font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--accent); font-weight:600; }
+.goal h4{ margin:0; font-size:14.5px; }
+.goal p{ margin:0; font-size:12.8px; color:var(--text-dim); }
+.goal.now{ border-color:var(--accent-line); }
+.goal.later{ opacity:.7; }
+
+.dtable{ display:flex; flex-direction:column; gap:1px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--border); }
+.drow{ display:grid; grid-template-columns:52px 200px 1fr; gap:16px; background:var(--surface); padding:14px 18px; }
+.drow .id{ font-family:"IBM Plex Mono",monospace; font-weight:700; color:var(--accent); font-size:13px; }
+.drow .choice{ font-size:12.8px; font-weight:600; }
+.drow .why{ font-size:12.5px; color:var(--text-dim); line-height:1.55; }
+.overflow-x{ overflow-x:auto; }
+
+.pill{
+  display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; padding:3px 9px;
+  border-radius:100px; letter-spacing:.02em; white-space:nowrap;
+}
+.pill.done{ background:var(--good-soft); color:var(--good); }
+.pill.next{ background:var(--accent-soft); color:var(--accent); }
+.pill.deferred{ background:var(--warn-soft); color:var(--warn); }
+.pill.dropped{ background:var(--bad-soft); color:var(--bad); }
+.pill.hold{ background:var(--hold-soft); color:var(--hold); }
+.pill::before{ content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
+
+.timeline{ display:flex; flex-direction:column; }
+.trow{
+  display:grid; grid-template-columns:16px 1fr auto; gap:14px; align-items:start;
+  padding:11px 0; border-bottom:1px solid var(--border); position:relative;
+}
+.trow:last-child{ border-bottom:none; }
+.trow .tdot{ width:9px; height:9px; border-radius:50%; margin-top:5px; background:var(--accent); flex:none; }
+.trow .tmain{ min-width:0; }
+.trow .ttitle{ font-size:13px; font-weight:600; }
+.trow .tdesc{ font-size:11.8px; color:var(--text-dim); margin-top:2px; line-height:1.5; }
+.badge-commit{
+  font-size:10.5px; color:var(--text-faint); background:var(--mono-bg); border:1px solid var(--border);
+  padding:1px 6px; border-radius:5px; margin-left:6px;
+}
+
+.rule-callout{
+  border:1px solid var(--accent-line); background:var(--accent-soft); border-radius:10px; padding:12px 14px;
+  font-size:12.5px; color:var(--text); line-height:1.55; margin-top:8px;
+}
+.rule-callout b{ color:var(--accent); }
+.rule-callout.warn{ border-color:var(--warn); background:var(--warn-soft); }
+.rule-callout.warn b{ color:var(--warn); }
+.rule-callout.bad{ border-color:var(--bad); background:var(--bad-soft); }
+.rule-callout.bad b{ color:var(--bad); }
+
+.finding-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+.stat{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:13px 14px; }
+.stat .num{ font-size:22px; font-weight:700; font-family:"IBM Plex Mono",monospace; }
+.stat .lbl{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+.stat.bad .num{ color:var(--bad); }
+.stat.warn .num{ color:var(--warn); }
+
+.risk{ border:1px solid var(--border); border-radius:10px; padding:14px 16px; background:var(--surface); margin-bottom:10px; }
+.risk .rhead{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:6px; flex-wrap:wrap; }
+.risk .rtitle{ font-size:13px; font-weight:600; }
+.risk .rbody{ font-size:12.3px; color:var(--text-dim); line-height:1.6; }
+.risk.crit{ border-color:var(--bad); }
+.risk.crit .rtitle{ color:var(--bad); }
+
+.ctable{ width:100%; border-collapse:collapse; font-size:12px; }
+.ctable th, .ctable td{ border:1px solid var(--border); padding:9px 11px; text-align:left; vertical-align:top; }
+.ctable th{ background:var(--surface-2); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
+.ctable td{ background:var(--surface); color:var(--text-dim); }
+.ctable td.strong{ color:var(--text); font-weight:500; }
+
+.sample{
+  background:var(--mono-bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; line-height:1.7; color:var(--text-dim); margin-top:6px;
+  overflow-x:auto; white-space:pre-wrap;
+}
+.sample .bad{ color:var(--bad); font-weight:700; }
+.sample .good{ color:var(--good); font-weight:700; }
+
+ul.plain{ margin:0; padding-left:18px; font-size:13px; color:var(--text-dim); line-height:1.7; }
+ul.plain li::marker{ color:var(--text-faint); }
+ul.plain li{ margin-bottom:5px; }
+.footer{ border-top:1px solid var(--border); padding-top:20px; font-size:11.5px; color:var(--text-faint); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+.phase{ border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:16px 18px; margin-bottom:12px; }
+.phase h4{ margin:0 0 4px; font-size:14px; display:flex; align-items:center; gap:10px; }
+.phase .pid{ font-family:"IBM Plex Mono",monospace; color:var(--accent); font-weight:700; font-size:12px; }
+.phase ul{ margin:8px 0 0; padding-left:18px; font-size:12.3px; color:var(--text-dim); line-height:1.65; }
+.phase ul li{ margin-bottom:3px; }
+.phase .out{ font-size:11.5px; color:var(--text-faint); margin-top:8px; }
+.phase .out b{ color:var(--good); }
+
+@media (max-width:880px){
+  .shell{ grid-template-columns:1fr; }
+  .nav{ display:none; }
+  .mobile-nav{
+    display:flex; gap:6px; overflow-x:auto; position:sticky; top:0; background:var(--bg);
+    padding:12px 16px; border-bottom:1px solid var(--border); z-index:5;
+  }
+  .mobile-nav a{
+    flex:none; font-size:11.5px; padding:6px 11px; border-radius:100px; border:1px solid var(--border);
+    color:var(--text-dim); white-space:nowrap;
+  }
+  main{ padding:26px 18px 70px; }
+  .goals, .finding-grid{ grid-template-columns:1fr; }
+  .drow{ grid-template-columns:1fr; gap:4px; }
+  .ctable{ font-size:11px; }
+}
+</style>
+</head>
+<body>
+
+<div class="mobile-nav" id="mobileNav"></div>
+
+<div class="shell">
+  <nav class="nav" id="sideNav">
+    <div class="nav-brand">
+      <div class="nav-mark">D</div>
+      <div class="nav-title">Document Expansion LLM<small>Architecture · v14</small></div>
+    </div>
+    <div class="nav-section-label">방향 전환</div>
+    <ul class="nav-list">
+      <li><a href="#why">01 · 왜 이 문서인가</a></li>
+      <li><a href="#goals">02 · 목표 대비 위치</a></li>
+    </ul>
+    <div class="nav-section-label">진단</div>
+    <ul class="nav-list">
+      <li><a href="#diag-search">03 · 검색이 안 되는 이유</a></li>
+      <li><a href="#diag-ingest">04 · 적재 · 삭제 문제</a></li>
+      <li><a href="#diag-infra">05 · 인프라 제약</a></li>
+    </ul>
+    <div class="nav-section-label">전환</div>
+    <ul class="nav-list">
+      <li><a href="#decisions">06 · 결정 5건</a></li>
+      <li><a href="#cut">07 · 쳐낼 것</a></li>
+      <li><a href="#plan">08 · 재구축 계획 P0–P5</a></li>
+      <li><a href="#keep">09 · 유지되는 것</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="eyebrow"><span class="dot"></span>feat/archive-qa · 0dd63bb3 기준 · 2026-09-10</div>
+      <h1>방향 전환 — 종합 진단 후 재구축</h1>
+      <p class="sub">v11–v13은 "위치 메타 관통 + 분류 + pgvector + 엑셀 무결성"을 국소적으로 하나씩 쌓아왔다. 그 과정에서 stock AnythingLLM의 단순한 검색 위에 커스텀 로직이 5겹으로 얹혔고, 실사용에서 <b>자연어로 물어보면 필요한 자료가 안 나온다</b>는 핵심 문제가 드러났다. v14는 국소 패치를 멈추고 검색·적재·삭제를 종합적으로 다시 세운다. 프로토타입으로 선보여 서버·API 예산을 받는 것이 목표이므로, xlsx·pdf·word·hwp 4종이 모두 확실히 도는 것이 완료 기준이다.</p>
+      <div class="hero-meta">
+        <span class="chip bad">검색: 5겹 파이프라인 자기충돌</span>
+        <span class="chip bad">임베딩 조용한 실패 → 키워드 검색 강등</span>
+        <span class="chip">방향: 단일 워크스페이스 + 태그 뷰</span>
+        <span class="chip">임베딩: bge-m3 → multilingual-e5-small</span>
+        <span class="chip">sensitivity 프로토타입 보류</span>
+        <span class="chip">docling-optional</span>
+      </div>
+    </header>
+
+    <section id="why">
+      <div class="section-head"><span class="section-num">01</span><h2>왜 이 문서인가</h2></div>
+      <p class="section-dek">v13까지의 작업은 개별적으로는 다 맞았지만, 합쳐놓으니 goal 2(근거 QA)의 검색 품질이 무너졌다. 사용자 판단: "국소적인 검토 말고 종합적인 검토 및 수정이 필요한 시점. 기존에 가져와 붙인 것도 재검토해서 필요없거나 작동 안 하면 과감히 쳐내도 된다. 적재된 자료 전부 지우고 새로 올려도 문제 없다."</p>
+      <div class="rule-callout warn"><b>핵심 증상 (사용자 진술):</b> ① 분류·저장은 잘 되는데 goal 2에서 자연어로 검색하면 그 자료가 잘 안 나온다 (가장 큰 문제). ② 같은 파일을 올리면 적재에 문제가 생긴다. ③ 시스템에서 지운 적재 파일이 안 지워진다. ④ 지금은 엑셀만 확인하는데 엑셀·PDF·워드·HWP가 전부 잘 돌아야 한다.</div>
+    </section>
+
+    <section id="goals">
+      <div class="section-head"><span class="section-num">02</span><h2>목표 대비 위치</h2></div>
+      <p class="section-dek">4대 목표 중 <b>1·2번을 가볍게 완성</b>하는 것이 현재 사정거리다. 3·4번은 그 다음. v14의 모든 작업은 1·2번을 실제로 작동하게 만드는 데 집중한다.</p>
+      <div class="goals">
+        <div class="goal now"><span class="goal-num">GOAL 1 · 지금</span><h4>정리 안 된 사내 자료를 올리면 자동 분류 → 확정 → 태깅된 형태로 아카이빙</h4><p>자료 이력관리이자 항목별 효율적 적재 시스템. 분류/저장 자체는 동작 중. 남은 문제: 적재 안정성(같은 파일, 삭제, 파일타입별 추출 품질).</p></div>
+        <div class="goal now"><span class="goal-num">GOAL 2 · 지금</span><h4>아카이빙된 자료 기반, 할루시네이션 없는 자연어 검색 + 근거 원문 확인</h4><p>여러 자료를 합쳐 답하고 각 답의 근거를 눈으로 본다. 유관부서 반복 요청의 업무 비효율 제거. <b>현재 최대 리스크 — 검색이 필요한 자료를 못 찾음.</b></p></div>
+        <div class="goal later"><span class="goal-num">GOAL 3 · 나중</span><h4>비정형/정형 문서 자동 작성</h4><p>제공 대상별로 과거 자료를 학습해 양식에 맞는 초안·기초틀 생성. 과거 결정사항·수치를 불러옴.</p></div>
+        <div class="goal later"><span class="goal-num">GOAL 4 · 나중</span><h4>앱/웹으로 외근·미팅 중 근거 자료 확인</h4><p>다양한 상황에서 자료 근거 기반 초동 대응.</p></div>
+      </div>
+      <div class="rule-callout"><b>정책지원팀 시나리오:</b> 동반성장·공정거래·대외기관 요청 대응을 위해 정책지원팀이 전사 자료를 아카이빙해 쓴다. 사용 범위·팀·로데이터가 늘수록 추출 정확도가 올라가는 구조로 설계한다.</div>
+    </section>
+
+    <section id="diag-search">
+      <div class="section-head"><span class="section-num">03</span><h2>진단 — 검색이 안 되는 이유</h2></div>
+      <p class="section-dek">stock AnythingLLM 검색은 <code>쿼리 임베딩 → 코사인 top-N → 끝</code>으로 단순하다. 이 fork는 <code>server/utils/vectorDbProviders/pgvector/index.js</code>의 <code>performSimilaritySearch</code>에 커스텀 로직 5겹(한글 lexical fallback / CPU 리랭커 / 스프레드시트 exact-match 우선 / 섹션 확장 / 최종 재정렬)을 얹었고, 이들이 서로 싸운다. 원본 대비 +598줄.</p>
+
+      <div class="risk crit">
+        <div class="rhead"><span class="rtitle">① <code>#preferLexicalDataMatches</code> 가 의미검색 결과를 밀어낸다</span><span class="pill dropped">제거 예정</span></div>
+        <div class="rbody">질문에 <b>숫자가 하나라도</b> 들어있거나(<code>/\d/.test(term)</code>) <code>출하량·생산량·판매량·수량·금액·실적</code> 중 한 단어라도 있으면, 키워드(SQL <code>ILIKE '%단어%'</code>) 매칭 결과에 <code>priority: 2</code>를 주고 의미검색 결과(<code>priority: 1</code>) 위에 강제 배치한다. 이 코퍼스의 실제 질문 상당수가 여기 걸린다("2024년 우리동네GS 실적…"). 게다가 키워드 점수는 합성값(<code>0.35 + 단어겹침비율 × …</code>)이라 실제 bge-m3 코사인(~0.4–0.6)보다 높게 나오고, 뒤이은 "점수순 정렬 후 topN 자르기"에서 <b>의미검색 결과가 잘려나간다</b>. → 자연어 질문인데 키워드 순위 결과가 돌아온다.</div>
+      </div>
+      <div class="risk crit">
+        <div class="rhead"><span class="rtitle">② dense 임베딩이 조용히 죽고 검색 전체가 키워드로 강등된다</span><span class="pill next">명시적 에러로 전환</span></div>
+        <div class="rbody">쿼리 임베딩이 실패하면 <code>catch</code>가 로그만 남기고 삼킨 뒤 <code>searchResult</code>가 비어 <code>lexicalSearchResponse</code>(ILIKE)로 넘어간다. 2026-09-10 실측: 이 머신 여유 메모리 <b>1,698MB</b>, 임베딩 가드 <b>1,600MB</b> — 거의 항상 아슬아슬. 쿼리 임베딩 한 번에 <b>4.8초</b>(콜드). 다른 프로세스가 100MB만 잡아도 dense가 거부되고, 에러 없이 키워드 검색이 된다. "면류 업계 상황"으로 물으면 "국수 시장 동향" 문서를 못 찾는다.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">③ 테스트 워크스페이스가 전부 rerank 모드</span><span class="pill next">기본 off</span></div>
+        <div class="rbody"><code>archive-test</code>·<code>archive-full</code>·<code>eval</code> 이 <code>vectorSearchMode: "rerank"</code>. 매 질문마다 CPU 크로스인코더(bge-reranker-v2-m3-ONNX)를 돌려서 <code>eval/FINDINGS.md</code> 기준 avg 7.6초, p95/max 최대 22초. 사용자가 말한 "reranker 락"이 이것. rerank는 옵트인 정밀 모드로만 남기고 기본은 dense.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">④ 섹션 확장이 최종 truncate와 싸우고, 문서 다양성이 없다</span><span class="pill next">재작성</span></div>
+        <div class="rbody"><code>expandSections</code>가 한 섹션의 형제 청크를 끌어온 뒤, 마지막 블록이 전체를 점수순 재정렬해 topN(=12)으로 자른다. 확장 청크는 <code>score = min(히트 점수)</code>라 다시 잘려나가 기능이 반쯤 무효화된다. 또 문서별 청크 수 제한이 없어 topN을 한 문서 청크로 다 채우기도 한다 → "여러 자료를 합쳐서 답변"이 안 된다.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">⑤ similarityThreshold 0.25 가 bge-m3 코사인 기준으로 빡빡하다</span><span class="pill next">~0.15로</span></div>
+        <div class="rbody">한글 관련 청크가 코사인 0.2–0.3에 자주 걸리는데 threshold 0.25에서 후보에도 못 든다.</div>
+      </div>
+    </section>
+
+    <section id="diag-ingest">
+      <div class="section-head"><span class="section-num">04</span><h2>진단 — 적재 · 삭제 문제</h2></div>
+      <table class="ctable">
+        <tr><th>증상</th><th>원인 (파일:함수)</th><th>조치</th></tr>
+        <tr>
+          <td class="strong">같은 파일이면 적재 실패</td>
+          <td><code>server/models/documents.js</code> <code>addDocuments</code> — <code>existingSourceNames</code>: 기존 문서 중 제목/docSource/파일명이 하나라도 겹치면 <b>말없이 건너뜀</b>. 내용이 달라도, 수정본이어도. 사내자료는 <code>붙임.pdf</code>·<code>보고서.pdf</code> 천지.</td>
+          <td>파일명 중복차단 제거. content_hash(동일 텍스트) 중복만 유지 + UI에 표면화 + "그래도 추가" 옵션.</td>
+        </tr>
+        <tr>
+          <td class="strong">적재가 들쭉날쭉</td>
+          <td>적재 경로 2개. <code>addDocuments</code>(상대경로 저장, 파일명+해시 중복검사) vs <code>server/jobs/embedding-worker.js</code>(native embedder, <b>절대경로 저장</b>, 해시 중복검사만). native가 활성 경로라 대부분 절대경로로 저장됨.</td>
+          <td>공유 헬퍼로 한 경로로 통일. docpath는 항상 상대경로.</td>
+        </tr>
+        <tr>
+          <td class="strong">지웠는데 안 지워짐</td>
+          <td><code>removeDocuments</code> — 벡터 삭제가 실패해도(<code>deleteDocumentFromNamespace</code>가 에러를 삼키고 <code>false</code> 반환) 반환값을 무시하고 DB 행을 지운다. 디스크의 파싱 원본(<code>storage/documents/</code>)과 <code>vector-cache/*.json</code>은 안 지운다 → 재업로드 시 stale 캐시가 되살아난다.</td>
+          <td>벡터 삭제 검증 + 파싱파일·캐시까지 삭제. "워크스페이스 재구축" 관리 액션 추가.</td>
+        </tr>
+        <tr>
+          <td class="strong">엑셀 추출 부실</td>
+          <td><code>collector/processSingleFile/convert/asXlsx.js</code> <code>convertToPipeTable</code> — 헤더 감지가 사용자의 면류 샘플 문자열로 하드코딩됨(<code>"구분"</code>, <code>"직접생산"</code>, <code>"대기업 OEM"</code>, <code>/출하량|생산|OEM|연도/</code>). 다른 엑셀엔 안 먹는다. 테스트 하나 통과시키던 코드.</td>
+          <td>일반 헤더 감지로 재작성. 워크북 1개 = 문서 1개, 시트 = <code>block_type:table</code> 블록으로 <code>finalizeBlocksDoc</code> 경유.</td>
+        </tr>
+        <tr>
+          <td class="strong">PDF/DOCX 구조 상실</td>
+          <td><code>DOCLING_AUTOSTART=false</code> (collector <code>.env.development</code>). PDF→pdf.js(표·목차 없음), DOCX→langchain 텍스트 로더(구조 없음). 그런데 검색 설계가 <code>section_path</code>에 의존(contextual prefix + 섹션 확장) → 대부분 비어있다. HWP/HWPX는 자체 파서라 영향이 덜하다.</td>
+          <td>docling-optional 확정. pdf.js 헤딩 감지 강화, DOCX→mammoth. docling은 중요 문서 수동.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section id="diag-infra">
+      <div class="section-head"><span class="section-num">05</span><h2>진단 — 인프라 제약</h2></div>
+      <div class="finding-grid">
+        <div class="stat bad"><div class="num">1.7GB</div><div class="lbl">여유 물리 메모리 (총 15.7GB)</div></div>
+        <div class="stat warn"><div class="num">1.6GB</div><div class="lbl">bge-m3 임베딩 로드 가드 — 여유와 거의 같음</div></div>
+        <div class="stat warn"><div class="num">4.8s</div><div class="lbl">쿼리 1건 임베딩 시간 (콜드)</div></div>
+        <div class="stat"><div class="num">2,582</div><div class="lbl">현재 pgvector 벡터 수 (archive-full 2,440 + archive-test 136 + eval 6), 1024d</div></div>
+      </div>
+      <p class="section-dek">이 박스는 이 워크로드에 메모리가 부족하다. WSL2 Postgres는 223MB로 작고 node 서버들도 idle 126MB인데, 여유가 1.7GB뿐이라 개발 도구 몇 개만 열어도 임베딩 로드가 거부된다. bge-m3의 ONNX 런타임 피크(~1.7GB)가 이 여유와 정면 충돌한다.</p>
+      <div class="rule-callout bad"><b>결론:</b> bge-m3(1024d)는 이 머신에서 신뢰할 수 없다 — "검색 실패가 너무 많다"(사용자). 프로토타입 기간에는 더 작은 다국어 모델로 내리고, 서버에 붙일 때 bge-m3로 복귀한다.</div>
+    </section>
+
+    <section id="decisions">
+      <div class="section-head"><span class="section-num">06</span><h2>방향 전환 — 결정 5건</h2></div>
+      <p class="section-dek">2026-09-10, 전부 사용자 승인.</p>
+      <div class="dtable overflow-x">
+        <div class="drow">
+          <span class="id">V1</span>
+          <span class="choice">단일 워크스페이스 <code>archive</code> + 태그 기반 "업무별 뷰"</span>
+          <span class="why">전사 자료를 벡터 네임스페이스 1개에 다 넣는다. 워크스페이스를 쪼개지 않는다(복사본 0, 재적재 1회 → 더 가볍다). 분류 태그(<code>work_type</code>/<code>domain</code>/<code>doc_type</code>/<code>tags</code>)가 <b>보기 필터</b> 역할: 검색 시 필터 태그 → 해당 문서의 <code>doc_id</code> allow-list → 벡터 쿼리에 <code>WHERE metadata->>'doc_id' = ANY(...)</code> 한 줄 추가. SQLite <code>document_classifications</code>가 원본이라 재분류해도 <b>재임베딩 불필요</b> — 매 검색 시 최신 태그로 목록만 다시 뽑는다. UI: 채팅 헤더에 업무 선택 드롭다운, 문서함은 이미 축별 그룹핑.</span>
+        </div>
+        <div class="drow">
+          <span class="id">V2</span>
+          <span class="choice">프로토타입에서 <code>sensitivity</code> 축 보류</span>
+          <span class="why">tier 라우팅 / held=대외비 취급 / 워크스페이스 tier 불일치 플래그 / 수동 tier-move 전부 비활성화. 컬럼은 dormant로 남긴다. 실제 접근통제가 필요해지면 그때 confidential만 별도 네임스페이스로 분리(지금 구조 변경 없이 추가만). 현재 인입 자료는 대부분 "국가 공개배포 = 일반"이고 정책지원팀 한 팀이 쓰므로 지금은 불필요.</span>
+        </div>
+        <div class="drow">
+          <span class="id">V3</span>
+          <span class="choice">임베딩 <code>Xenova/bge-m3</code> (1024d) → <code>MintplexLabs/multilingual-e5-small</code> (384d)</span>
+          <span class="why">~487MB, transformers.js v2에 이미 등록됨(<code>server/utils/EmbeddingEngines/native/constants.js</code>), 프리픽스 <code>query:</code>/<code>passage:</code> — native embedder가 이미 처리. 한글 품질은 약간 낮아지지만 메모리 여유가 크고 빨라서 <b>조용한 폴백이 안 터진다</b>. 서버 이전 시 bge-m3 복귀. 모델 교체 ⇒ 전체 재임베딩(클린 슬레이트라 무방).</span>
+        </div>
+        <div class="drow">
+          <span class="id">V4</span>
+          <span class="choice">docling-optional, 경량 파서 강화</span>
+          <span class="why"><code>DOCLING_AUTOSTART=false</code>를 기본 상태로 받아들인다. pdf.js 헤딩 감지(폰트 크기/볼드 → <code>block_type: heading</code> + 얕은 <code>section_path</code>) 강화, DOCX는 <code>mammoth</code>로 교체(HTML → 헤딩/리스트/표). docling은 중요 문서 수동 옵트인. 이 머신에서 느리고 불안정했던 이력.</span>
+        </div>
+        <div class="drow">
+          <span class="id">V5</span>
+          <span class="choice">과감한 재작성 — 국소 패치 중단</span>
+          <span class="why"><code>performSimilaritySearch</code> + 적재/삭제를 다시 짠다. <code>eval/run.mjs</code>(검색 지표) + <code>eval/answers.mjs</code>(답변 품질)로 회귀 검증. "국소 패치로는 지금 상태를 못 벗어난다."</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="cut">
+      <div class="section-head"><span class="section-num">07</span><h2>쳐낼 것</h2></div>
+      <div class="timeline">
+        <div class="trow"><span class="tdot" style="background:var(--bad)"></span><div class="tmain"><span class="ttitle"><code>#preferLexicalDataMatches</code></span><div class="tdesc">스프레드시트 exact-match 우선 로직. 의미검색을 밀어내는 주범(§03 ①). 완전 제거.</div></div><span class="pill dropped">제거</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--bad)"></span><div class="tmain"><span class="ttitle">하드코딩된 엑셀 헤더 문자열</span><div class="tdesc"><code>asXlsx.js convertToPipeTable</code>의 <code>구분/직접생산/대기업 OEM//출하량|생산|OEM|연도/</code>. 일반 헤더 감지로 교체.</div></div><span class="pill dropped">제거</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--bad)"></span><div class="tmain"><span class="ttitle">HWP→PDF 렌더 경로 (<code>HWP_RENDER</code>, <code>render_path</code>)</span><div class="tdesc">옵트인, 무겁고(문서당 25페이지로 팽창, docling &gt;5분) 사실상 미사용. LibreOffice도 제거 가능.</div></div><span class="pill dropped">제거</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--bad)"></span><div class="tmain"><span class="ttitle">RapidOCR 호출</span><div class="tdesc">중국어 모델 → 한글 쓰레기, 3페이지에 565초(실측). "이미지 기반 — 텍스트 추출 불가, 비전 처리 필요" 마커로 대체. 스캔 문서는 <code>parse_path: "image-only"</code>로 표시만.</div></div><span class="pill dropped">무력화</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">load-bearing sensitivity 로직</span><div class="tdesc">held/effectiveSensitivity/tier 라우팅/tier 불일치/수동 이동. 컬럼은 남기되 dormant(V2).</div></div><span class="pill deferred">dormant</span></div>
+        <div class="trow"><span class="tdot" style="background:var(--warn)"></span><div class="tmain"><span class="ttitle">껍데기 워크스페이스 · ColPali 잔재 · 미사용 lance 커스텀 코드</span><div class="tdesc">0-문서 uuid 워크스페이스 3개 삭제. pgvector 단일 사용이므로 lance 커스텀 경로는 정리 또는 명시적 표시.</div></div><span class="pill deferred">정리</span></div>
+      </div>
+    </section>
+
+    <section id="plan">
+      <div class="section-head"><span class="section-num">08</span><h2>재구축 계획 P0–P5</h2></div>
+      <p class="section-dek">각 단계 완료 조건은 "eval 회귀 없음". 사용자가 테스트할 수 있는 첫 지점은 P1 종료 시.</p>
+
+      <div class="phase">
+        <h4><span class="pid">P0</span> 클린 슬레이트 + 모델 교체</h4>
+        <ul>
+          <li>임베딩 <code>EMBEDDING_MODEL_PREF</code> → <code>MintplexLabs/multilingual-e5-small</code>, 모델 프리다운로드</li>
+          <li>초기화: pgvector 전 네임스페이스 drop, <code>workspace_documents</code>·<code>document_vectors</code>·<code>document_classifications</code> 비우기, <code>storage/documents/*</code>·<code>storage/vector-cache/*</code> 삭제, 껍데기 워크스페이스 삭제</li>
+          <li>워크스페이스 <code>archive</code> 1개 생성 (topN 12, threshold ~0.15, vectorSearchMode default)</li>
+        </ul>
+        <div class="out"><b>산출:</b> 깨끗한 단일 워크스페이스 + 안정적으로 로드되는 임베딩 모델</div>
+      </div>
+
+      <div class="phase">
+        <h4><span class="pid">P1</span> 검색 재작성 — 핵심 수정</h4>
+        <ul>
+          <li><code>performSimilaritySearch</code>를 명확한 파이프라인으로: 쿼리 임베딩(<code>query:</code> 프리픽스) → <b>임베딩 실패 시 명시적 에러</b>(조용한 키워드 강등 금지) → dense 코사인 광역 후보(K≈60) → <b>문서별 청크 상한</b>(doc_id당 3) → lexical <b>합집합 보강만</b>(dense가 놓친 문서를 뒤에 추가, dense 순위 불변) → topN 절단 → 마지막에 보수적 섹션 확장(재절단 없음)</li>
+          <li><code>#preferLexicalDataMatches</code> 삭제. threshold 기본 0.25 → 0.15 (스키마 + <code>workspace.js</code> validator)</li>
+          <li><code>vectorSearchMode</code> 기본 default, <code>archive</code>에도 default. rerank는 옵트인</li>
+          <li>메타데이터 필터 파라미터(<code>filterDocIds</code>) 추가 — 업무별 뷰의 additive WHERE 절</li>
+          <li><code>eval/run.mjs</code> + <code>eval/answers.mjs</code>로 검증 (모델·워크스페이스 갱신 후)</li>
+        </ul>
+        <div class="out"><b>산출:</b> 자연어 질문이 올바른 문서를 여러 개에 걸쳐 반환. 사용자 첫 테스트 지점.</div>
+      </div>
+
+      <div class="phase">
+        <h4><span class="pid">P2</span> 적재 단일화 + 중복 정리</h4>
+        <ul>
+          <li><code>addDocuments</code>의 파일명 중복차단 제거. content_hash(동일 텍스트) 중복만 유지 + 반환값 표면화 + <code>force</code> 옵션</li>
+          <li><code>embedding-worker.js</code>도 상대경로 저장. 공유 <code>createWorkspaceDocumentRow()</code> 헬퍼로 두 경로 통일</li>
+          <li><code>removeDocuments</code> 완결: 벡터 삭제 검증 → 파싱 원본 폴더 삭제 → <code>vector-cache</code> 항목 삭제 → <code>document_vectors</code> 삭제</li>
+          <li>관리자 액션 "워크스페이스 재구축": 벡터 nuke + <code>storage/documents/</code>에서 재임베딩. 자료가 꼬였을 때 원클릭 초기화</li>
+        </ul>
+        <div class="out"><b>산출:</b> 같은 파일 재업로드 예측 가능, 삭제가 진짜 삭제, 꼬였을 때 복구 버튼</div>
+      </div>
+
+      <div class="phase">
+        <h4><span class="pid">P3</span> 파일 타입 4종 견고화 (xlsx · pdf · docx · hwp)</h4>
+        <ul>
+          <li><b>XLSX</b>: 워크북 1개 = 문서 1개. 시트 → <code>block_type:"table"</code> 블록, <code>section_path</code> = 시트명. 일반 헤더 감지(텍스트 위주 행 다음에 숫자/짧은 행). <code>finalizeBlocksDoc</code> 경유 → content_hash·section_path·표헤더반복·원본보존 자동. <code>sheet-.json</code> 충돌 클래스 소멸</li>
+          <li><b>PDF</b>: pdf.js 경로 — 텍스트 런의 폰트크기/볼드로 헤딩 감지 → 얕은 section_path. OCR-skip 프로브 유지. RapidOCR는 "image-only" 마커로 대체</li>
+          <li><b>DOCX</b>: langchain DocxLoader → <code>mammoth</code>(HTML → 헤딩/리스트/표에서 블록 생성)</li>
+          <li><b>HWP/HWPX</b>: 자체 파서 유지, 실제 파일 3–5개로 검증. <code>HWP_RENDER</code>/<code>render_path</code> 제거</li>
+          <li>타입별 E2E: 실제 파일 → 업로드 → 파싱 → 청킹 → 임베딩 → 자연어 질의 검색 → 답변 인용</li>
+        </ul>
+        <div class="out"><b>산출:</b> 4종 전부 업로드→검색→인용까지 통과. 프로토타입 시연 가능 상태.</div>
+      </div>
+
+      <div class="phase">
+        <h4><span class="pid">P4</span> "업무별 뷰" 필터 + sensitivity 해체</h4>
+        <ul>
+          <li>백엔드: 검색 엔드포인트가 <code>workTypes</code> 수신 → <code>document_classifications</code>에서 contentHash → <code>workspace_documents</code>에서 docId → <code>filterDocIds</code></li>
+          <li>채팅: 활성 업무 필터를 워크스페이스/스레드에서 전달. 프론트: 채팅 헤더 업무 선택기</li>
+          <li>sensitivity: held/tier/라우팅 로직 제거, 컬럼 dormant. 분류기가 sensitivity 필수 요구 해제</li>
+        </ul>
+        <div class="out"><b>산출:</b> 전 자료 검색 + 업무별로 좁혀보기, 둘 다 동작</div>
+      </div>
+
+      <div class="phase">
+        <h4><span class="pid">P5</span> 실제 코퍼스 재적재 + 검증</h4>
+        <ul>
+          <li><code>_samples/</code>에서 대표 세트(PDF/DOCX/XLSX/HWP 혼합 ~30–50개)를 <code>archive</code>에 적재</li>
+          <li><code>eval/</code> 골든셋을 새 워크스페이스 + 모델로 갱신</li>
+          <li><code>eval/run.mjs</code> + <code>eval/answers.mjs</code> 실행. 목표: 4종에서 자연어 질의가 올바른 문서 반환, 다중 문서 답변 동작</li>
+          <li>architecture v15로 갱신</li>
+        </ul>
+        <div class="out"><b>산출:</b> 측정된 근거와 함께 goal 1·2 기능 완성</div>
+      </div>
+    </section>
+
+    <section id="keep">
+      <div class="section-head"><span class="section-num">09</span><h2>유지되는 것</h2></div>
+      <p class="section-dek">이번 전환은 검색·적재·삭제·인프라에 국한된다. 아래는 그대로 간다.</p>
+      <ul class="plain">
+        <li><b>위치 메타 관통</b> (v9 THE ONE CHANGE) — page/bbox/section_path가 파싱→청킹→저장→소스→뷰어를 관통하는 척추. P1a·P1b·P2의 성과.</li>
+        <li><b>인용 → 원문 뷰어</b> — pdf.js + bbox 하이라이트, <code>/api/document/raw/:docId</code> (P2).</li>
+        <li><b>생성 LLM = <code>claudecli</code></b> (<code>claude -p</code> headless). ENAMETOOLONG 수정 완료(<code>--system-prompt-file</code>). 나중에 Gemini로 교체 가능.</li>
+        <li><b>6축 분류 + 검수 UI</b> — sensitivity만 dormant, work_type/business_unit/doc_type/domain/tags는 유지. <code>document_classifications</code> content_hash 키 유지.</li>
+        <li><b>HWP/HWPX 네이티브 파서</b> — hwp-hwpx-parser(.hwp) + OWPML 트리워크(.hwpx). koStructure.js 헤딩트리.</li>
+        <li><b>pgvector + WSL2 Postgres</b> — 벡터 저장은 유지. 차원만 1024→384. 진짜 dense+sparse RRF 하이브리드(D7)는 계속 보류.</li>
+        <li><b>eval 하네스</b> — <code>eval/run.mjs</code>, <code>eval/answers.mjs</code>(judge=claudecli). 이번 재작성의 회귀 게이트.</li>
+        <li><b>인입 시점 선반영 원칙</b> — 파싱/임베딩 시점 계산값은 처음부터 채운다(재파싱이 유일한 비싼 왕복). API 표면은 선반영 안 함.</li>
+      </ul>
+    </section>
+
+    <footer class="footer container">
+      <span>Document Expansion LLM · <code>feat/archive-qa</code> · AnythingLLM v1.16.0 fork</span>
+      <span>architecture v14 · 2026-09-10 · v11–v13(국소 축적)에 대한 종합 진단 + 방향 전환. 전체 아키텍처 레퍼런스는 v13 유지.</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+(function(){
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section[id]'));
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.nav-list a'));
+  var mobileNav = document.getElementById('mobileNav');
+  sections.forEach(function(s){
+    var label = s.querySelector('h2');
+    if(!label) return;
+    var a = document.createElement('a');
+    a.href = '#' + s.id;
+    a.textContent = label.textContent;
+    mobileNav.appendChild(a);
+  });
+  var allLinks = navLinks.concat(Array.prototype.slice.call(mobileNav.querySelectorAll('a')));
+  function setActive(id){
+    allLinks.forEach(function(a){
+      a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+    });
+  }
+  if('IntersectionObserver' in window){
+    var obs = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ if(e.isIntersecting) setActive(e.target.id); });
+    }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+    sections.forEach(function(s){ obs.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
