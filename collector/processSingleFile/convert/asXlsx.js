@@ -1,87 +1,95 @@
-const { v4 } = require("uuid");
 const xlsx = require("node-xlsx").default;
-const path = require("path");
-const fs = require("fs");
-const crypto = require("crypto");
-const {
-  createdDate,
-  trashFile,
-  writeToServerDocuments,
-  documentsFolder,
-} = require("../../utils/files");
-const { tokenizeString } = require("../../utils/tokenizer");
-const { default: slugify } = require("slugify");
+const { trashFile } = require("../../utils/files");
+const { finalizeBlocksDoc } = require("../../utils/blocks");
 
-function convertToCSV(data) {
-  return data
-    .map((row) =>
-      row
-        .map((cell) => {
-          if (cell === null || cell === undefined) return "";
-          if (typeof cell === "string" && cell.includes(","))
-            return `"${cell}"`;
-          return cell;
-        })
-        .join(",")
-    )
-    .join("\n");
+// [auto-docu v14 P3] XLSX / XLS.
+//
+// One workbook = one document (was: one document per sheet, which collided when
+// Korean sheet names slugified to an empty string). Each sheet becomes a
+// `block_type: "table"` block with `section_path` = the sheet name, and rides
+// the shared finalizeBlocksDoc tail like every other converter — so it gets a
+// content_hash, the kept original, and the splitter's repeat-the-header-on-split
+// behaviour for oversized tables.
+
+const cell = (c) =>
+  c === null || c === undefined ? "" : String(c).replace(/\s+/g, " ").trim();
+
+/**
+ * Generic header-row detection — NO hardcoded column names. The header is the
+ * first row with >= 2 non-empty cells; any single-cell rows above it are a
+ * title/preamble. This is what virtually every real sheet looks like and it
+ * can't misfire the way keyword matching did.
+ * @param {string[][]} rows  trimmed cell strings
+ * @returns {{headerIndex: number, preamble: string[]}}
+ */
+function detectHeader(rows) {
+  const preamble = [];
+  for (let i = 0; i < rows.length; i++) {
+    const filled = rows[i].filter(Boolean);
+    if (filled.length === 0) continue;
+    if (filled.length >= 2) return { headerIndex: i, preamble };
+    preamble.push(filled.join(" "));
+  }
+  return { headerIndex: 0, preamble: [] };
 }
 
-// [auto-docu] `|`-joined rows with the header first — the LLM reads columns
-// better than raw CSV, and the splitter's table handling repeats the header
-// row on each chunk of a big sheet.
-function convertToPipeTable(data) {
-  const rows = data.filter(
-    (r) =>
-      Array.isArray(r) &&
-      r.some((c) => c !== null && c !== undefined && String(c).trim())
-  );
-  if (!rows.length) return "";
-  const cell = (c) =>
-    c === null || c === undefined ? "" : String(c).replace(/\s+/g, " ").trim();
+/** A sheet's 2D data -> a pipe table string (header + separator + rows). */
+function sheetToPipeTable(data) {
+  const rows = (Array.isArray(data) ? data : [])
+    .map((r) => (Array.isArray(r) ? r.map(cell) : []))
+    .filter((r) => r.some(Boolean));
+  if (!rows.length) return { table: "", preamble: [] };
+
   const width = Math.max(...rows.map((r) => r.length));
-  const line = (r) =>
-    Array.from({ length: width }, (_, i) => cell(r[i])).join(" | ");
-  const headerIndex = rows.findIndex((r) => {
-    const values = r.map(cell).filter(Boolean);
-    return (
-      values.includes("구분") ||
-      values.includes("직접생산") ||
-      values.includes("대기업 OEM") ||
-      values.includes("중소기업 OEM") ||
-      values.filter((value) => /출하량|생산|OEM|연도/.test(value)).length >= 2
-    );
-  });
-  const headerRows =
-    headerIndex >= 0
-      ? [rows[headerIndex], rows[headerIndex + 1]].filter(Boolean)
-      : [rows[0]];
-  const headerValues = Array.from({ length: width }, (_, index) =>
-    headerRows
-      .map((row) => cell(row[index]))
-      .filter(Boolean)
-      .join(" / ")
-  );
-  const out = [headerValues.join(" | "), Array(width).fill("---").join(" | ")];
-  const headerRowCount = headerRows.length;
-  const bodyRows = rows.filter(
-    (_, index) =>
-      index < headerIndex || index > headerIndex + headerRowCount - 1
-  );
-  for (const r of bodyRows) out.push(line(r));
-  return out.join("\n");
+  const pad = (r) => Array.from({ length: width }, (_, i) => r[i] || "");
+  const line = (r) => pad(r).join(" | ");
+
+  const { headerIndex, preamble } = detectHeader(rows);
+  const header = line(rows[headerIndex]);
+  const sep = Array(width).fill("---").join(" | ");
+  const body = rows.filter((_, i) => i > headerIndex).map(line);
+
+  return { table: [header, sep, ...body].join("\n"), preamble };
 }
 
-function contentHash(text) {
-  return crypto
-    .createHash("sha256")
-    .update(
-      String(text || "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase()
-    )
-    .digest("hex");
+function processWorkbook(fullFilePath) {
+  const sheets = xlsx.parse(fullFilePath);
+  const blocks = [];
+  const sheetNames = [];
+  let anchor = 0;
+
+  for (const sheet of sheets) {
+    const name = String(sheet?.name || `Sheet${sheetNames.length + 1}`).trim();
+    const { table, preamble } = sheetToPipeTable(sheet?.data);
+    if (!table) continue;
+    sheetNames.push(name);
+
+    for (const p of preamble) {
+      if (!p) continue;
+      blocks.push({
+        text: p,
+        page: null,
+        bbox: null,
+        anchor: `sheet:${name}:p${anchor++}`,
+        page_width: 0,
+        page_height: 0,
+        section_path: name,
+        block_type: "paragraph",
+      });
+    }
+    blocks.push({
+      text: `${name}\n${table}`,
+      page: null,
+      bbox: null,
+      anchor: `sheet:${name}:t${anchor++}`,
+      page_width: 0,
+      page_height: 0,
+      section_path: name,
+      block_type: "table",
+    });
+  }
+
+  return { blocks, sheetNames };
 }
 
 async function asXlsx({
@@ -90,164 +98,53 @@ async function asXlsx({
   options = {},
   metadata = {},
 }) {
-  const documents = [];
+  console.log(`-- Working ${filename} --`);
 
+  let blocks = [];
+  let sheetNames = [];
   try {
-    const workSheetsFromFile = xlsx.parse(fullFilePath);
-
-    if (options.parseOnly) {
-      const allSheetContents = [];
-      let totalWordCount = 0;
-      const sheetNames = [];
-
-      for (const sheet of workSheetsFromFile) {
-        const processed = processSheet(sheet);
-        if (!processed) continue;
-
-        const { name, content, wordCount } = processed;
-        sheetNames.push(name);
-        allSheetContents.push(`\nSheet: ${name}\n${content}`);
-        totalWordCount += wordCount;
-      }
-
-      if (allSheetContents.length === 0) {
-        console.log(`No valid sheets found in ${filename}.`);
-        return {
-          success: false,
-          reason: `No valid sheets found in ${filename}.`,
-          documents: [],
-        };
-      }
-
-      const combinedContent = allSheetContents.join("\n");
-      const sheetListText =
-        sheetNames.length > 1
-          ? ` (Sheets: ${sheetNames.join(", ")})`
-          : ` (Sheet: ${sheetNames[0]})`;
-
-      const combinedData = {
-        id: v4(),
-        url: `file://${fullFilePath}`,
-        title: metadata.title || `${filename}${sheetListText}`,
-        docAuthor: metadata.docAuthor || "Unknown",
-        description:
-          metadata.description ||
-          `Spreadsheet data from ${filename} containing ${sheetNames.length} ${
-            sheetNames.length === 1 ? "sheet" : "sheets"
-          }`,
-        docSource: metadata.docSource || "an xlsx file uploaded by the user.",
-        chunkSource: metadata.chunkSource || "",
-        published: createdDate(fullFilePath),
-        wordCount: totalWordCount,
-        pageContent: combinedContent,
-        content_hash: contentHash(combinedContent),
-        token_count_estimate: tokenizeString(combinedContent),
-      };
-
-      const document = writeToServerDocuments({
-        data: combinedData,
-        filename: `${slugify(path.basename(filename))}-${combinedData.id}`,
-        destinationOverride: null,
-        options: { parseOnly: true },
-      });
-      documents.push(document);
-      console.log(`[SUCCESS]: ${filename} converted & ready for embedding.`);
-    } else {
-      const folderName = slugify(
-        `${path.basename(filename)}-${v4().slice(0, 4)}`,
-        {
-          lower: true,
-          trim: true,
-        }
-      );
-      const outFolderPath = path.resolve(documentsFolder, folderName);
-      if (!fs.existsSync(outFolderPath))
-        fs.mkdirSync(outFolderPath, { recursive: true });
-
-      for (const sheet of workSheetsFromFile) {
-        const processed = processSheet(sheet);
-        if (!processed) continue;
-
-        const { name, content, wordCount } = processed;
-        const sheetData = {
-          id: v4(),
-          url: `file://${path.join(outFolderPath, `${slugify(name)}.csv`)}`,
-          title: metadata.title || `${filename} - Sheet:${name}`,
-          docAuthor: metadata.docAuthor || "Unknown",
-          description:
-            metadata.description || `Spreadsheet data from sheet: ${name}`,
-          docSource: metadata.docSource || "an xlsx file uploaded by the user.",
-          chunkSource: metadata.chunkSource || "",
-          published: createdDate(fullFilePath),
-          wordCount: wordCount,
-          pageContent: content,
-          content_hash: contentHash(content),
-          token_count_estimate: tokenizeString(content),
-        };
-
-        const document = writeToServerDocuments({
-          data: sheetData,
-          filename: `sheet-${slugify(name)}-${sheetData.id}`,
-          destinationOverride: outFolderPath,
-          options: { parseOnly: options.parseOnly },
-        });
-        documents.push(document);
-        console.log(
-          `[SUCCESS]: Sheet "${name}" converted & ready for embedding.`
-        );
-      }
-    }
+    ({ blocks, sheetNames } = processWorkbook(fullFilePath));
   } catch (err) {
     console.error("Could not process xlsx file!", err);
+    if (!options.absolutePath) trashFile(fullFilePath);
     return {
       success: false,
       reason: `Error processing ${filename}: ${err.message}`,
       documents: [],
     };
-  } finally {
-    if (!options.absolutePath) trashFile(fullFilePath);
   }
 
-  if (documents.length === 0) {
-    console.error(`No valid sheets found in ${filename}.`);
+  if (!blocks.length) {
+    console.error(`No non-empty sheets found in ${filename}.`);
+    if (!options.absolutePath) trashFile(fullFilePath);
     return {
       success: false,
-      reason: `No valid sheets found in ${filename}.`,
+      reason: `No non-empty sheets found in ${filename}.`,
       documents: [],
     };
   }
 
-  console.log(
-    `[SUCCESS]: ${filename} fully processed. Created ${documents.length} document(s).\n`
-  );
-  return { success: true, reason: null, documents };
-}
+  const sheetList =
+    sheetNames.length > 1
+      ? ` (Sheets: ${sheetNames.join(", ")})`
+      : ` (Sheet: ${sheetNames[0]})`;
 
-/**
- * Processes a single sheet and returns its content and metadata
- * @param {{name: string, data: Array<Array<string|number|null|undefined>>}} sheet - Parsed sheet with name and 2D array of cell values
- * @returns {{name: string, content: string, wordCount: number}|null} - Object with name, CSV content, and word count, or null if sheet is empty
- */
-function processSheet(sheet) {
-  try {
-    const { name, data } = sheet;
-    const content = convertToPipeTable(data) || convertToCSV(data);
+  const result = finalizeBlocksDoc({
+    blocks,
+    parsePath: "xlsx",
+    parseConfidence: 0.8,
+    fullFilePath,
+    filename,
+    metadata,
+    options,
+    extra: {
+      title: `${filename}${sheetList}`,
+      description: `Spreadsheet: ${filename} — ${sheetNames.length} sheet(s).`,
+      docSource: "an xlsx file uploaded by the user.",
+    },
+  });
 
-    if (!content?.length) {
-      console.log(`Sheet "${name}" is empty. Skipping.`);
-      return null;
-    }
-
-    console.log(`-- Processing sheet: ${name} --`);
-    return {
-      name,
-      content,
-      wordCount: content.split(/\s+/).length,
-    };
-  } catch (err) {
-    console.error(`Error processing sheet "${sheet.name}":`, err);
-    return null;
-  }
+  return result;
 }
 
 module.exports = asXlsx;

@@ -7,6 +7,7 @@ const {
   blocksToText,
   finalizeBlocksDoc,
 } = require("../../../utils/blocks");
+const { buildSectionPaths } = require("../../../utils/blocks/koStructure");
 const { parseWithDocling } = require("../asDoclingDoc");
 
 async function asPdf({
@@ -84,6 +85,11 @@ async function asPdf({
         );
       }
       parsePath = "pdfjs";
+      // [auto-docu v14 P3] font-size headings (marked in linesToBlocks) + KO
+      // structural markers -> a section_path per block, so the contextual prefix
+      // and whole-section retrieval have something to work with on the no-docling
+      // path.
+      blocks = buildSectionPaths(blocks);
     }
   }
 

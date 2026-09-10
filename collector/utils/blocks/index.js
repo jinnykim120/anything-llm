@@ -29,9 +29,29 @@ function mergeBbox(boxes) {
   ].map((n) => Math.round(n * 100) / 100);
 }
 
+// [auto-docu v14 P3] A line set noticeably larger than the page's body text
+// (and short) OR one that reads as a Korean structural marker (제N조, 1.2.1,
+// Ⅲ.) is a heading. buildSectionPaths() later turns the run of heading blocks
+// into each block's section_path.
+const { isHeadingText } = require("./koStructure");
+const HEADING_SIZE_RATIO = 1.14;
+const HEADING_MAX_CHARS = 80;
+
+/** The page's body font size — the size the most *characters* are set in. */
+function bodyFontSize(lines) {
+  const weight = new Map();
+  for (const l of lines) {
+    const s = Math.round(Number(l.size) || 0);
+    if (!s) continue;
+    weight.set(s, (weight.get(s) || 0) + (l.text?.length || 1));
+  }
+  if (!weight.size) return 0;
+  return [...weight.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
 /**
- * Group a page's lines into paragraph blocks by vertical gap.
- * @param {{text:string, bbox:number[]}[]} lines  ordered top-to-bottom
+ * Group a page's lines into paragraph/heading blocks by vertical gap + font size.
+ * @param {{text:string, bbox:number[], size?:number}[]} lines  top-to-bottom
  * @param {{page:number, pageWidth:number, pageHeight:number}} ctx
  * @returns {object[]} blocks
  */
@@ -41,6 +61,15 @@ function linesToBlocks(
 ) {
   const valid = lines.filter((l) => l?.text?.trim() && Array.isArray(l.bbox));
   if (!valid.length) return [];
+
+  const body = bodyFontSize(valid);
+  const isBigLine = (l) =>
+    body > 0 &&
+    Number(l.size) > 0 &&
+    l.size >= body * HEADING_SIZE_RATIO &&
+    l.text.trim().length <= HEADING_MAX_CHARS &&
+    !/[.。!?]\s*$/.test(l.text.trim());
+  const isHeadingLine = (l) => isBigLine(l) || isHeadingText(l.text);
 
   const gaps = [];
   for (let i = 1; i < valid.length; i += 1) {
@@ -53,9 +82,14 @@ function linesToBlocks(
   const gapThreshold =
     spread >= MIN_GAP_SPREAD ? minGap + spread * PARA_SPLIT_FRACTION : Infinity; // no real paragraph spacing on this page -> keep as one block
 
+  // A heading line always starts (and ends) its own group.
   const groups = [[valid[0]]];
   for (let i = 1; i < valid.length; i += 1) {
-    if (gaps[i - 1] > gapThreshold) groups.push([valid[i]]);
+    const startNew =
+      gaps[i - 1] > gapThreshold ||
+      isHeadingLine(valid[i]) ||
+      isHeadingLine(valid[i - 1]);
+    if (startNew) groups.push([valid[i]]);
     else groups[groups.length - 1].push(valid[i]);
   }
 
@@ -69,7 +103,7 @@ function linesToBlocks(
     page_width: pageWidth,
     page_height: pageHeight,
     section_path: null,
-    block_type: "paragraph",
+    block_type: g.length === 1 && isHeadingLine(g[0]) ? "heading" : "paragraph",
   }));
 }
 
@@ -232,7 +266,7 @@ function finalizeBlocksDoc({
   const data = {
     id,
     url: "file://" + fullFilePath,
-    title: metadata.title || filename,
+    title: metadata.title || extra.title || filename,
     docAuthor: metadata.docAuthor || extra.docAuthor || "no author found",
     description:
       metadata.description || extra.description || "No description found.",

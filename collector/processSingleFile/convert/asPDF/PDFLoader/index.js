@@ -115,6 +115,7 @@ class PDFLoader {
         str: item.str,
         x0: x,
         x1: x + w,
+        size: h, // glyph height in PDF points — used for heading detection
         // flip to top-left origin
         yTop: pageHeight ? pageHeight - (yBaseline + h) : yBaseline,
         yBot: pageHeight ? pageHeight - yBaseline : yBaseline + h,
@@ -143,7 +144,11 @@ class PDFLoader {
         Math.max(...row.parts.map((p) => p.x1)),
         Math.max(...row.parts.map((p) => p.yBot)),
       ].map((n) => Math.round(n * 100) / 100);
-      lines.push({ text: lineText, bbox });
+      const size =
+        Math.round(
+          Math.max(0, ...row.parts.map((p) => Number(p.size) || 0)) * 100
+        ) / 100;
+      lines.push({ text: lineText, bbox, size });
       textChunks.push(lineText);
     }
     return { text: textChunks.join("\n"), lines };
