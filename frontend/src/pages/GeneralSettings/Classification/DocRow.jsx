@@ -1,22 +1,13 @@
 import { useEffect, useState } from "react";
-import {
-  CheckCircle,
-  Warning,
-  Lock,
-  ArrowRight,
-  Broom,
-} from "@phosphor-icons/react";
+import { CheckCircle, Warning, Broom } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
 import paths from "@/utils/paths";
 
-const SENS_LABEL = {
-  general: "일반 범용",
-  confidential: "격리·민감",
-  uncertain: "판단 보류",
-};
-const CONFIRMABLE = ["general", "confidential"];
+// [auto-docu v14 P4] sensitivity is dormant for the prototype — no tier
+// routing, no held state. A classification is confirmed on the business axes
+// (업무 분류 / 사업부 / 종류 / 분야 / 태그) alone.
 
 export default function DocRow({
   doc,
@@ -26,20 +17,12 @@ export default function DocRow({
   onTaxonomyUpdated,
 }) {
   const cls = doc.classification;
-  // Only a definite call pre-fills the select; "uncertain" / no proposal → the
-  // human must pick.
-  const initialSens = CONFIRMABLE.includes(cls?.sensitivity)
-    ? cls.sensitivity
-    : "";
-  const [sensitivity, setSensitivity] = useState(initialSens);
   const [workType, setWorkType] = useState(cls?.workType || "");
   const [businessUnit, setBusinessUnit] = useState(cls?.businessUnit || "");
   const [docType, setDocType] = useState(cls?.docType || "");
   const [domain, setDomain] = useState(cls?.domain || "");
   const [tags, setTags] = useState((cls?.tags || []).join(", "));
   const [saving, setSaving] = useState(false);
-  const [moveTo, setMoveTo] = useState((doc.moveTargets || [])[0] || "");
-  const [moving, setMoving] = useState(false);
   const [dedupeKeep, setDedupeKeep] = useState({}); // workspace slug -> docId to keep
   const [dedupingWs, setDedupingWs] = useState(null);
   const [addingDocType, setAddingDocType] = useState(false);
@@ -51,9 +34,6 @@ export default function DocRow({
 
   useEffect(() => {
     if (!cls) return;
-    setSensitivity(
-      CONFIRMABLE.includes(cls.sensitivity) ? cls.sensitivity : ""
-    );
     setWorkType(cls.workType || "");
     setBusinessUnit(cls.businessUnit || "");
     setDocType(cls.docType || "");
@@ -62,15 +42,11 @@ export default function DocRow({
   }, [cls?.contentHash, cls?.updatedAt]);
 
   const confirmed = cls?.status === "confirmed";
-  const uncertain = cls && cls.sensitivity === "uncertain";
   const confirmedByLabel = cls?.confirmedByUser?.username
     ? cls.confirmedByUser.username
     : cls?.confirmedBy
       ? `사용자 #${cls.confirmedBy}`
       : null;
-  const confirmableOptions = (
-    taxonomy?.sensitivity?.confirmable || CONFIRMABLE
-  ).filter(Boolean);
   const docTypeOptions = [
     ...new Set(
       [...(taxonomy?.doc_type?.suggested || []), docType].filter(Boolean)
@@ -95,11 +71,8 @@ export default function DocRow({
   ];
 
   async function confirm() {
-    if (!CONFIRMABLE.includes(sensitivity))
-      return showToast("민감도를 먼저 지정하세요.", "error");
     setSaving(true);
     const res = await Classification.confirm(doc.contentHash, {
-      sensitivity,
       workType,
       businessUnit,
       docType: docType.trim(),
@@ -116,7 +89,6 @@ export default function DocRow({
   }
 
   const hasClassificationChanges =
-    sensitivity !== initialSens ||
     workType !== (cls?.workType || "") ||
     businessUnit !== (cls?.businessUnit || "") ||
     docType !== (cls?.docType || "") ||
@@ -213,20 +185,6 @@ export default function DocRow({
   const lowConfidence =
     typeof doc.parseConfidence === "number" && doc.parseConfidence < 0.6;
 
-  async function move() {
-    if (!moveTo) return;
-    setMoving(true);
-    const res = await Classification.move(
-      doc.contentHash,
-      doc.tierMismatch[0],
-      moveTo
-    );
-    setMoving(false);
-    if (res?.error) return showToast(`이동 실패: ${res.error}`, "error");
-    showToast(`"${moveTo}"(으)로 이동함`, "success");
-    reload?.();
-  }
-
   // Collapse duplicate rows for this content_hash within one workspace down
   // to whichever one is selected (defaults to the newest).
   async function dedupe(workspaceSlug, docsInWs) {
@@ -252,10 +210,8 @@ export default function DocRow({
             {doc.title}
           </p>
           <p className="text-[11px] text-theme-text-secondary mt-0.5">
-            {(doc.workspaces || [])
-              .map((w) => (w.tier ? `${w.slug} (${w.tier})` : w.slug))
-              .join(", ")}{" "}
-            · {doc.parsePath || "?"}
+            {(doc.workspaces || []).map((w) => w.slug).join(", ")} ·{" "}
+            {doc.parsePath || "?"}
             {(doc.duplicatesByWorkspace || []).length > 0 ? (
               <span className="ml-1 text-amber-500 inline-flex items-center gap-x-0.5">
                 <Warning className="h-3 w-3" /> 중복 정리 필요
@@ -267,15 +223,12 @@ export default function DocRow({
                 </span>
               )
             )}
-            {lowConfidence && (
+            {(lowConfidence || doc.parsePath === "image-only") && (
               <span className="ml-1 text-amber-500 inline-flex items-center gap-x-0.5">
-                <Warning className="h-3 w-3" /> 파싱 신뢰도 낮음
-              </span>
-            )}
-            {(doc.tierMismatch || []).length > 0 && (
-              <span className="ml-1 text-red-400 inline-flex items-center gap-x-0.5 font-semibold">
-                <Warning className="h-3 w-3" /> 티어 불일치:{" "}
-                {doc.tierMismatch.join(", ")}
+                <Warning className="h-3 w-3" />{" "}
+                {doc.parsePath === "image-only"
+                  ? "스캔 문서 · 비전 처리 대기"
+                  : "파싱 신뢰도 낮음"}
               </span>
             )}
           </p>
@@ -284,30 +237,14 @@ export default function DocRow({
           className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${
             confirmed
               ? "bg-green-500/15 text-green-500"
-              : uncertain
-                ? "bg-amber-500/15 text-amber-500"
-                : cls
-                  ? "bg-sky-500/15 text-sky-400"
-                  : "bg-white/5 text-theme-text-secondary"
+              : cls
+                ? "bg-sky-500/15 text-sky-400"
+                : "bg-white/5 text-theme-text-secondary"
           }`}
         >
-          {confirmed
-            ? "확정"
-            : uncertain
-              ? "판단 보류"
-              : cls
-                ? "제안됨"
-                : "미분류"}
+          {confirmed ? "확정" : cls ? "제안됨" : "미분류"}
         </span>
       </div>
-
-      {!confirmed && doc.held && (
-        <p className="text-[11px] text-amber-500 inline-flex items-center gap-x-1">
-          <Lock className="h-3 w-3" weight="bold" />
-          확정 전까지 <span className="font-semibold">격리·민감</span>으로 취급
-          · 자동 라우팅 제외
-        </p>
-      )}
 
       {confirmed && (
         <p className="text-[11px] text-theme-text-secondary">
@@ -386,69 +323,14 @@ export default function DocRow({
         </div>
       )}
 
-      {(doc.tierMismatch || []).length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
-          <span className="text-red-400">
-            {doc.tierMismatch[0]}(은)는 이 문서 티어와 맞지 않음.
-          </span>
-          {(doc.moveTargets || []).length > 0 ? (
-            <>
-              <select
-                value={moveTo}
-                onChange={(e) => setMoveTo(e.target.value)}
-                className="bg-theme-settings-input-bg text-theme-text-primary rounded px-1.5 py-1 border border-white/10 outline-none"
-              >
-                {doc.moveTargets.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={move}
-                disabled={moving || !moveTo}
-                className="inline-flex items-center gap-x-1 text-white bg-theme-button-primary hover:bg-theme-button-primary-hover px-2 py-1 rounded disabled:opacity-50"
-              >
-                <ArrowRight className="h-3 w-3" weight="bold" />
-                {moving ? "이동 중…" : "이동"}
-              </button>
-            </>
-          ) : (
-            <span className="text-theme-text-secondary">
-              티어가 <b>{SENS_LABEL[cls?.sensitivity] || cls?.sensitivity}</b>인
-              워크스페이스가 없음 — 워크스페이스 설정에서 tier를 지정하세요.
-            </span>
-          )}
-        </div>
-      )}
-
       {cls?.rationale && !confirmed && (
         <p className="text-[11px] text-theme-text-secondary italic border-l-2 border-white/10 pl-2">
           {cls.rationale}
         </p>
       )}
 
-      {/* 필드 순서: 민감도 > 업무 분류 > 사업부 > 종류 > 분야 > 태그 */}
+      {/* 필드 순서: 업무 분류 > 사업부 > 종류 > 분야 > 태그 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">민감도</span>
-          <select
-            value={sensitivity}
-            onChange={(e) => setSensitivity(e.target.value)}
-            className={`bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border outline-none ${
-              CONFIRMABLE.includes(sensitivity)
-                ? "border-white/10"
-                : "border-amber-500/60"
-            }`}
-          >
-            <option value="">— 선택 —</option>
-            {confirmableOptions.map((v) => (
-              <option key={v} value={v}>
-                {SENS_LABEL[v] || v}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">
             업무 분류
@@ -544,7 +426,7 @@ export default function DocRow({
       <div className="flex justify-end">
         <button
           onClick={confirm}
-          disabled={saving || !CONFIRMABLE.includes(sensitivity)}
+          disabled={saving}
           className="flex items-center gap-x-1.5 text-xs font-semibold text-white bg-theme-button-primary hover:bg-theme-button-primary-hover px-3 py-1.5 rounded-md disabled:opacity-50"
         >
           <CheckCircle className="h-4 w-4" weight="bold" />

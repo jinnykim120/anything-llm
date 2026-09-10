@@ -42,6 +42,7 @@ const DOC_TYPE = {
     "품의서",
     "협약서",
     "실적자료", // 데이터표·증빙
+    "점검표", // 체크리스트·자율준수 점검표·날인본 증빙
     "교육자료",
     "제안서",
     "기타",
@@ -93,9 +94,30 @@ const DOMAIN = {
 const ARCHIVE_SCOPES = ["전체", "실적", "법규", "대외"];
 const SCOPE_DOC_TYPES = {
   법규: ["법령", "행정규칙"],
-  실적: ["실적자료", "보고서", "계획서", "교육자료"],
+  실적: ["실적자료", "보고서", "계획서", "교육자료", "점검표"],
   대외: ["협약서", "계약서", "제안서", "회의자료", "품의서"],
 };
+// The classifier may return a synonym for a suggested doc_type — normalize the
+// common ones so the scope filter still matches.
+const DOC_TYPE_ALIASES = {
+  체크리스트: "점검표",
+  점검표: "점검표",
+  가이드라인: "행정규칙",
+  지침: "행정규칙",
+  고시: "행정규칙",
+  예규: "행정규칙",
+  훈령: "행정규칙",
+  법률: "법령",
+  시행령: "법령",
+  시행규칙: "법령",
+  데이터표: "실적자료",
+  증빙: "실적자료",
+};
+
+function canonicalDocType(docType) {
+  const d = String(docType || "").trim();
+  return DOC_TYPE_ALIASES[d] || d;
+}
 
 /** doc_type values a scope covers, or null for "전체" / unknown. */
 function docTypesForScope(scope) {
@@ -169,4 +191,5 @@ module.exports = {
   DOMAIN,
   ARCHIVE_SCOPES,
   docTypesForScope,
+  canonicalDocType,
 };

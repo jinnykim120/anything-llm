@@ -19,8 +19,6 @@ const {
   DOC_TYPE,
   WORK_TYPE,
   BUSINESS_UNIT,
-  SENSITIVITY,
-  normalizeSensitivity,
 } = require("../utils/classification/taxonomy");
 const { DocumentClassification } = require("../models/documentClassification");
 const { Document } = require("../models/documents");
@@ -156,14 +154,6 @@ async function archiveDocuments(workspaceSlug = null) {
     });
   }
   return [...byHash.values()];
-}
-
-/** A confirmed confidential doc sitting in a general-tier workspace (or v.v.). */
-function tierMismatch(sensitivity, workspaces) {
-  if (!sensitivity || sensitivity === "unclassified") return [];
-  return workspaces
-    .filter((w) => w.tier && w.tier !== sensitivity)
-    .map((w) => w.slug);
 }
 
 /** Best-effort full text for a content hash (first docpath that reads). */
@@ -319,9 +309,6 @@ function classificationEndpoints(app) {
             })
           : [];
         const uploaderById = new Map(uploaders.map((u) => [u.id, u]));
-        const allWorkspaces = await prisma.workspaces.findMany({
-          select: { slug: true, name: true, tier: true },
-        });
         const out = docs.map((d) => {
           const cls = byHash[d.contentHash] || null;
           const wsList = [];
@@ -331,17 +318,6 @@ function classificationEndpoints(app) {
             seen.add(w.slug);
             wsList.push(w);
           }
-          // A doc is "held" until a human confirms a definite tier — the LLM
-          // proposal (incl. "uncertain") does not take effect on its own, and
-          // a held doc is treated as confidential for access / not routed.
-          const held =
-            !cls ||
-            cls.status !== "confirmed" ||
-            !["general", "confidential"].includes(cls.sensitivity);
-          const mism =
-            cls?.status === "confirmed"
-              ? tierMismatch(cls.sensitivity, wsList)
-              : [];
           // Real duplicates = the SAME workspace holding this content_hash
           // more than once (leftovers from before the ingest-time dedup skip,
           // or a race). Living in several DIFFERENT workspaces is normal and
@@ -382,23 +358,6 @@ function classificationEndpoints(app) {
                 ])
               ).values(),
             ],
-            held,
-            effectiveSensitivity:
-              cls?.status === "confirmed" && cls.sensitivity === "general"
-                ? "general"
-                : "confidential",
-            tierMismatch: mism,
-            // workspaces this doc could be moved into to resolve a mismatch
-            moveTargets:
-              mism.length && cls?.sensitivity
-                ? allWorkspaces
-                    .filter(
-                      (w) =>
-                        w.tier === cls.sensitivity &&
-                        !wsList.some((x) => x.slug === w.slug)
-                    )
-                    .map((w) => w.slug)
-                : [],
           };
         });
         response.status(200).json({ documents: out });
@@ -432,7 +391,6 @@ function classificationEndpoints(app) {
       try {
         const {
           contentHashes = [],
-          sensitivity,
           docType,
           workType,
           businessUnit,
@@ -448,12 +406,11 @@ function classificationEndpoints(app) {
         ];
         if (!hashes.length)
           return response.status(400).json({ error: "문서를 선택하세요." });
-        if (
-          !SENSITIVITY.confirmable.includes(normalizeSensitivity(sensitivity))
-        )
+        // [auto-docu v14 P4] sensitivity dormant — no longer required for bulk confirm.
+        if (!workType && !businessUnit && !docType && !domain)
           return response
             .status(400)
-            .json({ error: "일괄 확정할 민감도를 지정하세요." });
+            .json({ error: "일괄 적용할 분류값을 하나 이상 지정하세요." });
 
         const userId = response.locals?.user?.id || null;
         const results = [];
@@ -461,7 +418,6 @@ function classificationEndpoints(app) {
           results.push(
             await DocumentClassification.confirm({
               contentHash,
-              sensitivity,
               workType,
               businessUnit,
               docType,
@@ -594,28 +550,21 @@ function classificationEndpoints(app) {
             c,
           ])
         );
+        // [auto-docu v14 P4] a classification is "done" once the business axes
+        // are set — sensitivity is dormant (no tier routing), so it no longer
+        // gates re-proposal or reference-example selection.
+        const isDone = (cls) =>
+          cls?.status === "confirmed" &&
+          cls.workType &&
+          cls.businessUnit &&
+          cls.docType &&
+          cls.domain;
         const referenceDocs = docs
           .map((doc) => ({ ...doc, classification: existing[doc.contentHash] }))
-          .filter(
-            (doc) =>
-              doc.classification?.status === "confirmed" &&
-              doc.classification?.sensitivity &&
-              doc.classification?.workType &&
-              doc.classification?.businessUnit &&
-              doc.classification?.docType &&
-              doc.classification?.domain
-          );
+          .filter((doc) => isDone(doc.classification));
         const targets = docs.filter((d) => {
           if (contentHash) return d.contentHash === contentHash;
-          const classification = existing[d.contentHash];
-          return !(
-            classification?.status === "confirmed" &&
-            classification.sensitivity &&
-            classification.workType &&
-            classification.businessUnit &&
-            classification.docType &&
-            classification.domain
-          );
+          return !isDone(existing[d.contentHash]);
         });
 
         const results = [];

@@ -1148,6 +1148,47 @@ class PGVector extends VectorDatabase {
       }
     }
 
+    // [auto-docu v14 P5] Whole small document: when a document is clearly THE
+    // answer (>=minHits chunks retrieved) and the entire document is short, its
+    // facts are often spread across several sections (a 유통혁신 report, not a
+    // hierarchical 지침) — section-by-section expansion misses them. Pull the
+    // whole doc so nothing is dropped.
+    const wholeDocMaxChars =
+      Number(process.env.SECTION_EXPANSION_WHOLE_DOC_MAX_CHARS) || 28_000;
+    const hitsByDoc = new Map();
+    sourceDocuments.forEach((source, index) => {
+      if (!source.doc_id) return;
+      const e = hitsByDoc.get(source.doc_id) || { hits: 0, best: 0 };
+      e.hits += 1;
+      e.best = Math.max(e.best, scores[index] ?? 0);
+      hitsByDoc.set(source.doc_id, e);
+    });
+    for (const [docId, e] of hitsByDoc) {
+      if (e.hits < minHits) continue;
+      let rows = [];
+      try {
+        const response = await client.query(
+          `SELECT metadata FROM "${PGVector.tableName()}" WHERE namespace = $1 AND metadata->>'doc_id' = $2 LIMIT 5000`,
+          [namespace, docId]
+        );
+        rows = response.rows.map((row) => row.metadata);
+      } catch {
+        continue;
+      }
+      const docChars = rows.reduce((t, r) => t + (r.text?.length || 0), 0);
+      if (!rows.length || docChars > wholeDocMaxChars || docChars > budget)
+        continue;
+      rows
+        .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
+        .forEach((row) => {
+          const key = rowKey(row.doc_id, row.chunk_index);
+          if (seen.has(key)) return;
+          additions.push({ metadata: row, text: row.text, score: e.best });
+          seen.add(key);
+          budget -= row.text?.length || 0;
+        });
+    }
+
     if (!additions.length) return result;
     this.logger(
       `expandSections: +${additions.length} chunks from ${

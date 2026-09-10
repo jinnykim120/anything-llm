@@ -4,7 +4,7 @@
 // content_hash, so it survives re-ingest and is shared across workspaces).
 const prisma = require("../prisma");
 const { safeJsonParse } = require("../http");
-const { docTypesForScope } = require("./taxonomy");
+const { docTypesForScope, canonicalDocType } = require("./taxonomy");
 
 /**
  * @param {{id:number}} workspace
@@ -14,14 +14,18 @@ const { docTypesForScope } = require("./taxonomy");
 async function resolveScopeDocIds(workspace, scope) {
   const docTypes = docTypesForScope(scope);
   if (!docTypes || !workspace?.id) return null;
+  const wanted = new Set(docTypes);
 
+  // Match on the canonical doc_type so a classifier synonym (체크리스트→점검표,
+  // 지침→행정규칙, …) still lands in the right scope.
   const cls = await prisma.document_classifications
-    .findMany({
-      where: { docType: { in: docTypes } },
-      select: { contentHash: true },
-    })
+    .findMany({ select: { contentHash: true, docType: true } })
     .catch(() => []);
-  const hashes = new Set(cls.map((c) => c.contentHash));
+  const hashes = new Set(
+    cls
+      .filter((c) => wanted.has(canonicalDocType(c.docType)))
+      .map((c) => c.contentHash)
+  );
   if (!hashes.size) return []; // scope chosen but nothing is classified into it
 
   const wds = await prisma.workspace_documents

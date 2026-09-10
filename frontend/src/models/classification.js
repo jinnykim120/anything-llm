@@ -71,21 +71,15 @@ const Classification = {
       });
   },
 
+  // [auto-docu v14 P4] sensitivity dropped from the payload — dormant.
   confirm: async (
     contentHash,
-    { sensitivity, workType, businessUnit, docType, domain, tags }
+    { workType, businessUnit, docType, domain, tags }
   ) => {
     return await fetch(`${API_BASE}/classification/${contentHash}/confirm`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({
-        sensitivity,
-        workType,
-        businessUnit,
-        docType,
-        domain,
-        tags,
-      }),
+      body: JSON.stringify({ workType, businessUnit, docType, domain, tags }),
     })
       .then((res) => res.json())
       .catch((e) => {
@@ -96,14 +90,13 @@ const Classification = {
 
   confirmBulk: async (
     contentHashes,
-    { sensitivity, workType, businessUnit, docType, domain, tags }
+    { workType, businessUnit, docType, domain, tags }
   ) => {
     return await fetch(`${API_BASE}/classification/confirm-bulk`, {
       method: "POST",
       headers: baseHeaders(),
       body: JSON.stringify({
         contentHashes,
-        sensitivity,
         workType,
         businessUnit,
         docType,

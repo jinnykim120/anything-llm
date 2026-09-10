@@ -12,19 +12,15 @@ import Classification from "@/models/classification";
 import DocRow from "./DocRow";
 import paths from "@/utils/paths";
 
-const SENS_LABEL = {
-  general: "일반 범용",
-  confidential: "격리·민감",
-  uncertain: "판단 보류",
-};
 const UNCLASSIFIED_LABEL = "미분류";
 
+// [auto-docu v14 P4] sensitivity is dormant — a document is "reviewed" once the
+// business axes are confirmed.
 function needsClassificationReview(doc) {
   const classification = doc?.classification;
   return (
     !classification ||
     classification.status !== "confirmed" ||
-    !classification.sensitivity ||
     !classification.workType ||
     !classification.businessUnit ||
     !classification.docType ||
@@ -41,7 +37,6 @@ export default function ClassificationReview() {
   const [taxonomy, setTaxonomy] = useState(null);
   const [selectedHashes, setSelectedHashes] = useState(() => new Set());
   const [bulkValues, setBulkValues] = useState({
-    sensitivity: "",
     workType: "",
     businessUnit: "",
     docType: "",
@@ -50,7 +45,6 @@ export default function ClassificationReview() {
   const [bulkSaving, setBulkSaving] = useState(false);
   const [filters, setFilters] = useState({
     query: "",
-    sensitivity: "all",
     workType: "all",
     businessUnit: "all",
     docType: "all",
@@ -92,11 +86,17 @@ export default function ClassificationReview() {
   }
 
   async function confirmSelected() {
-    if (!selectedHashes.size || !bulkValues.sensitivity)
-      return showToast("문서와 민감도를 선택하세요.", "error");
+    if (!selectedHashes.size)
+      return showToast("확정할 문서를 선택하세요.", "error");
+    if (
+      !bulkValues.workType.trim() &&
+      !bulkValues.businessUnit.trim() &&
+      !bulkValues.docType.trim() &&
+      !bulkValues.domain.trim()
+    )
+      return showToast("일괄 적용할 분류값을 하나 이상 지정하세요.", "error");
     setBulkSaving(true);
     const result = await Classification.confirmBulk([...selectedHashes], {
-      sensitivity: bulkValues.sensitivity,
       ...(bulkValues.workType.trim()
         ? { workType: bulkValues.workType.trim() }
         : {}),
@@ -137,17 +137,7 @@ export default function ClassificationReview() {
   const pending = docs.filter(needsClassificationReview).length;
 
   const filterOptions = useMemo(() => {
-    const values = (getValue) => {
-      const result = [...new Set(docs.map(getValue).filter(Boolean))].sort(
-        (a, b) => String(a).localeCompare(String(b), "ko")
-      );
-      return docs.some((doc) => !getValue(doc))
-        ? [...result, UNCLASSIFIED_LABEL]
-        : result;
-    };
-
     return {
-      sensitivities: values((doc) => doc.classification?.sensitivity),
       workTypes: [
         ...new Set([
           ...(taxonomy?.work_type?.suggested || []),
@@ -217,8 +207,6 @@ export default function ClassificationReview() {
           searchText.includes(
             filters.query.trim().toLocaleLowerCase("ko-KR")
           )) &&
-        (filters.sensitivity === "all" ||
-          classification?.sensitivity === filters.sensitivity) &&
         (filters.workType === "all" ||
           (filters.workType === UNCLASSIFIED_LABEL
             ? !classification?.workType
@@ -285,7 +273,6 @@ export default function ClassificationReview() {
   function resetFilters() {
     setFilters({
       query: "",
-      sensitivity: "all",
       workType: "all",
       businessUnit: "all",
       docType: "all",
@@ -326,10 +313,9 @@ export default function ClassificationReview() {
               </p>
             </div>
             <p className="text-xs leading-[18px] font-base text-theme-text-secondary">
-              아카이브의 문서를 민감도 · 종류 · 분야로 분류합니다. LLM이 제안한
-              분류를 검토하고 확정하세요. 민감도는 워크스페이스 라우팅과 접근
-              제어의 기준이 되며, 확신이 서지 않는 문서는{" "}
-              <span className="font-semibold">격리·민감</span>으로 둡니다.
+              아카이브의 문서를 업무 분류 · 사업부 · 종류 · 분야 · 태그로
+              분류합니다. LLM이 제안한 분류를 검토하고 확정하세요. 문서 종류는
+              사이드바의 업무별 뷰 필터(전체 / 실적 / 법규 / 대외)와 연결됩니다.
             </p>
           </div>
 
@@ -382,20 +368,6 @@ export default function ClassificationReview() {
                   <span className="text-[11px] font-semibold text-theme-text-primary">
                     {selectedHashes.size}건 선택
                   </span>
-                  <select
-                    value={bulkValues.sensitivity}
-                    onChange={(e) =>
-                      setBulkValues((v) => ({
-                        ...v,
-                        sensitivity: e.target.value,
-                      }))
-                    }
-                    className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded px-2 py-1 border border-white/10"
-                  >
-                    <option value="">민감도 선택</option>
-                    <option value="general">일반 범용</option>
-                    <option value="confidential">격리·민감</option>
-                  </select>
                   <select
                     value={bulkValues.workType}
                     onChange={(e) =>
@@ -477,7 +449,7 @@ export default function ClassificationReview() {
                   </button>
                 </div>
               )}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <input
                   value={filters.query}
                   onChange={(e) => updateFilter("query", e.target.value)}
@@ -485,19 +457,6 @@ export default function ClassificationReview() {
                   aria-label="분류 검수 문서 검색"
                   className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none sm:col-span-2 lg:col-span-2"
                 />
-                <select
-                  value={filters.sensitivity}
-                  onChange={(e) => updateFilter("sensitivity", e.target.value)}
-                  aria-label="민감도 필터"
-                  className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-                >
-                  <option value="all">민감도: 전체</option>
-                  {filterOptions.sensitivities.map((value) => (
-                    <option key={value} value={value}>
-                      민감도: {SENS_LABEL[value] || value}
-                    </option>
-                  ))}
-                </select>
                 <select
                   value={filters.workType}
                   onChange={(e) => updateFilter("workType", e.target.value)}
