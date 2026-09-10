@@ -297,49 +297,82 @@ describe("PGVector lexical fallback", () => {
     ]);
   });
 
-  it("returns document context when embedding search is unavailable", async () => {
-    const client = {
-      end: jest.fn().mockResolvedValue(),
-      query: jest.fn().mockResolvedValue({
-        rows: [
-          {
-            metadata: {
-              title: "GS리테일 실적 보고서",
-              published: "2026-09-03",
-              text: "우리동네GS 앱의 실적은 월간 활성 사용자 431만 명입니다.",
-              doc_id: "doc-1",
-            },
-          },
-        ],
-      }),
-    };
+  // [auto-docu v14 P1] A query-embedding failure is a real fault (broken model /
+  // OOM), not a routine condition — it aborts the search with a visible reason
+  // instead of silently degrading the whole workspace to keyword-only search.
+  it("aborts with a message when query embedding fails (no silent keyword fallback)", async () => {
+    const client = { end: jest.fn().mockResolvedValue(), query: jest.fn() };
     jest.spyOn(PGVector, "connect").mockResolvedValue(client);
     jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
-    jest
-      .spyOn(PGVector, "expandSections")
-      .mockImplementation(async ({ result }) => result);
 
     const result = await PGVector.performSimilaritySearch({
-      namespace: "archive-full",
+      namespace: "archive",
       input: "우리동네gs 실적은?",
       LLMConnector: {
         embedTextInput: jest
           .fn()
           .mockRejectedValue(new Error("embedding unavailable")),
       },
-      similarityThreshold: 0.25,
-      topN: 4,
+      similarityThreshold: 0.15,
+      topN: 12,
     });
 
-    expect(result.contextTexts).toEqual([
-      "우리동네GS 앱의 실적은 월간 활성 사용자 431만 명입니다.",
+    expect(result.contextTexts).toEqual([]);
+    expect(result.sources).toEqual([]);
+    expect(result.message).toEqual(expect.stringContaining("임베딩"));
+    expect(result.success).toBe(false);
+  });
+
+  it("caps chunks per document and merges only unseen lexical documents", async () => {
+    const dense = {
+      contextTexts: ["a1", "a2", "a3", "a4", "b1"],
+      sourceDocuments: [
+        { doc_id: "A", title: "문서 A", chunk_index: 0 },
+        { doc_id: "A", title: "문서 A", chunk_index: 1 },
+        { doc_id: "A", title: "문서 A", chunk_index: 2 },
+        { doc_id: "A", title: "문서 A", chunk_index: 3 },
+        { doc_id: "B", title: "문서 B", chunk_index: 0 },
+      ],
+      scores: [0.9, 0.88, 0.86, 0.84, 0.7],
+    };
+    const lexical = {
+      contextTexts: ["a-lex", "c1"],
+      sourceDocuments: [
+        { doc_id: "A", title: "문서 A", chunk_index: 9, score: 0.6 },
+        { doc_id: "C", title: "문서 C", chunk_index: 0, score: 0.5 },
+      ],
+      scores: [0.6, 0.5],
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue({
+      end: jest.fn().mockResolvedValue(),
+    });
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
+    jest.spyOn(PGVector, "lexicalSearchResponse").mockResolvedValue(lexical);
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    process.env.SEARCH_PER_DOC_CAP = "3";
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive",
+      input: "질문",
+      LLMConnector: { embedTextInput: jest.fn().mockResolvedValue([0.1, 0.2]) },
+      similarityThreshold: 0.15,
+      topN: 12,
+    });
+    delete process.env.SEARCH_PER_DOC_CAP;
+
+    // doc A capped at 3 chunks; doc B kept; doc C added by lexical; the extra
+    // A chunk from lexical (already-seen doc) is NOT added.
+    expect(result.contextTexts).toEqual(["a1", "a2", "a3", "b1", "c1"]);
+    expect(result.sources.map((s) => s.doc_id)).toEqual([
+      "A",
+      "A",
+      "A",
+      "B",
+      "C",
     ]);
-    expect(result.sources[0]).toEqual(
-      expect.objectContaining({
-        title: "GS리테일 실적 보고서",
-        score: expect.any(Number),
-      })
-    );
   });
 });
 

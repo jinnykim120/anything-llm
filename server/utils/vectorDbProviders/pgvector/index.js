@@ -419,12 +419,15 @@ class PGVector extends VectorDatabase {
     }
   }
 
-  // Distance for cosine is just the distance for pgvector.
+  // Cosine distance from pgvector's `<=>` is `1 - cosine_similarity`, range [0, 2].
+  // similarity = 1 - distance, clamped to [0, 1]. (The previous `distance >= 1 -> 1`
+  // branch was inverted: it scored unrelated/opposite vectors as a perfect match.)
   distanceToSimilarity(distance = null) {
     if (distance === null || typeof distance !== "number") return 0.0;
-    if (distance >= 1.0) return 1;
-    if (distance < 0) return 1 - Math.abs(distance);
-    return 1 - distance;
+    if (!Number.isFinite(distance)) return 0.0;
+    if (distance <= 0) return 1.0;
+    if (distance >= 2) return 0.0;
+    return Math.max(0, Math.min(1, 1 - distance));
   }
 
   /**
@@ -521,6 +524,7 @@ class PGVector extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    filterDocIds = null,
   }) {
     const terms = PGVector.lexicalSearchTerms(input);
     const empty = { contextTexts: [], sourceDocuments: [], scores: [] };
@@ -528,6 +532,10 @@ class PGVector extends VectorDatabase {
 
     const patterns = terms.map((term) => `%${term}%`);
     const limit = Math.max(50, Math.min(500, Number(topN) * 25));
+    const docIds =
+      Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
+    const params = [namespace, patterns, limit];
+    if (docIds) params.push(docIds);
     const response = await client.query(
       `SELECT metadata FROM "${PGVector.tableName()}"
        WHERE namespace = $1
@@ -537,8 +545,9 @@ class PGVector extends VectorDatabase {
            metadata->>'sourceDocument',
            metadata->>'chunkSource'
          ) ILIKE ANY($2::text[])
+         ${docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""}
        LIMIT $3`,
-      [namespace, patterns, limit]
+      params
     );
 
     const ranked = response.rows
@@ -641,6 +650,7 @@ class PGVector extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    filterDocIds = null,
   }) {
     const result = {
       contextTexts: [],
@@ -650,9 +660,15 @@ class PGVector extends VectorDatabase {
 
     await this.configureVectorSearch(client);
     const embedding = `[${queryVector.map(Number).join(",")}]`;
+    const docIds =
+      Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
+    const params = [embedding, namespace, topN];
+    if (docIds) params.push(docIds);
     const response = await client.query(
-      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ORDER BY _distance ASC LIMIT $3`,
-      [embedding, namespace, topN]
+      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ${
+        docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""
+      } ORDER BY _distance ASC LIMIT $3`,
+      params
     );
     response.rows.forEach((item) => {
       const distance = Number(item._distance);
@@ -689,14 +705,21 @@ class PGVector extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    filterDocIds = null,
   }) {
     const totalEmbeddings = await this.namespaceCount(namespace);
     const searchLimit = PGVector.rerankCandidateLimit(totalEmbeddings, topN);
     await this.configureVectorSearch(client);
     const embedding = `[${queryVector.map(Number).join(",")}]`;
+    const docIds =
+      Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
+    const params = [embedding, namespace, searchLimit];
+    if (docIds) params.push(docIds);
     const response = await client.query(
-      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ORDER BY _distance ASC LIMIT $3`,
-      [embedding, namespace, searchLimit]
+      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ${
+        docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""
+      } ORDER BY _distance ASC LIMIT $3`,
+      params
     );
     const candidates = response.rows.map((item) => ({
       ...item.metadata,
@@ -733,6 +756,7 @@ class PGVector extends VectorDatabase {
         similarityThreshold,
         topN,
         filterIdentifiers,
+        filterDocIds,
       });
     }
     return result;
@@ -1159,6 +1183,23 @@ class PGVector extends VectorDatabase {
     };
   }
 
+  /**
+   * [auto-docu v14 P1] Retrieval pipeline — rebuilt from stock AnythingLLM's
+   * `embed -> cosine top-N` with the minimum on top:
+   *   1. embed the query — a failure is a real fault, surfaced as an abort
+   *      message (NOT a silent degrade to keyword-only search)
+   *   2. wide dense candidate pull (rank, not threshold, does the work —
+   *      multilingual-e5 similarities sit in a compressed high band)
+   *   3. per-document cap so results span multiple source documents
+   *   4. additive lexical merge — lexical only *adds* documents dense missed,
+   *      it never reorders dense results
+   *   5. truncate to the workspace topN
+   *   6. conservative whole-section expansion (budget-capped, no re-truncate)
+   *
+   * @param {object} params
+   * @param {string[]|null} [params.filterDocIds] - restrict the search to these
+   *   doc_ids (the "업무별 뷰" tag filter, resolved by the caller). null = all.
+   */
   async performSimilaritySearch({
     namespace = null,
     input = "",
@@ -1166,6 +1207,7 @@ class PGVector extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    filterDocIds = null,
     rerank = false,
   }) {
     let connection = null;
@@ -1179,90 +1221,96 @@ class PGVector extends VectorDatabase {
         this.logger(
           `The namespace ${namespace} does not exist or has no vectors. Returning empty results.`
         );
+        return { contextTexts: [], sources: [], message: null };
+      }
+
+      const docIdFilter =
+        Array.isArray(filterDocIds) && filterDocIds.length
+          ? filterDocIds
+          : null;
+
+      // 1. Embed the query. No silent fallback — if this fails the search aborts
+      //    with a visible reason so the operator notices a broken embedder.
+      let queryVector;
+      try {
+        queryVector = await LLMConnector.embedTextInput(input);
+        if (!Array.isArray(queryVector) || queryVector.length === 0)
+          throw new Error("the embedder returned an empty vector");
+      } catch (err) {
+        this.logger(`Query embedding failed: ${err.message}`);
         return {
           contextTexts: [],
           sources: [],
-          message: null,
+          message: `검색어 임베딩 생성에 실패했습니다 (${err.message}). 임베딩 모델 상태를 확인하세요.`,
+          error: err.message,
+          success: false,
         };
       }
 
-      let searchResult = null;
-      const lexicalTerms = PGVector.lexicalSearchTerms(input);
-      const exactDataQuery =
-        lexicalTerms.some((term) => /\d/.test(term)) ||
-        lexicalTerms.some((term) =>
-          ["출하량", "생산량", "판매량", "수량", "금액", "실적"].includes(term)
-        );
-      try {
-        const queryVector = await LLMConnector.embedTextInput(input);
-        const denseResult = rerank
-          ? await this.rerankedSimilarityResponse({
-              client: connection,
-              namespace,
-              query: input,
-              queryVector,
-              similarityThreshold,
-              topN,
-              filterIdentifiers,
-            })
-          : await this.similarityResponse({
-              client: connection,
-              namespace,
-              queryVector,
-              similarityThreshold,
-              topN,
-              filterIdentifiers,
-            });
-        searchResult = exactDataQuery
-          ? await this.#preferLexicalDataMatches({
-              client: connection,
-              namespace,
-              input,
-              denseResult,
-              similarityThreshold,
-              topN,
-              filterIdentifiers,
-            })
-          : denseResult;
-      } catch (err) {
-        this.logger(
-          `Dense search unavailable; using lexical fallback: ${err.message}`
-        );
-      }
+      // 2. Wide dense candidate pull.
+      const candidateK = Math.min(200, Math.max(Number(topN) * 5, 60));
+      const dense = rerank
+        ? await this.rerankedSimilarityResponse({
+            client: connection,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            filterDocIds: docIdFilter,
+          })
+        : await this.similarityResponse({
+            client: connection,
+            namespace,
+            queryVector,
+            similarityThreshold,
+            topN: candidateK,
+            filterIdentifiers,
+            filterDocIds: docIdFilter,
+          });
 
-      if (!searchResult?.contextTexts?.length) {
-        searchResult = await this.lexicalSearchResponse({
-          client: connection,
-          namespace,
-          input,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-        });
-      }
+      // 3. Per-document cap — keep an answer able to synthesize across the
+      //    archive instead of drowning in one file's chunks.
+      const perDocCap = Math.max(
+        1,
+        Number(process.env.SEARCH_PER_DOC_CAP) || 3
+      );
+      let picked = this.#capPerDocument(dense, perDocCap);
 
-      const result = await this.expandSections({
+      // 4. Additive lexical merge — recall safety net for exact names/numbers
+      //    that embed poorly. Only appends documents dense did not return.
+      const lexical = await this.lexicalSearchResponse({
         client: connection,
         namespace,
-        result: searchResult,
+        input,
+        similarityThreshold: 0,
+        topN: Math.max(Number(topN), 10),
+        filterIdentifiers,
+        filterDocIds: docIdFilter,
       });
+      picked = this.#mergeLexicalAdditions(picked, lexical, Number(topN));
 
-      if (result.contextTexts.length > topN) {
-        const ranked = result.sourceDocuments
-          .map((source, index) => ({
-            source,
-            text: result.contextTexts[index],
-          }))
-          .sort((a, b) => (b.source.score || 0) - (a.source.score || 0))
-          .slice(0, topN);
-        result.sourceDocuments = ranked.map((item) => item.source);
-        result.contextTexts = ranked.map((item) => item.text);
-      }
+      // 5. Truncate to the workspace topN.
+      let result = {
+        contextTexts: picked.contextTexts.slice(0, topN),
+        sourceDocuments: picked.sourceDocuments.slice(0, topN),
+        scores: picked.scores.slice(0, topN),
+      };
+
+      // 6. Conservative whole-section expansion. Runs on the final set and its
+      //    additions are NOT re-truncated (that self-defeat is why sections
+      //    never actually expanded before).
+      result = await this.expandSections({
+        client: connection,
+        namespace,
+        result,
+      });
 
       const { contextTexts, sourceDocuments } = result;
-      const sources = sourceDocuments.map((metadata, i) => {
-        return { metadata: { ...metadata, text: contextTexts[i] } };
-      });
+      const sources = sourceDocuments.map((metadata, i) => ({
+        metadata: { ...metadata, text: contextTexts[i] },
+      }));
       return {
         contextTexts,
         sources: this.curateSources(sources),
@@ -1282,55 +1330,55 @@ class PGVector extends VectorDatabase {
     }
   }
 
-  async #preferLexicalDataMatches({
-    client,
-    namespace,
-    input,
-    denseResult,
-    similarityThreshold,
-    topN,
-    filterIdentifiers,
-  }) {
-    const lexical = await this.lexicalSearchResponse({
-      client,
-      namespace,
-      input,
-      similarityThreshold,
-      topN: Math.max(topN, 20),
-      filterIdentifiers,
-    });
-    if (!lexical.contextTexts.length) return denseResult;
+  /**
+   * Keep at most `cap` chunks per source document, preserving the incoming
+   * (dense-ranked) order.
+   */
+  #capPerDocument(
+    { contextTexts = [], sourceDocuments = [], scores = [] },
+    cap
+  ) {
+    const perDoc = new Map();
+    const out = { contextTexts: [], sourceDocuments: [], scores: [] };
+    for (let i = 0; i < sourceDocuments.length; i++) {
+      const src = sourceDocuments[i] || {};
+      const key = src.doc_id || src.title || `_row_${i}`;
+      const seen = perDoc.get(key) || 0;
+      if (seen >= cap) continue;
+      perDoc.set(key, seen + 1);
+      out.contextTexts.push(contextTexts[i]);
+      out.sourceDocuments.push(src);
+      out.scores.push(scores[i] ?? src.score ?? 0);
+    }
+    return out;
+  }
 
-    const rows = [
-      ...lexical.sourceDocuments.map((source, index) => ({
-        source,
-        text: lexical.contextTexts[index],
-        priority: 2,
-      })),
-      ...denseResult.sourceDocuments.map((source, index) => ({
-        source,
-        text: denseResult.contextTexts[index],
-        priority: 1,
-      })),
-    ];
-    const seen = new Set();
-    const unique = rows
-      .sort(
-        (a, b) =>
-          b.priority - a.priority ||
-          (b.source.score || 0) - (a.source.score || 0)
-      )
-      .filter(({ source }) => {
-        const key = `${source.title || ""}|${source.chunk_index ?? ""}|${source.text || ""}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    return {
-      contextTexts: unique.map((row) => row.text),
-      sourceDocuments: unique.map((row) => row.source),
-      scores: unique.map((row) => row.source.score || 0),
+  /**
+   * Append lexical hits for documents the dense result did not include at all.
+   * Dense ordering is untouched; lexical is a recall net, not a re-ranker.
+   */
+  #mergeLexicalAdditions(dense, lexical, topN) {
+    if (!lexical?.sourceDocuments?.length) return dense;
+    const docKey = (s = {}) => s.doc_id || s.title || "";
+    const seenDocs = new Set(dense.sourceDocuments.map(docKey));
+    const out = {
+      contextTexts: [...dense.contextTexts],
+      sourceDocuments: [...dense.sourceDocuments],
+      scores: [...dense.scores],
     };
+    const room = Math.max(0, topN - out.sourceDocuments.length) + 3;
+    let added = 0;
+    for (let i = 0; i < lexical.sourceDocuments.length && added < room; i++) {
+      const src = lexical.sourceDocuments[i];
+      const key = docKey(src);
+      if (!key || seenDocs.has(key)) continue;
+      out.contextTexts.push(lexical.contextTexts[i]);
+      out.sourceDocuments.push(src);
+      out.scores.push(src.score ?? 0);
+      seenDocs.add(key);
+      added++;
+    }
+    return out;
   }
 
   async "namespace-stats"(reqBody = {}) {

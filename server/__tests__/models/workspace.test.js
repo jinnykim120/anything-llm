@@ -97,9 +97,11 @@ describeValidation("similarityThreshold", () => {
 });
 
 describeValidation("topN", () => {
-  it("defaults to 4 for null or undefined", () => {
-    expect(Workspace.validations.topN(null)).toBe(4);
-    expect(Workspace.validations.topN(undefined)).toBe(4);
+  // [auto-docu] default raised 4 -> 12: a single Korean gov/legal section spans
+  // many chunks, and 4 left answers missing most of a section.
+  it("defaults to 12 for null or undefined", () => {
+    expect(Workspace.validations.topN(null)).toBe(12);
+    expect(Workspace.validations.topN(undefined)).toBe(12);
   });
 
   it("parses a valid integer", () => {
@@ -112,8 +114,24 @@ describeValidation("topN", () => {
     expect(Workspace.validations.topN(-3)).toBe(1);
   });
 
-  it("defaults to 4 for NaN input", () => {
-    expect(Workspace.validations.topN("abc")).toBe(4);
+  it("defaults to 12 for NaN input", () => {
+    expect(Workspace.validations.topN("abc")).toBe(12);
+  });
+});
+
+describeValidation("tier", () => {
+  // [auto-docu] sensitivity tier of a workspace. Dormant in the v14 prototype
+  // (no routing) but still validated/stored.
+  it("passes 'general' and 'confidential' through", () => {
+    expect(Workspace.validations.tier("general")).toBe("general");
+    expect(Workspace.validations.tier("confidential")).toBe("confidential");
+  });
+
+  it("returns null for empty, null, undefined, or an unknown value", () => {
+    expect(Workspace.validations.tier("")).toBeNull();
+    expect(Workspace.validations.tier(null)).toBeNull();
+    expect(Workspace.validations.tier(undefined)).toBeNull();
+    expect(Workspace.validations.tier("secret")).toBeNull();
   });
 });
 
