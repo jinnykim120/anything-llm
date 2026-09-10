@@ -33,12 +33,20 @@ skipped). parse_path: pdfjs 52 / ocr 5 / xlsx 5 / hwp-parser 3 / hwpx-owpml 1
 
 ### Answer quality — `eval/answers.mjs --workspace archive-full` (judge claude-sonnet-5)
 
-| metric | P5 pre-tune | P5 post-tune |
-|--------|------------|--------------|
-| faithfulness | 0.975 | **0.998** |
-| completeness | 0.544 | **0.825** |
-| citation accuracy | 0.981 | **0.984** |
-| retrieval hit | 1.000 | 1.000 |
+| metric | P5 pre-tune (8Q) | P5 post-tune (8Q) | polish + refreshed golden (10Q) |
+|--------|------------------|-------------------|---------------------------------|
+| faithfulness | 0.975 | 0.998 | **0.988** |
+| completeness | 0.544 | 0.825 | **0.970** |
+| citation accuracy | 0.981 | 0.984 | **0.982** |
+| retrieval hit | 1.000 | 1.000 | **1.000** |
+
+Final run: all 10 items at or above threshold. `hwp-innovation` completeness
+0.60 → 1.00 after the whole-small-doc expansion (commit `30b76ff4`): when a
+document is clearly the answer (≥2 hits) and short (≤28k chars),
+expandSections pulls the entire document — a short report's facts are spread
+across sections, not one hierarchical 지침 section. Golden set refreshed for
+the 68-doc corpus (stale refusal replaced with a genuine 2027-target refusal;
+added homeshop-linked / franchise-disclosure).
 
 Pre-tune finding: retrieval hit the right **document** every time, but
 "전부 알려줘" questions answered 2 of 5 facts. Two causes, both fixed
