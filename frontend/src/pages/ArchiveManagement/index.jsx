@@ -111,7 +111,9 @@ export default function ArchiveManagement() {
 
   const selectedMode =
     SEARCH_MODES.find((mode) => mode.value === searchMode) || SEARCH_MODES[0];
-  const documentCount = workspace?.documents?.length || 232;
+  const documentCount = Array.isArray(workspace?.documents)
+    ? workspace.documents.length
+    : null;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
@@ -198,8 +200,8 @@ export default function ArchiveManagement() {
               <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-zinc-500">
                 {archiveScope === "전체"
                   ? "전체 문서"
-                  : `${archiveScope} 아카이브`}{" "}
-                · 문서 {documentCount}개
+                  : `${archiveScope} 아카이브`}
+                {documentCount !== null && ` · 문서 ${documentCount}개`}
               </p>
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-500">
                 이 선택값은 작업 화면의 검색·업로드 범위와 즉시 동기화됩니다.

@@ -1,7 +1,11 @@
 import { ArrowRight, PlayCircle, Sparkle } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useLogo from "@/hooks/useLogo";
+import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
+
+const ARCHIVE_SLUG = "archive-full";
 
 const FLOW_STEPS = [
   {
@@ -75,9 +79,21 @@ const DATA_BUBBLES = [
 export default function LandingPage() {
   const navigate = useNavigate();
   const { logo } = useLogo();
+  const [docCount, setDocCount] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    Workspace.bySlug(ARCHIVE_SLUG).then((workspace) => {
+      if (alive && Array.isArray(workspace?.documents))
+        setDocCount(workspace.documents.length);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function openArchive() {
-    navigate(paths.workspace.chat("archive-full"));
+    navigate(paths.workspace.chat(ARCHIVE_SLUG));
   }
 
   return (
@@ -160,7 +176,10 @@ export default function LandingPage() {
             </div>
           </div>
           <p className="mt-5 text-xs leading-6 text-slate-500 light:text-slate-500 dark:text-zinc-500">
-            현재 연결된 아카이브 · 문서 232개 · 원본 위치 추적 가능
+            현재 연결된 아카이브
+            {docCount !== null &&
+              ` · 문서 ${docCount.toLocaleString("ko-KR")}개`}
+            {" · 원본 위치 추적 가능"}
           </p>
         </div>
 

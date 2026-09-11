@@ -312,9 +312,10 @@ function WorkspaceArchiveSidebar({ slug }) {
           />
         </label>
         <p className="mt-2 text-[11px] text-slate-500 light:text-slate-500 dark:text-zinc-500">
-          {archiveScope === "전체" ? "전체 문서" : `${archiveScope} 아카이브`} ·
-          문서 {workspace?.documents?.length || 232}개 ·{" "}
-          {searchMode === "rerank" ? "정밀 검색 · ONNX" : "기본 검색"}
+          {archiveScope === "전체" ? "전체 문서" : `${archiveScope} 아카이브`}
+          {Array.isArray(workspace?.documents) &&
+            ` · 문서 ${workspace.documents.length}개`}{" "}
+          · {searchMode === "rerank" ? "정밀 검색 · ONNX" : "기본 검색"}
         </p>
       </div>
 

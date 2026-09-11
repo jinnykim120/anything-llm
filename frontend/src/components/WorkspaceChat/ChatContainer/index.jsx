@@ -535,8 +535,10 @@ export default function ChatContainer({
                 <div className="flex flex-col items-center w-full max-w-[750px]">
                   {isArchive && (
                     <div className="mb-5 inline-flex items-center rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] font-medium text-slate-500 shadow-sm backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-400">
-                      {archiveScopeLabel(archiveScope)} · 문서{" "}
-                      {workspace?.documents?.length || 232}개 ·{" "}
+                      {archiveScopeLabel(archiveScope)}
+                      {Array.isArray(workspace?.documents) &&
+                        ` · 문서 ${workspace.documents.length}개`}{" "}
+                      ·{" "}
                       {archiveSearchMode === "rerank"
                         ? "정밀 검색 · ONNX"
                         : "기본 검색"}
