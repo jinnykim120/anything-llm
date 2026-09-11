@@ -17,6 +17,7 @@ import {
   draftBodyHtml,
   downloadDraftHtml,
   extractDraftTitle,
+  detectDesignRequest,
   DRAFT_ACCENT,
 } from "./exporters";
 
@@ -54,9 +55,10 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [mode, setMode] = useState(null);
   const [instructions, setInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [draft, setDraft] = useState(null); // { markdown, title }
+  const [draft, setDraft] = useState(null); // { markdown, title, designed }
   const [editing, setEditing] = useState(false);
 
+  const designed = !!draft?.designed;
   const accent = DRAFT_ACCENT[mode] || DRAFT_ACCENT.report;
   const displayTitle = draft
     ? extractDraftTitle(draft.markdown, draft.title)
@@ -86,6 +88,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
     setDraft({
       markdown: res.draft,
       title: res.title || `${MODE_LABEL[mode]} 초안`,
+      designed: detectDesignRequest(instructions),
     });
     showToast(
       "초안이 생성되었습니다. 필요하면 내용을 직접 수정할 수 있습니다.",
@@ -104,6 +107,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
       title: draft.title,
       modeLabel: MODE_LABEL[mode],
       mode,
+      designed,
     });
     showToast("HTML 파일을 내려받았습니다.", "success");
   }
@@ -194,11 +198,15 @@ export default function DraftPanel({ source, workspace, onClose }) {
               <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
                 추가 요청 사항 (선택)
               </span>
+              <span className="text-[11px] text-slate-400 dark:text-zinc-500">
+                기본은 텍스트 중심으로 만들어지고, "디자인 요소를 추가해줘"처럼
+                요청하면 색이 들어간 스타일로 만들어 드립니다.
+              </span>
               <textarea
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
                 rows={4}
-                placeholder="예: A4 1장 분량으로 / 핵심만 간결하게 / 수신처는 OO부 / 마지막에 건의사항 강조"
+                placeholder="예: 색상 강조 같은 디자인 요소를 추가해줘 / A4 1장 분량으로 / 핵심만 간결하게 / 수신처는 OO부"
                 className="resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
               />
             </label>
@@ -258,14 +266,26 @@ export default function DraftPanel({ source, workspace, onClose }) {
               </div>
             ) : (
               <>
-                <DraftCover mode={mode} title={displayTitle} accent={accent} />
+                {designed && (
+                  <DraftCover
+                    mode={mode}
+                    title={displayTitle}
+                    accent={accent}
+                  />
+                )}
                 <div
-                  className="draft-preview rounded-b-lg border border-t-0 border-slate-200 bg-white px-5 py-4 text-sm leading-7 text-slate-800"
-                  style={{
-                    "--accent": accent.accent,
-                    "--accent-soft": accent.accentSoft,
-                    "--accent-dark": accent.accentDark,
-                  }}
+                  className={`draft-preview rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm leading-7 text-slate-800 ${
+                    designed ? "designed rounded-t-none border-t-0" : ""
+                  }`}
+                  style={
+                    designed
+                      ? {
+                          "--accent": accent.accent,
+                          "--accent-soft": accent.accentSoft,
+                          "--accent-dark": accent.accentDark,
+                        }
+                      : undefined
+                  }
                   dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               </>

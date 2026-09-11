@@ -1,10 +1,13 @@
 // [auto-docu 목표 3] 초안 내보내기. 지금은 HTML 만 동작하고, docx/xlsx 는
 // 준비 중(버튼 비활성)이다.
+//
+// 기본값은 텍스트 위주의 수수한 스타일(피드백: "기존 게 더 좋다") — 색이
+// 들어간 카드형 디자인은 사용자가 추가 요청란에 명시적으로 요청할 때만.
 import MarkdownIt from "markdown-it";
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
 
-// 유형별 강조 색 — 미리보기(.draft-preview)와 다운로드 HTML이 같은 톤을 쓴다.
+// 유형별 강조 색 — "디자인 요소" 요청이 있을 때만 쓰인다.
 export const DRAFT_ACCENT = {
   report: { accent: "#2563eb", accentSoft: "#eff6ff", accentDark: "#1e40af" },
   external: { accent: "#0f766e", accentSoft: "#f0fdfa", accentDark: "#115e59" },
@@ -12,6 +15,28 @@ export const DRAFT_ACCENT = {
 
 function accentFor(mode) {
   return DRAFT_ACCENT[mode] || DRAFT_ACCENT.report;
+}
+
+// 추가 요청 문구에 이 중 하나라도 있으면 색이 들어간 디자인 테마를 적용한다.
+const DESIGN_KEYWORDS = [
+  "디자인",
+  "색상",
+  "컬러",
+  "칼라",
+  "포인트컬러",
+  "이쁘게",
+  "예쁘게",
+  "꾸며",
+  "강조 박스",
+  "비주얼",
+  "화려하게",
+  "표지",
+];
+
+/** 사용자의 추가 요청 문구에서 "디자인 요소를 넣어달라"는 의도를 감지한다. */
+export function detectDesignRequest(instructions = "") {
+  const s = String(instructions || "");
+  return DESIGN_KEYWORDS.some((k) => s.includes(k));
 }
 
 function escapeHtml(str = "") {
@@ -47,9 +72,38 @@ export function extractDraftTitle(markdown = "", fallback = "문서 초안") {
   return line.replace(/^#\s+/, "").trim() || fallback;
 }
 
-// 카드형 섹션(##), 강조 표, 색 포인트를 넣어 "보고서/공문답게" 보이도록 하는
-// 공통 스타일. accent 색만 유형별로 바뀐다.
-function themeCss({ accent, accentSoft, accentDark }) {
+// 기본 테마 — 수수한 흑백 위주, 텍스트가 중심.
+const PLAIN_CSS = `
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    max-width: 820px;
+    margin: 48px auto;
+    padding: 0 24px;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 1.7em; border-bottom: 2px solid #222; padding-bottom: .3em; margin: 0 0 .8em; }
+  h2 { font-size: 1.3em; margin: 1.8em 0 .6em; border-left: 4px solid #2563eb; padding-left: .5em; }
+  h3 { font-size: 1.1em; margin: 1.4em 0 .5em; }
+  p { margin: .6em 0; }
+  ul, ol { margin: .6em 0; padding-left: 1.4em; }
+  li { margin: .25em 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
+  th, td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; }
+  th { background: #f1f5f9; }
+  blockquote { margin: 1em 0; padding: .4em 1em; border-left: 3px solid #94a3b8; color: #475569; }
+  code { background: #f1f5f9; padding: .1em .35em; border-radius: 3px; font-size: .9em; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 2em 0; }
+  .doc-meta { color: #64748b; font-size: .85em; margin-bottom: 2.4em; }
+  @media print { body { margin: 0; } }
+`;
+
+// 디자인 테마 — 색 포인트 카드형. "디자인 요소" 요청이 있을 때만.
+function designedCss({ accent, accentSoft, accentDark }) {
   return `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -151,27 +205,45 @@ export function draftBodyHtml(markdown = "") {
 }
 
 /**
- * Build a standalone, self-contained, "디자인이 입혀진" HTML document string
- * from the draft markdown — a colored cover band + themed sections, not a
- * bare markdown dump.
+ * Build a standalone, self-contained HTML document string from the draft
+ * markdown. `designed: true` switches to the colored cover+theme variant —
+ * default is the plain, text-first layout.
  */
 export function draftToHtml({
   markdown = "",
   title = "문서 초안",
   modeLabel = "",
   mode = "report",
+  designed = false,
 }) {
   const body = md.render(markdown || "");
   const stamp = new Date().toLocaleString("ko-KR");
-  const { accent, accentSoft, accentDark } = accentFor(mode);
   const resolvedTitle = extractDraftTitle(markdown, title);
+
+  if (!designed) {
+    return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(resolvedTitle)}</title>
+<style>${PLAIN_CSS}</style>
+</head>
+<body>
+<div class="doc-meta">${escapeHtml(modeLabel)}${modeLabel ? " · " : ""}생성: ${escapeHtml(stamp)} · Document Expansion LLM</div>
+${body}
+</body>
+</html>`;
+  }
+
+  const { accent, accentSoft, accentDark } = accentFor(mode);
   return `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(resolvedTitle)}</title>
-<style>${themeCss({ accent, accentSoft, accentDark })}</style>
+<style>${designedCss({ accent, accentSoft, accentDark })}</style>
 </head>
 <body>
 <div class="doc-cover">
@@ -188,8 +260,14 @@ ${body}
 }
 
 /** Trigger a browser download of the draft as an .html file. */
-export function downloadDraftHtml({ markdown, title, modeLabel, mode }) {
-  const html = draftToHtml({ markdown, title, modeLabel, mode });
+export function downloadDraftHtml({
+  markdown,
+  title,
+  modeLabel,
+  mode,
+  designed,
+}) {
+  const html = draftToHtml({ markdown, title, modeLabel, mode, designed });
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
