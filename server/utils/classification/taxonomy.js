@@ -61,15 +61,7 @@ function normalizeWorkType(value) {
 }
 
 const BUSINESS_UNIT = {
-  suggested: [
-    "전사",
-    "유통BU",
-    "홈쇼핑BU",
-    "편의점BU",
-    "수퍼마켓BU",
-    "정책지원팀",
-    "기타",
-  ],
+  suggested: ["홈쇼핑BU", "편의점BU", "수퍼마켓BU"],
 };
 
 const DOMAIN = {
