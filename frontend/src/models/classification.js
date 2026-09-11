@@ -38,6 +38,26 @@ const Classification = {
       .catch((e) => ({ error: e.message }));
   },
 
+  deleteDocType: async (value) => {
+    return await fetch(`${API_BASE}/classification/taxonomy/doc-type`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+      body: JSON.stringify({ value }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+
+  deleteAxisValue: async (axis, value) => {
+    return await fetch(`${API_BASE}/classification/taxonomy/axis`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+      body: JSON.stringify({ axis, value }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+
   documents: async (workspace = null) => {
     const query = workspace
       ? `?workspace=${encodeURIComponent(workspace)}`

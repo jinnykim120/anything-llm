@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle, Warning, Broom } from "@phosphor-icons/react";
+import { CheckCircle, Warning, Broom, Trash } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import showToast from "@/utils/toast";
 import Classification from "@/models/classification";
@@ -31,6 +31,7 @@ export default function DocRow({
   const [addingAxis, setAddingAxis] = useState(null);
   const [newAxisValue, setNewAxisValue] = useState("");
   const [savingAxis, setSavingAxis] = useState(false);
+  const [deletingValue, setDeletingValue] = useState(null);
 
   useEffect(() => {
     if (!cls) return;
@@ -135,29 +136,93 @@ export default function DocRow({
     onTaxonomyUpdated?.(res.taxonomy);
   }
 
+  const AXIS_LABEL = {
+    workType: "업무 분류",
+    businessUnit: "사업부",
+    domain: "분야",
+  };
+
+  async function removeAxisValue(axis, value, setValue) {
+    const v = (value || "").trim();
+    if (!v) return;
+    if (
+      !window.confirm(
+        `${AXIS_LABEL[axis] || "분류"} 항목 “${v}”을(를) 삭제할까요?\n확정된 문서가 이 항목을 쓰고 있으면 삭제되지 않습니다.`
+      )
+    )
+      return;
+    setDeletingValue(`${axis}:${v}`);
+    const res = await Classification.deleteAxisValue(axis, v);
+    setDeletingValue(null);
+    if (res?.error) return showToast(res.error, "error");
+    if ((value || "") === v) setValue("");
+    onTaxonomyUpdated?.(res.taxonomy);
+    showToast(`“${v}” 분류 항목을 삭제했습니다.`, "success");
+  }
+
+  async function removeDocumentType(value) {
+    const v = (value || "").trim();
+    if (!v) return;
+    if (
+      !window.confirm(
+        `문서 종류 “${v}”을(를) 삭제할까요?\n확정된 문서가 이 종류를 쓰고 있으면 삭제되지 않습니다.`
+      )
+    )
+      return;
+    setDeletingValue(`docType:${v}`);
+    const res = await Classification.deleteDocType(v);
+    setDeletingValue(null);
+    if (res?.error) return showToast(res.error, "error");
+    if ((docType || "") === v) setDocType("");
+    onTaxonomyUpdated?.(res.taxonomy);
+    showToast(`“${v}” 문서 종류를 삭제했습니다.`, "success");
+  }
+
+  function renderDeleteButton({ onClick, busy, title }) {
+    return (
+      <button
+        type="button"
+        title={title}
+        onClick={onClick}
+        disabled={busy}
+        className="shrink-0 rounded-md border border-white/10 p-1.5 text-theme-text-secondary hover:text-red-400 hover:border-red-400/40 disabled:opacity-40"
+      >
+        <Trash className="h-3.5 w-3.5" />
+      </button>
+    );
+  }
+
   function axisSelect(axis, value, setValue, options, allowCustom = true) {
     return (
       <>
-        <select
-          value={value}
-          onChange={(event) => {
-            if (event.target.value === "__custom__") {
-              setAddingAxis(axis);
-              setNewAxisValue("");
-              return;
-            }
-            setValue(event.target.value);
-          }}
-          className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-        >
-          <option value="">— 선택 —</option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-          {allowCustom && <option value="__custom__">＋ 직접 추가…</option>}
-        </select>
+        <div className="flex items-center gap-1">
+          <select
+            value={value}
+            onChange={(event) => {
+              if (event.target.value === "__custom__") {
+                setAddingAxis(axis);
+                setNewAxisValue("");
+                return;
+              }
+              setValue(event.target.value);
+            }}
+            className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+          >
+            <option value="">— 선택 —</option>
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+            {allowCustom && <option value="__custom__">＋ 직접 추가…</option>}
+          </select>
+          {!!value &&
+            renderDeleteButton({
+              busy: deletingValue === `${axis}:${value}`,
+              title: `“${value}” 분류 항목 삭제`,
+              onClick: () => removeAxisValue(axis, value, setValue),
+            })}
+        </div>
         {addingAxis === axis && (
           <div className="mt-1 flex gap-1">
             <input
@@ -348,19 +413,28 @@ export default function DocRow({
         </label>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">종류</span>
-          <select
-            value={addingDocType ? "__custom__" : docType}
-            onChange={(e) => selectDocType(e.target.value)}
-            className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-          >
-            <option value="">— 선택 —</option>
-            {docTypeOptions.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-            <option value="__custom__">＋ 문서 종류 직접 추가…</option>
-          </select>
+          <div className="flex items-center gap-1">
+            <select
+              value={addingDocType ? "__custom__" : docType}
+              onChange={(e) => selectDocType(e.target.value)}
+              className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+            >
+              <option value="">— 선택 —</option>
+              {docTypeOptions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+              <option value="__custom__">＋ 문서 종류 직접 추가…</option>
+            </select>
+            {!!docType &&
+              !addingDocType &&
+              renderDeleteButton({
+                busy: deletingValue === `docType:${docType}`,
+                title: `“${docType}” 문서 종류 삭제`,
+                onClick: () => removeDocumentType(docType),
+              })}
+          </div>
           {addingDocType && (
             <div className="flex gap-1">
               <input

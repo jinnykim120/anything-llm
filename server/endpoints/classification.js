@@ -19,6 +19,7 @@ const {
   DOC_TYPE,
   WORK_TYPE,
   BUSINESS_UNIT,
+  DOMAIN,
 } = require("../utils/classification/taxonomy");
 const { DocumentClassification } = require("../models/documentClassification");
 const { Document } = require("../models/documents");
@@ -264,6 +265,118 @@ function classificationEndpoints(app) {
         });
       } catch (e) {
         console.error("POST /classification/taxonomy/axis", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  // [auto-docu] Delete a custom classification value. Blocked if a CONFIRMED
+  // document still uses it (the user must re-classify those first). Base
+  // (suggested) values cannot be deleted. On success the value is also cleared
+  // from any non-confirmed (proposed) rows so it stops reappearing.
+  const AXIS_FIELD = {
+    workType: "workType",
+    businessUnit: "businessUnit",
+    domain: "domain",
+  };
+  const AXIS_SUGGESTED = {
+    workType: WORK_TYPE.suggested,
+    businessUnit: BUSINESS_UNIT.suggested,
+    domain: DOMAIN.suggested,
+  };
+
+  async function deleteTaxonomyValue({
+    field,
+    settingLabel,
+    suggested,
+    value,
+  }) {
+    const v = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!v) return { status: 400, error: "삭제할 항목을 지정하세요." };
+    if ((suggested || []).includes(v))
+      return {
+        status: 400,
+        error: `"${v}"은(는) 기본 분류 항목이라 삭제할 수 없습니다.`,
+      };
+
+    const confirmedCount = await prisma.document_classifications
+      .count({ where: { [field]: v, status: "confirmed" } })
+      .catch(() => 0);
+    if (confirmedCount > 0)
+      return {
+        status: 409,
+        error: `"${v}"(으)로 이미 확정된 문서가 ${confirmedCount}건 있어 삭제할 수 없습니다. 먼저 해당 문서의 분류를 변경한 뒤 다시 시도하세요.`,
+      };
+
+    const current =
+      field === "docType"
+        ? await storedDocumentTypes()
+        : await storedAxisValues(settingLabel);
+    const next = current.filter((x) => x !== v);
+    await prisma.system_settings.upsert({
+      where: { label: settingLabel },
+      update: { value: JSON.stringify(next) },
+      create: { label: settingLabel, value: JSON.stringify(next) },
+    });
+    await prisma.document_classifications
+      .updateMany({
+        where: { [field]: v, status: { not: "confirmed" } },
+        data: { [field]: field === "workType" ? "기타" : null },
+      })
+      .catch(() => {});
+    return { status: 200 };
+  }
+
+  app.delete(
+    "/classification/taxonomy/doc-type",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const result = await deleteTaxonomyValue({
+          field: "docType",
+          settingLabel: CUSTOM_DOC_TYPES_SETTING,
+          suggested: DOC_TYPE.suggested,
+          value: reqBody(request).value,
+        });
+        if (result.error)
+          return response.status(result.status).json({ error: result.error });
+        response
+          .status(200)
+          .json({ taxonomy: await taxonomyWithDocumentTypes() });
+      } catch (e) {
+        console.error("DELETE /classification/taxonomy/doc-type", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  app.delete(
+    "/classification/taxonomy/axis",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { axis, value } = reqBody(request);
+        const field = AXIS_FIELD[axis];
+        const settingLabel = CUSTOM_AXIS_SETTINGS[axis];
+        if (!field || !settingLabel)
+          return response
+            .status(400)
+            .json({ error: "유효하지 않은 분류 축입니다." });
+        const result = await deleteTaxonomyValue({
+          field,
+          settingLabel,
+          suggested: AXIS_SUGGESTED[axis],
+          value,
+        });
+        if (result.error)
+          return response.status(result.status).json({ error: result.error });
+        response
+          .status(200)
+          .json({ taxonomy: await taxonomyWithDocumentTypes() });
+      } catch (e) {
+        console.error("DELETE /classification/taxonomy/axis", e);
         response.status(500).json({ error: e.message });
       }
     }

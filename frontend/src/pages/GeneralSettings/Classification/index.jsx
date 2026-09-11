@@ -50,7 +50,8 @@ export default function ClassificationReview() {
     docType: "all",
     domain: "all",
     status: "all",
-    sort: "latest",
+    // 기본값: 미확정 문서를 위로, 그 안에서 최신순.
+    sort: "review",
   });
 
   async function load() {
@@ -227,7 +228,19 @@ export default function ClassificationReview() {
       );
     });
 
+    const dateOf = (doc) =>
+      new Date(
+        doc.classification?.updatedAt || doc.updatedAt || doc.createdAt || 0
+      ).getTime();
+
     return filtered.sort((a, b) => {
+      if (filters.sort === "review") {
+        // 미확정(검수 필요) 문서를 위로, 그 안에서는 최신순.
+        const needsRank = (doc) => (needsClassificationReview(doc) ? 0 : 1);
+        if (needsRank(a) !== needsRank(b)) return needsRank(a) - needsRank(b);
+        return dateOf(b) - dateOf(a);
+      }
+
       if (filters.sort === "title")
         return String(a.title || "").localeCompare(String(b.title || ""), "ko");
 
@@ -241,10 +254,6 @@ export default function ClassificationReview() {
         return statusRank(a) - statusRank(b);
       }
 
-      const dateOf = (doc) =>
-        new Date(
-          doc.classification?.updatedAt || doc.updatedAt || doc.createdAt || 0
-        ).getTime();
       return filters.sort === "oldest"
         ? dateOf(a) - dateOf(b)
         : dateOf(b) - dateOf(a);
@@ -278,7 +287,7 @@ export default function ClassificationReview() {
       docType: "all",
       domain: "all",
       status: "all",
-      sort: "latest",
+      sort: "review",
     });
   }
 
@@ -526,6 +535,7 @@ export default function ClassificationReview() {
                   aria-label="문서 정렬"
                   className="bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
                 >
+                  <option value="review">정렬: 미확정 먼저</option>
                   <option value="latest">정렬: 최신순</option>
                   <option value="oldest">정렬: 오래된순</option>
                   <option value="status">정렬: 검수 상태순</option>
