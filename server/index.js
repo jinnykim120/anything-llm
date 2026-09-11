@@ -26,6 +26,7 @@ const { bootHTTP, bootSSL } = require("./utils/boot");
 const { workspaceThreadEndpoints } = require("./endpoints/workspaceThreads");
 const { documentEndpoints } = require("./endpoints/document");
 const { classificationEndpoints } = require("./endpoints/classification");
+const { draftEndpoints } = require("./endpoints/draft");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -92,6 +93,7 @@ embedManagementEndpoints(apiRouter);
 utilEndpoints(apiRouter);
 documentEndpoints(apiRouter);
 classificationEndpoints(apiRouter);
+draftEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);

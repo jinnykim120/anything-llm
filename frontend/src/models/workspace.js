@@ -284,6 +284,19 @@ const Workspace = {
       .then((res) => res.ok)
       .catch(() => false);
   },
+  // [auto-docu 목표 3] Generate a document draft from a chat answer.
+  generateDraft: async function (
+    slug,
+    { sourceText, citations = [], mode, instructions = "" }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/draft`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ sourceText, citations, mode, instructions }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
   uploadFile: async function (slug, formData) {
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {
       method: "POST",

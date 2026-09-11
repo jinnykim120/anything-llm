@@ -1,6 +1,7 @@
 import React, { memo, useLayoutEffect, useRef, useState } from "react";
-import { Info, Warning } from "@phosphor-icons/react";
+import { Info, Warning, FileText } from "@phosphor-icons/react";
 import Actions from "./Actions";
+import { openDraftPanel } from "../../DraftPanel";
 import renderMarkdown from "@/utils/chat/markdown";
 import Citations from "../Citation";
 import { v4 } from "uuid";
@@ -204,10 +205,30 @@ const HistoricalMessage = ({
           </div>
         )}
         {role === "assistant" && <Citations sources={sources} />}
+        {role === "assistant" &&
+          workspace?.slug === "archive-full" &&
+          !isRefusalMessage &&
+          hasVisibleContent(message) && (
+            <DraftLaunchButton message={message} sources={sources} />
+          )}
       </div>
     </div>
   );
 };
+
+// [auto-docu 목표 3] 답변 아래의 "문서 작성" 버튼 — 채팅 화면을 상하로 분할해
+// 이 답변을 근거로 보고용/대외기관용 초안을 작성하는 패널을 연다.
+function DraftLaunchButton({ message, sources }) {
+  return (
+    <button
+      type="button"
+      onClick={() => openDraftPanel({ message, sources })}
+      className="mt-2 flex w-fit items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-blue-600 dark:hover:text-blue-300"
+    >
+      <FileText size={13} weight="bold" /> 이 답변으로 문서 작성
+    </button>
+  );
+}
 
 export default memo(
   HistoricalMessage,

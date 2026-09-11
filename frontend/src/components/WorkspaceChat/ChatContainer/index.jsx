@@ -39,6 +39,7 @@ import { ChatSidebarProvider } from "./ChatSidebar";
 import SourcesSidebar from "./SourcesSidebar";
 import MemoriesSidebar from "./MemoriesSidebar";
 import ActiveGenerationGuard from "./ActiveGenerationGuard";
+import DraftPanel, { ARCHIVE_DRAFT_EVENT } from "./DraftPanel";
 
 function archiveScopeLabel(scope) {
   return scope === "전체" ? "전체 문서" : `${scope} 아카이브`;
@@ -66,6 +67,8 @@ export default function ChatContainer({
   const [archiveSearchMode, setArchiveSearchMode] = useState(
     workspace?.vectorSearchMode || "default"
   );
+  // [auto-docu 목표 3] 답변을 근거로 문서 초안을 작성하는 하단 분할 패널.
+  const [draftSource, setDraftSource] = useState(null);
 
   const isEmpty =
     chatHistory.length === 0 && !sessionStorage.getItem(PENDING_HOME_MESSAGE);
@@ -95,6 +98,21 @@ export default function ChatContainer({
       );
     };
   }, []);
+
+  // [auto-docu 목표 3] "이 답변으로 문서 작성" 버튼이 쏘는 이벤트를 받아
+  // 하단 분할 패널을 연다.
+  useEffect(() => {
+    function handleOpenDraft(event) {
+      setDraftSource(event.detail || null);
+    }
+    window.addEventListener(ARCHIVE_DRAFT_EVENT, handleOpenDraft);
+    return () =>
+      window.removeEventListener(ARCHIVE_DRAFT_EVENT, handleOpenDraft);
+  }, []);
+
+  useEffect(() => {
+    setDraftSource(null);
+  }, [workspace?.slug, activeThreadSlug]);
 
   /**
    * Keep chat history bottom-padding in sync with the prompt input's
@@ -633,35 +651,52 @@ export default function ChatContainer({
         >
           {isMobile && <SidebarMobileHeader />}
           <WorkspaceModelPicker workspaceSlug={workspace.slug} />
-          <DnDFileUploaderWrapper archiveMode={isArchive}>
-            <div className="flex flex-col h-full w-full pb-20 md:pb-0">
-              <div className="contents">
-                <MetricsProvider>
-                  <ChatHistory
-                    ref={chatHistoryRef}
-                    history={chatHistory}
-                    workspace={workspace}
-                    sendCommand={sendCommand}
-                    updateHistory={setChatHistory}
-                    regenerateAssistantMessage={regenerateAssistantMessage}
-                    websocket={websocket}
-                  />
-                </MetricsProvider>
-                <PromptInput
-                  workspace={workspace}
-                  submit={handleSubmit}
-                  isStreaming={loadingResponse}
-                  sendCommand={sendCommand}
-                  attachments={files}
-                  centered={false}
-                  archiveMode={isArchive}
-                  placeholder={
-                    isArchive ? "문서에 대해 질문해 보세요." : undefined
-                  }
-                />
-              </div>
+          <div className="flex h-full w-full flex-col">
+            <div
+              className={
+                draftSource
+                  ? "relative min-h-0 flex-1 overflow-hidden"
+                  : "contents"
+              }
+            >
+              <DnDFileUploaderWrapper archiveMode={isArchive}>
+                <div className="flex flex-col h-full w-full pb-20 md:pb-0">
+                  <div className="contents">
+                    <MetricsProvider>
+                      <ChatHistory
+                        ref={chatHistoryRef}
+                        history={chatHistory}
+                        workspace={workspace}
+                        sendCommand={sendCommand}
+                        updateHistory={setChatHistory}
+                        regenerateAssistantMessage={regenerateAssistantMessage}
+                        websocket={websocket}
+                      />
+                    </MetricsProvider>
+                    <PromptInput
+                      workspace={workspace}
+                      submit={handleSubmit}
+                      isStreaming={loadingResponse}
+                      sendCommand={sendCommand}
+                      attachments={files}
+                      centered={false}
+                      archiveMode={isArchive}
+                      placeholder={
+                        isArchive ? "문서에 대해 질문해 보세요." : undefined
+                      }
+                    />
+                  </div>
+                </div>
+              </DnDFileUploaderWrapper>
             </div>
-          </DnDFileUploaderWrapper>
+            {isArchive && draftSource && (
+              <DraftPanel
+                source={draftSource}
+                workspace={workspace}
+                onClose={() => setDraftSource(null)}
+              />
+            )}
+          </div>
           <ChatTooltips />
         </div>
         <SourcesSidebar />
