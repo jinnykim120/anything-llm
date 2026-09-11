@@ -10,3 +10,7 @@ aws_cf_deploy_anything_llm.json
 yarn.lock
 *.bak
 .idea
+
+# local dev server logs (run-local / manual restarts)
+server/.server-out.log
+server/.server-err.log

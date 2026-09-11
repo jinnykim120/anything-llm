@@ -7,11 +7,18 @@ import {
   FileDoc,
   FileXls,
   CircleNotch,
+  PencilSimple,
+  Eye,
 } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import DOMPurify from "@/utils/chat/purify";
-import { draftBodyHtml, downloadDraftHtml } from "./exporters";
+import {
+  draftBodyHtml,
+  downloadDraftHtml,
+  extractDraftTitle,
+  DRAFT_ACCENT,
+} from "./exporters";
 
 // [auto-docu 목표 3] 검색 답변 아래에서 열리는 하단 분할 패널.
 // 답변 액션줄의 "문서 작성" 버튼이 아래 이벤트를 쏘면 ChatContainer 가 이 패널을 띄운다.
@@ -48,7 +55,12 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [instructions, setInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState(null); // { markdown, title }
+  const [editing, setEditing] = useState(false);
 
+  const accent = DRAFT_ACCENT[mode] || DRAFT_ACCENT.report;
+  const displayTitle = draft
+    ? extractDraftTitle(draft.markdown, draft.title)
+    : "";
   const previewHtml = useMemo(
     () => (draft ? DOMPurify.sanitize(draftBodyHtml(draft.markdown)) : ""),
     [draft]
@@ -58,6 +70,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
     if (!mode) return;
     setGenerating(true);
     setDraft(null);
+    setEditing(false);
     const res = await Workspace.generateDraft(workspace.slug, {
       sourceText: source.message,
       citations: source.sources || [],
@@ -74,7 +87,14 @@ export default function DraftPanel({ source, workspace, onClose }) {
       markdown: res.draft,
       title: res.title || `${MODE_LABEL[mode]} 초안`,
     });
-    showToast("초안이 생성되었습니다.", "success");
+    showToast(
+      "초안이 생성되었습니다. 필요하면 내용을 직접 수정할 수 있습니다.",
+      "success"
+    );
+  }
+
+  function updateDraftMarkdown(value) {
+    setDraft((prev) => (prev ? { ...prev, markdown: value } : prev));
   }
 
   function downloadHtml() {
@@ -83,6 +103,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
       markdown: draft.markdown,
       title: draft.title,
       modeLabel: MODE_LABEL[mode],
+      mode,
     });
     showToast("HTML 파일을 내려받았습니다.", "success");
   }
@@ -95,19 +116,41 @@ export default function DraftPanel({ source, workspace, onClose }) {
           <Sparkle size={16} weight="fill" className="text-blue-500" />
           문서 초안 작성
           {mode && (
-            <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-300">
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+              style={{ background: `${accent.accent}1a`, color: accent.accent }}
+            >
               {MODES.find((m) => m.key === mode)?.label}
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800"
-          aria-label="초안 패널 닫기"
-        >
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          {draft && !generating && (
+            <button
+              type="button"
+              onClick={() => setEditing((v) => !v)}
+              className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-300"
+            >
+              {editing ? (
+                <>
+                  <Eye size={12} /> 미리보기
+                </>
+              ) : (
+                <>
+                  <PencilSimple size={12} /> 내용 수정
+                </>
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800"
+            aria-label="초안 패널 닫기"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {/* 본문 */}
@@ -179,20 +222,54 @@ export default function DraftPanel({ source, workspace, onClose }) {
           </div>
         )}
 
-        {/* 결과 */}
+        {/* 결과: 미리보기(디자인 적용) 또는 편집 */}
         {draft && !generating && (
           <div className="mx-auto max-w-2xl">
             <button
               type="button"
-              onClick={() => setDraft(null)}
+              onClick={() => {
+                setDraft(null);
+                setEditing(false);
+              }}
               className="mb-2 flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
             >
               <ArrowLeft size={12} /> 요청 수정 / 다시 생성
             </button>
-            <div
-              className="draft-preview rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm leading-7 text-slate-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
-            />
+
+            {editing ? (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                  마크다운으로 직접 수정합니다. 첫 줄의{" "}
+                  <code className="rounded bg-slate-100 px-1 dark:bg-zinc-800">
+                    #
+                  </code>{" "}
+                  은 제목,{" "}
+                  <code className="rounded bg-slate-100 px-1 dark:bg-zinc-800">
+                    ##
+                  </code>{" "}
+                  은 소제목입니다.
+                </p>
+                <textarea
+                  value={draft.markdown}
+                  onChange={(e) => updateDraftMarkdown(e.target.value)}
+                  rows={16}
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </div>
+            ) : (
+              <>
+                <DraftCover mode={mode} title={displayTitle} accent={accent} />
+                <div
+                  className="draft-preview rounded-b-lg border border-t-0 border-slate-200 bg-white px-5 py-4 text-sm leading-7 text-slate-800"
+                  style={{
+                    "--accent": accent.accent,
+                    "--accent-soft": accent.accentSoft,
+                    "--accent-dark": accent.accentDark,
+                  }}
+                  dangerouslySetInnerHTML={{ __html: previewHtml }}
+                />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -214,6 +291,26 @@ export default function DraftPanel({ source, workspace, onClose }) {
           <DisabledExport icon={FileXls} label="XLSX" />
         </div>
       )}
+    </div>
+  );
+}
+
+/** 다운로드되는 HTML의 표지 배너와 같은 모양을 패널 안에서 미리 보여준다. */
+function DraftCover({ mode, title, accent }) {
+  return (
+    <div
+      className="rounded-t-lg px-5 py-4 text-white"
+      style={{
+        background: `linear-gradient(135deg, ${accent.accent}, ${accent.accentDark})`,
+      }}
+    >
+      <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+        {MODE_LABEL[mode] || "문서 초안"}
+      </span>
+      <h3 className="mt-1.5 text-base font-extrabold leading-snug">{title}</h3>
+      <p className="mt-0.5 text-[11px] text-white/80">
+        {new Date().toLocaleString("ko-KR")} · Document Expansion LLM
+      </p>
     </div>
   );
 }
