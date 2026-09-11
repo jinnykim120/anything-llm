@@ -14,3 +14,7 @@ yarn.lock
 # local dev server logs (run-local / manual restarts)
 server/.server-out.log
 server/.server-err.log
+collector/.collector-out.log
+collector/.collector-err.log
+frontend/.frontend-out.log
+frontend/.frontend-err.log

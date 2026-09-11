@@ -138,39 +138,6 @@ const Classification = {
       .catch((e) => ({ error: e.message }));
   },
 
-  move: async (contentHash, fromWorkspace, toWorkspace) => {
-    return await fetch(`${API_BASE}/classification/${contentHash}/move`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ fromWorkspace, toWorkspace }),
-    })
-      .then((res) => res.json())
-      .catch((e) => {
-        console.error(e);
-        return { error: e.message };
-      });
-  },
-
-  moveType: async (contentHash, docType) => {
-    return await fetch(`${API_BASE}/classification/${contentHash}/type`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ docType }),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ error: e.message }));
-  },
-
-  moveTypes: async (contentHashes, docType) => {
-    return await fetch(`${API_BASE}/classification/types`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ contentHashes, docType }),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ error: e.message }));
-  },
-
   // Collapse duplicate rows for this content_hash within one workspace down
   // to keepDocId.
   dedupe: async (contentHash, workspace, keepDocId) => {

@@ -4,7 +4,6 @@
 //   GET  /classification/documents                review list (one row per doc content)
 //   POST /classification/propose                  run the LLM classifier ({contentHash} or all pending)
 //   POST /classification/:contentHash/confirm     human accepts / edits
-//   POST /classification/:contentHash/move        move a doc to a tier-matching workspace
 //   POST /classification/:contentHash/dedupe      collapse same-workspace duplicate rows to one
 const prisma = require("../utils/prisma");
 const { reqBody, safeJsonParse } = require("../utils/http");
@@ -553,66 +552,6 @@ function classificationEndpoints(app) {
     }
   );
 
-  app.post(
-    "/classification/:contentHash/type",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
-    async (request, response) => {
-      try {
-        const { contentHash } = request.params;
-        const { docType = "" } = reqBody(request);
-        const current = await DocumentClassification.get(contentHash);
-        if (!current)
-          return response
-            .status(404)
-            .json({ error: "분류 정보를 찾을 수 없습니다." });
-        const row = await prisma.document_classifications.update({
-          where: { contentHash },
-          data: { docType: String(docType).trim() || null },
-        });
-        response.status(200).json({
-          classification: DocumentClassification._serialize(row),
-          error: null,
-        });
-      } catch (e) {
-        console.error("POST /classification/:contentHash/type", e);
-        response.status(500).json({ error: e.message });
-      }
-    }
-  );
-
-  app.post(
-    "/classification/types",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
-    async (request, response) => {
-      try {
-        const { contentHashes = [], docType = "" } = reqBody(request);
-        const hashes = [
-          ...new Set(
-            (Array.isArray(contentHashes) ? contentHashes : [])
-              .map((hash) => String(hash || "").trim())
-              .filter(Boolean)
-          ),
-        ];
-        const normalizedType = String(docType).trim();
-        if (!hashes.length)
-          return response.status(400).json({ error: "문서를 선택하세요." });
-        if (!normalizedType)
-          return response
-            .status(400)
-            .json({ error: "이동할 분류 폴더를 선택하세요." });
-
-        const result = await prisma.document_classifications.updateMany({
-          where: { contentHash: { in: hashes } },
-          data: { docType: normalizedType },
-        });
-        response.status(200).json({ updated: result.count, error: null });
-      } catch (e) {
-        console.error("POST /classification/types", e);
-        response.status(500).json({ error: e.message });
-      }
-    }
-  );
-
   app.delete(
     "/classification/documents",
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
@@ -761,59 +700,6 @@ function classificationEndpoints(app) {
         });
       } catch (e) {
         console.error("POST /classification/:contentHash/confirm", e);
-        response.status(500).json({ error: e.message });
-      }
-    }
-  );
-
-  // Move a document's embeddings from one workspace to another (manual
-  // resolution of a tier mismatch — there is no automatic routing). The parsed
-  // doc file stays on disk; only the per-workspace vectors move.
-  app.post(
-    "/classification/:contentHash/move",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
-    async (request, response) => {
-      try {
-        const { contentHash } = request.params;
-        const { fromWorkspace, toWorkspace } = reqBody(request);
-        if (!fromWorkspace || !toWorkspace || fromWorkspace === toWorkspace)
-          return response
-            .status(400)
-            .json({ error: "fromWorkspace and toWorkspace required" });
-
-        const fromWs = await Workspace.get({ slug: String(fromWorkspace) });
-        const toWs = await Workspace.get({ slug: String(toWorkspace) });
-        if (!fromWs || !toWs)
-          return response.status(404).json({ error: "workspace not found" });
-
-        // The doc(s) with this content hash in the source workspace.
-        const inFrom = (
-          await Document.where({ workspaceId: fromWs.id })
-        ).filter((d) => {
-          try {
-            return JSON.parse(d.metadata || "{}").content_hash === contentHash;
-          } catch {
-            return false;
-          }
-        });
-        if (!inFrom.length)
-          return response
-            .status(404)
-            .json({ error: "document not found in fromWorkspace" });
-
-        const docpaths = inFrom.map((d) => d.docpath);
-        await Document.removeDocuments(fromWs, docpaths);
-        const { failedToEmbed = [] } = await Document.addDocuments(
-          toWs,
-          docpaths,
-          response.locals?.user?.id
-        );
-        response.status(200).json({
-          moved: docpaths.length - failedToEmbed.length,
-          failed: failedToEmbed,
-        });
-      } catch (e) {
-        console.error("POST /classification/:contentHash/move", e);
         response.status(500).json({ error: e.message });
       }
     }

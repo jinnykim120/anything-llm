@@ -168,7 +168,7 @@ function draftEndpoints(app) {
       } catch (e) {
         console.error("POST /workspace/:slug/draft", e);
         return response
-          .status(500)
+          .status(e.code === "RATE_LIMITED" ? 429 : 500)
           .json({ error: e.message || "초안 생성 중 오류가 발생했습니다." });
       }
     }

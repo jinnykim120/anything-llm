@@ -151,6 +151,48 @@ class ClaudeCliLLM {
     fs.unlink(file, () => {});
   }
 
+  /**
+   * `claude -p --output-format json` still prints a well-formed JSON envelope
+   * when the call fails server-side (e.g. a rate limit) — it just also exits
+   * non-zero. Pull that envelope out of raw stdout so a failure can carry its
+   * real `result` text instead of a truncated raw dump.
+   */
+  #parseResultLine(raw = "") {
+    try {
+      return JSON.parse(String(raw).trim().split("\n").filter(Boolean).pop());
+    } catch {
+      return null;
+    }
+  }
+
+  /** Turn a parsed failing envelope into a clear Error. Rate limits are
+   * tagged `code: "RATE_LIMITED"` so callers (e.g. HTTP endpoints) can
+   * respond 429 instead of 500. */
+  #errorFromResult(j, fallbackCode) {
+    const msg = j?.result || j?.subtype || `exit code ${fallbackCode}`;
+    const isRateLimit =
+      j?.api_error_status === 429 ||
+      /session limit|rate limit/i.test(String(j?.result || ""));
+    const error = new Error(
+      isRateLimit
+        ? `claude 사용량 한도에 도달했습니다 — ${msg}`
+        : `claude -p error: ${msg}`
+    );
+    if (isRateLimit) error.code = "RATE_LIMITED";
+    return error;
+  }
+
+  /** Parse a `claude -p --output-format json` stdout into its result
+   * envelope, throwing a clear Error (same shape as `#errorFromResult`) if
+   * the envelope itself reports failure even on a clean (code 0) exit. */
+  #parseSuccess(raw) {
+    const j = this.#parseResultLine(raw);
+    if (!j) throw new Error("claude -p returned unparseable output");
+    if (j.is_error || j.subtype !== "success")
+      throw this.#errorFromResult(j, 0);
+    return j;
+  }
+
   /** Spawn `claude -p`, feed the prompt on stdin, return { stdout, code }. */
   #spawn(args, promptStdin, system = "") {
     const systemPromptFile = this.#writeSystemPromptFile(system);
@@ -181,10 +223,13 @@ class ClaudeCliLLM {
       child.on("close", (code) => {
         clearTimeout(killer);
         cleanup();
-        if (code !== 0)
+        if (code !== 0) {
+          const j = this.#parseResultLine(out);
+          if (j) return reject(this.#errorFromResult(j, code));
           return reject(
             new Error(`claude -p exited ${code}: ${(err || out).slice(0, 300)}`)
           );
+        }
         resolve(out);
       });
       child.stdin.write(promptStdin);
@@ -196,14 +241,7 @@ class ClaudeCliLLM {
     const { system, prompt } = this.#flatten(messages);
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
       this.#spawn(this.#baseArgs("json"), prompt, system).then((raw) => {
-        let j;
-        try {
-          j = JSON.parse(raw.trim().split("\n").filter(Boolean).pop());
-        } catch {
-          throw new Error(`claude -p returned unparseable output`);
-        }
-        if (j.is_error || j.subtype !== "success")
-          throw new Error(`claude -p error: ${j.result || j.subtype}`);
+        const j = this.#parseSuccess(raw);
         return {
           content: j.result || "",
           usage: {
@@ -381,14 +419,7 @@ class ClaudeCliLLM {
   async agentComplete(messages = []) {
     const { system, prompt } = this.#flatten(messages);
     const raw = await this.#spawn(this.#baseArgs("json"), prompt, system);
-    let j;
-    try {
-      j = JSON.parse(raw.trim().split("\n").filter(Boolean).pop());
-    } catch {
-      throw new Error("claude -p returned unparseable output");
-    }
-    if (j.is_error || j.subtype !== "success")
-      throw new Error(`claude -p error: ${j.result || j.subtype}`);
+    const j = this.#parseSuccess(raw);
     return j.result || "";
   }
 

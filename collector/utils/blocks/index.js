@@ -144,12 +144,58 @@ function plainTextToBlocks(text) {
   }));
 }
 
-/** Total text of a block list, joined for the backward-compatible pageContent string. */
+// [auto-docu markdown-ingestion] blocksToText() renders each block as GFM
+// markdown instead of flattening to plain text, so the structure every parser
+// already computes (block_type + section_path) survives into pageContent —
+// the string that's actually embedded, chunked, and sent to the LLM as
+// retrieved context. Single choke point: every converter funnels through
+// finalizeBlocksDoc -> blocksToText, so no per-parser changes are needed.
+const MAX_HEADING_DEPTH = 6;
+const TABLE_SEPARATOR_RE = /^[\s|:-]+$/;
+const BULLET_LINE_RE = /(^|\n)[•·]\s*/g;
+
+/** '#' x depth, where depth = how many "a > b > c" segments this heading's
+ * own section_path carries (it always includes itself as the last segment —
+ * true for every converter: koStructure.buildSectionPaths for PDF/HWP,
+ * htmlToBlocks's headingStack for DOCX). Falls back to a single '#' when a
+ * heading has no section_path (shouldn't normally happen, but never crash). */
+function headingPrefix(block) {
+  const depth = block.section_path ? block.section_path.split(" > ").length : 1;
+  return "#".repeat(Math.min(Math.max(depth, 1), MAX_HEADING_DEPTH)) + " ";
+}
+
+/**
+ * A table block's text is already pipe-joined rows (every converter does
+ * this at conversion time) but only asXlsx.js adds the GFM header-separator
+ * row. Add one generically here — same "row 0 is the header" rule — so
+ * DOCX/HWP tables become valid GFM too instead of just pipe-ish text.
+ */
+function ensureTableSeparator(text) {
+  const lines = text.split("\n").filter((line) => line.trim().length);
+  if (lines.length < 2 || TABLE_SEPARATOR_RE.test(lines[1])) return text;
+  const cols = lines[0].split("|").length;
+  const separator = Array(Math.max(cols, 1)).fill("---").join(" | ");
+  return [lines[0], separator, ...lines.slice(1)].join("\n");
+}
+
+/** Render one block's text per its block_type. Only adds markdown markers —
+ * never rewrites the text itself beyond that. */
+function blockToMarkdown(block) {
+  const text = block?.text;
+  if (!text) return "";
+  if (block.block_type === "heading") return headingPrefix(block) + text;
+  if (block.block_type === "table") return ensureTableSeparator(text);
+  // DOCX list paragraphs are prefixed with a unicode bullet ("• item") —
+  // normalize to a markdown list marker. (No-op — and safe to always run —
+  // when there's no bullet to replace.)
+  return text.replace(BULLET_LINE_RE, "$1- ");
+}
+
+/** Total text of a block list, joined for the backward-compatible pageContent
+ * string — now rendered as GFM markdown (see blockToMarkdown) instead of
+ * flat text. */
 function blocksToText(blocks = []) {
-  return blocks
-    .map((b) => b.text)
-    .filter(Boolean)
-    .join("\n\n");
+  return blocks.map(blockToMarkdown).filter(Boolean).join("\n\n");
 }
 
 const crypto = require("crypto");
