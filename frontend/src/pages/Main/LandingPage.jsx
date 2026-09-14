@@ -135,7 +135,7 @@ export default function LandingPage() {
         <div className="relative z-10 max-w-2xl">
           <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur light:border-blue-200 light:bg-white/70 dark:border-blue-900 dark:bg-zinc-900/70 dark:text-blue-300">
             <Sparkle size={14} weight="fill" />
-            문서 근거형 질의 아카이브
+            자동 분류 적재 · 근거형 질의 · 문서 작성
           </div>
           <h1 className="text-5xl font-semibold leading-[0.98] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-8xl light:text-slate-950 dark:text-white">
             Document
@@ -397,12 +397,17 @@ export default function LandingPage() {
             </h2>
             <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600 light:text-slate-600 dark:text-zinc-400">
               <span className="block">
-                우리가 쌓아온 내부 데이터를 안전하게 아카이빙하고, 필요하면 최신
-                외부 자료까지 더해 답변합니다.
+                우리가 쌓아온 내부 데이터를 자동으로 분류해서 안전하게
+                아카이빙하고,
               </span>
               <span className="block">
-                근거자료를 눈으로 재검토하고, 확정된 답변은 바로 보고서 초안으로
-                만듭니다.
+                질문에는 내부 데이터를 근거 기반으로 답변합니다.
+              </span>
+              <span className="block">
+                근거자료를 눈으로 재검토해 자료를 검수하고,
+              </span>
+              <span className="block">
+                추가적인 아이디어를 보강해 보고서 및 분석 보고서를 작성합니다.
               </span>
             </p>
           </div>

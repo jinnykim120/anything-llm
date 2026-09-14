@@ -595,10 +595,7 @@ export default function ChatContainer({
                     }
                   />
                   {isArchive ? (
-                    <ArchiveActions
-                      sendCommand={sendCommand}
-                      workspace={workspace}
-                    />
+                    <ArchiveActions workspace={workspace} />
                   ) : (
                     <QuickActions
                       hasAvailableWorkspace={!!workspace}
@@ -618,11 +615,6 @@ export default function ChatContainer({
                           ?.click()
                       }
                     />
-                  )}
-                  {isArchive && (
-                    <p className="mt-8 text-center text-[10px] text-zinc-500 dark:text-zinc-600">
-                      정책지원팀이 자료 기반 업무의 효율화를 위해 설계했습니다.
-                    </p>
                   )}
                 </div>
                 {!isArchive && (
@@ -717,7 +709,7 @@ export default function ChatContainer({
   );
 }
 
-function ArchiveActions({ sendCommand, workspace }) {
+function ArchiveActions({ workspace }) {
   const navigate = useNavigate();
   const actions = [
     {
@@ -730,16 +722,10 @@ function ArchiveActions({ sendCommand, workspace }) {
       description: "분류를 선택해 아카이브에 바로 저장합니다.",
       onClick: () => window.dispatchEvent(new Event("open-archive-upload")),
     },
-    {
-      title: "근거 확인",
-      description: "답변의 출처와 원본 위치를 함께 요청합니다.",
-      onClick: () =>
-        sendCommand({ text: "답변에 사용된 출처와 원본 위치를 보여줘." }),
-    },
   ];
 
   return (
-    <div className="mt-4 grid w-full max-w-[750px] gap-2 px-3 sm:grid-cols-3 sm:px-0">
+    <div className="mt-4 grid w-full max-w-[500px] gap-2 px-3 sm:grid-cols-2 sm:px-0">
       {actions.map((action) => (
         <button
           key={action.title}

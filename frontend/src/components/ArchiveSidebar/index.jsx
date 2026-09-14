@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Archive,
   ArrowLeft,
   CaretDown,
   FileText,
@@ -256,7 +255,6 @@ function WorkspaceArchiveSidebar({ slug }) {
   }
 
   const workspaceName = "archiving data";
-  const isDefaultChat = location.pathname === paths.workspace.chat(slug);
 
   return (
     <aside className="relative z-20 flex h-full w-[276px] shrink-0 flex-col border-r border-slate-200 bg-white text-slate-900 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
@@ -277,13 +275,6 @@ function WorkspaceArchiveSidebar({ slug }) {
               Document Expansion LLM
             </span>
           )}
-        </Link>
-        <Link
-          to={paths.workspace.chat(slug)}
-          aria-label="현재 아카이브"
-          className="rounded p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600 light:text-slate-400 light:hover:bg-slate-100 dark:text-zinc-500 dark:hover:bg-zinc-800"
-        >
-          <Archive size={18} weight={isDefaultChat ? "fill" : "regular"} />
         </Link>
       </div>
 

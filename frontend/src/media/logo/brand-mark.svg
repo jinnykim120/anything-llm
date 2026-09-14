@@ -1,0 +1,20 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="200" rx="42" fill="#0b0f1a"/>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#4ac7c6" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4ac7c6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="128" cy="100" r="50" fill="url(#glow)"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M50 50 C80 62, 100 80, 124 97" stroke="#f6c84c" stroke-width="7" opacity="0.85"/>
+    <path d="M44 100 C74 100, 100 100, 124 100" stroke="#63d9ad" stroke-width="7" opacity="0.85"/>
+    <path d="M50 150 C80 138, 100 120, 124 103" stroke="#f1787e" stroke-width="7" opacity="0.85"/>
+  </g>
+  <circle cx="50" cy="50" r="17" fill="#f6c84c"/>
+  <circle cx="44" cy="100" r="19" fill="#63d9ad"/>
+  <circle cx="50" cy="150" r="16" fill="#f1787e"/>
+  <circle cx="128" cy="100" r="20" fill="#4ac7c6"/>
+  <circle cx="128" cy="100" r="8" fill="#ffffff" opacity="0.92"/>
+</svg>
