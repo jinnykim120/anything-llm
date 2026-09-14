@@ -1,4 +1,4 @@
-import { ArrowRight, PlayCircle, Sparkle } from "@phosphor-icons/react";
+import { ArrowRight, Sparkle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useLogo from "@/hooks/useLogo";
@@ -21,7 +21,14 @@ const FLOW_STEPS = [
   {
     number: "03",
     title: "근거",
-    description: "답변과 함께 출처, 페이지, 원본 위치를 바로 확인합니다.",
+    description:
+      "답변과 함께 출처·페이지·원본 위치를 확인하고, 부족하면 최신 외부 자료로 보강합니다.",
+  },
+  {
+    number: "04",
+    title: "초안",
+    description:
+      "확정된 답변을 그대로 기본·분석 보고서 초안으로 만들어 드립니다.",
   },
 ];
 
@@ -151,11 +158,10 @@ export default function LandingPage() {
               </span>
             </h2>
             <p className="mt-5 text-sm leading-8 text-slate-600 light:text-slate-600 dark:text-zinc-300 xl:whitespace-nowrap">
-              문서의 맥락을 읽어 저장하고, 질문에 답할 때는 원본에 근거한 결과만
-              보여드립니다.
+              문서의 맥락을 읽어 저장하고, 답변은 원본 근거 위에서만 작성합니다.
             </p>
             <p className="mt-1 text-sm leading-8 text-slate-600 light:text-slate-600 dark:text-zinc-300 xl:whitespace-nowrap">
-              출처와 페이지, 실제 원본 위치까지 한 화면에서 확인하세요.
+              필요하면 외부 최신 자료로 보강하고, 보고서 초안까지 바로 만듭니다.
             </p>
           </div>
           <div className="mt-9 flex flex-wrap items-end gap-5 lg:justify-end">
@@ -167,12 +173,6 @@ export default function LandingPage() {
               >
                 시작하기 <ArrowRight size={18} weight="bold" />
               </button>
-              <a
-                href="#how-it-works"
-                className="inline-flex h-12 items-center gap-2 rounded border border-slate-300 bg-white/60 px-5 text-sm font-medium text-slate-700 transition hover:border-blue-400 hover:text-blue-700 light:border-slate-300 light:bg-white/60 light:text-slate-700 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-200 dark:hover:border-blue-500"
-              >
-                <PlayCircle size={18} /> 작동 방식 보기
-              </a>
             </div>
           </div>
           <p className="mt-5 text-xs leading-6 text-slate-500 light:text-slate-500 dark:text-zinc-500">
@@ -400,15 +400,16 @@ export default function LandingPage() {
             </h2>
             <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600 light:text-slate-600 dark:text-zinc-400">
               <span className="block">
-                우리가 쌓아온 내부 데이터를 안전하게 아카이빙하고,
+                우리가 쌓아온 내부 데이터를 안전하게 아카이빙하고, 필요하면 최신
+                외부 자료까지 더해 답변합니다.
               </span>
               <span className="block">
-                이 데이터를 바탕으로 빠른 답변을 만들고, 근거자료를 눈으로
-                재검토합니다.
+                근거자료를 눈으로 재검토하고, 확정된 답변은 바로 보고서 초안으로
+                만듭니다.
               </span>
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {FLOW_STEPS.map((step) => (
               <article
                 key={step.number}
