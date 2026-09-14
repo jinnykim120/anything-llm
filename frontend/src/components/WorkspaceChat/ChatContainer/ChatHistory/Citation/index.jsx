@@ -129,6 +129,10 @@ export function combineLikeSources(sources) {
       section_path = "",
       parse_path = "",
       sensitivity = "",
+      // [auto-docu] the "[n]" number the model was told to cite this chunk as
+      // (server/utils/chats/stream.js) — lets the UI link an inline "[n]"
+      // marker back to the source it actually came from.
+      citationIndex = null,
     } = source;
     const chunk = {
       id,
@@ -142,10 +146,13 @@ export function combineLikeSources(sources) {
       page_width,
       page_height,
       section_path,
+      citationIndex,
     };
     if (combined.hasOwnProperty(title)) {
       combined[title].chunks.push(chunk);
       combined[title].references += 1;
+      if (citationIndex !== null)
+        combined[title].citationIndexes.push(citationIndex);
     } else {
       combined[title] = {
         title,
@@ -155,10 +162,34 @@ export function combineLikeSources(sources) {
         has_original: Number(has_original) === 1,
         parse_path,
         sensitivity,
+        citationIndexes: citationIndex !== null ? [citationIndex] : [],
       };
     }
   });
   return Object.values(combined);
+}
+
+/** Find the combined source entry that carries a given citationIndex ("[n]"). */
+export function findCombinedSourceByCitationIndex(combined, citationIndex) {
+  if (citationIndex === null || citationIndex === undefined) return null;
+  const n = Number(citationIndex);
+  return combined.find((source) => source.citationIndexes.includes(n)) || null;
+}
+
+const CITATION_MARKER_RE = /\[(\d{1,3})\]/g;
+
+/**
+ * Turn literal "[n]" citation markers left in the rendered answer HTML into
+ * clickable buttons that open the sources sidebar focused on that source.
+ * Must run on the markdown-rendered HTML (so real markdown links "[text](url)"
+ * are already `<a>` tags and never get touched by this), before sanitizing.
+ */
+export function linkifyCitationMarkers(html = "") {
+  return html.replace(
+    CITATION_MARKER_RE,
+    (_match, n) =>
+      `<button type="button" class="citation-ref" data-citation-idx="${n}">[${n}]</button>`
+  );
 }
 
 export default function Citations({ sources = [] }) {

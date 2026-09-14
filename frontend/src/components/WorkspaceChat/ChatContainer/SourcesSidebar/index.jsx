@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 import { X } from "@phosphor-icons/react";
-import { combineLikeSources } from "../ChatHistory/Citation";
+import {
+  combineLikeSources,
+  findCombinedSourceByCitationIndex,
+} from "../ChatHistory/Citation";
 import MobileCitationModal from "./MobileCitationModal";
 import SourceItem from "./SourceItem";
 import SourceViewer from "./SourceViewer";
@@ -12,11 +15,34 @@ import ChatSidebar, { useSourcesSidebar } from "../ChatSidebar";
 export { useSourcesSidebar } from "../ChatSidebar";
 
 export default function SourcesSidebar() {
-  const { sources, sidebarOpen, closeSidebar } = useSourcesSidebar();
+  const { sources, sidebarOpen, focusCitationIndex, closeSidebar } =
+    useSourcesSidebar();
   const { t } = useTranslation();
   const [selectedSource, setSelectedSource] = useState(null);
+  const [flashTitle, setFlashTitle] = useState(null);
+  const listRef = useRef(null);
 
   const combined = combineLikeSources(sources);
+
+  // A click on an inline "[n]" marker opens the sidebar pointed at the
+  // matching source — select it, scroll it into view, and flash it so it's
+  // obvious which of the (possibly many) sources answered "[n]".
+  useEffect(() => {
+    if (!sidebarOpen || focusCitationIndex === null) return;
+    const match = findCombinedSourceByCitationIndex(
+      combined,
+      focusCitationIndex
+    );
+    if (!match) return;
+    setSelectedSource(match);
+    setFlashTitle(match.title);
+    const el = listRef.current?.querySelector(
+      `[data-source-title="${CSS.escape(match.title)}"]`
+    );
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const timer = setTimeout(() => setFlashTitle(null), 1600);
+    return () => clearTimeout(timer);
+  }, [sidebarOpen, focusCitationIndex, sources]);
 
   if (isMobile) {
     return (
@@ -53,18 +79,30 @@ export default function SourcesSidebar() {
                 <X size={16} weight="bold" />
               </button>
             </div>
-            <div className="flex flex-col gap-3 overflow-y-auto no-scroll">
+            <div
+              ref={listRef}
+              className="flex flex-col gap-3 overflow-y-auto no-scroll"
+            >
               {combined.map((source, idx) => (
-                <SourceItem
+                <div
                   key={source.title || idx}
-                  source={source}
-                  active={selectedSource?.title === source.title}
-                  onClick={() =>
-                    setSelectedSource(
-                      selectedSource?.title === source.title ? null : source
-                    )
+                  data-source-title={source.title}
+                  className={
+                    flashTitle === source.title
+                      ? "rounded-[8px] ring-2 ring-blue-500 transition-shadow"
+                      : ""
                   }
-                />
+                >
+                  <SourceItem
+                    source={source}
+                    active={selectedSource?.title === source.title}
+                    onClick={() =>
+                      setSelectedSource(
+                        selectedSource?.title === source.title ? null : source
+                      )
+                    }
+                  />
+                </div>
               ))}
             </div>
           </div>

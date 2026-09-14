@@ -3,7 +3,8 @@ import { Info, Warning, FileText } from "@phosphor-icons/react";
 import Actions from "./Actions";
 import { openDraftPanel } from "../../DraftPanel";
 import renderMarkdown from "@/utils/chat/markdown";
-import Citations from "../Citation";
+import Citations, { linkifyCitationMarkers } from "../Citation";
+import { useSourcesSidebar } from "../../ChatSidebar";
 import { v4 } from "uuid";
 import DOMPurify from "@/utils/chat/purify";
 import { EditMessageForm, useEditMessage } from "./Actions/EditMessage";
@@ -69,6 +70,17 @@ const HistoricalMessage = ({
     element.style.height = "auto";
     element.style.height = element.scrollHeight + "px";
   };
+
+  // A click on an inline "[n]" citation marker (see linkifyCitationMarkers)
+  // opens the sources sidebar focused on the source that "[n]" refers to.
+  const { openSidebar: openSourcesSidebar } = useSourcesSidebar();
+  function handleCitationClick(event) {
+    const marker = event.target.closest?.(".citation-ref");
+    if (!marker) return;
+    const idx = Number(marker.dataset.citationIdx);
+    if (Number.isNaN(idx)) return;
+    openSourcesSidebar(sources, idx);
+  }
 
   const isRefusalMessage =
     role === "assistant" && message === chatQueryRefusalResponse(workspace);
@@ -160,7 +172,7 @@ const HistoricalMessage = ({
             saveChanges={saveEditedMessage}
           />
         ) : (
-          <div className="break-words">
+          <div className="break-words" onClick={handleCitationClick}>
             <HistoricalClarifyingQuestions surveys={clarifyingQuestions} />
             <RenderChatContent role={role} message={message} />
             {isRefusalMessage && (
@@ -362,7 +374,9 @@ const RenderChatContent = memo(
       <span
         className="flex flex-col gap-y-1 text-white light:text-slate-900"
         dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(renderMarkdown(msgToRender)),
+          __html: DOMPurify.sanitize(
+            linkifyCitationMarkers(renderMarkdown(msgToRender))
+          ),
         }}
       />
     );

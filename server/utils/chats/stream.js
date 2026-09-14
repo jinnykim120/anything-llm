@@ -234,6 +234,17 @@ async function streamChatWithWorkspace(
   contextTexts = [...contextTexts, ...filledSources.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
 
+  // [auto-docu] `contextTexts[i]` is exactly what the system prompt labels
+  // "[i]" for the model to cite (see saneDefaultSystemPrompt) — backfilled
+  // history chunks are appended after, never inserted before, so this prefix
+  // of `contextTexts` lines up positionally with `sources` above. Stamp that
+  // index onto each source so the frontend can turn "[i]" in the answer into
+  // a link to the matching citation in the sources sidebar.
+  sources = sources.map((source, citationIndex) => ({
+    ...source,
+    citationIndex,
+  }));
+
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
   // let the LLM try to hallucinate a response or use general knowledge and exit early
   if (chatMode === "query" && contextTexts.length === 0) {

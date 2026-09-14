@@ -22,6 +22,11 @@ export default function SourceItem({ source, onClick, active = false }) {
     .split(">")
     .pop()
     .trim();
+  // [auto-docu] the "[n]" number(s) the answer cited this source as — lets
+  // the user match an inline "[3]" in the answer to this item at a glance.
+  const citationIndexes = [...new Set(source?.citationIndexes || [])].sort(
+    (a, b) => a - b
+  );
 
   return (
     <button
@@ -42,6 +47,11 @@ export default function SourceItem({ source, onClick, active = false }) {
         <p className="flex-1 font-medium text-sm text-white light:text-slate-900 leading-[15px] truncate">
           {source.title}
         </p>
+        {citationIndexes.length > 0 && (
+          <span className="shrink-0 font-mono text-[10px] text-amber-400 light:text-amber-600">
+            {citationIndexes.map((n) => `[${n}]`).join("")}
+          </span>
+        )}
       </div>
       <div className="flex flex-col gap-[2px] pl-[22px] text-[10px] text-zinc-400 light:text-slate-500 leading-[14px]">
         <p>{subtitle}</p>

@@ -875,6 +875,38 @@ dialog::backdrop {
 
 /*
  * ==============================================
+ * 인용 번호("[n]") 클릭 가능 마커
+ * 답변 안의 "[3]" 같은 인용 번호를 클릭하면 출처 사이드바가 열리고 해당
+ * 출처로 스크롤·강조된다 (Citation/index.jsx linkifyCitationMarkers).
+ * ==============================================
+ */
+button.citation-ref {
+  display: inline;
+  margin: 0 1px;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: #60a5fa;
+  cursor: pointer;
+  border-radius: 3px;
+}
+button.citation-ref:hover {
+  background: rgba(96, 165, 250, 0.15);
+  text-decoration: underline;
+}
+[data-theme="light"] button.citation-ref,
+.light button.citation-ref {
+  color: #2563eb;
+}
+[data-theme="light"] button.citation-ref:hover,
+.light button.citation-ref:hover {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+/*
+ * ==============================================
  * 문서 초안(목표 3) 미리보기 스타일
  * 기본값은 수수한 흑백 스타일 (피드백: "기존 게 더 좋다"). 사용자가 추가
  * 요청란에 디자인 요소를 명시적으로 요청했을 때만 `.draft-preview.designed`

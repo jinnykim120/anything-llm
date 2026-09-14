@@ -43,10 +43,18 @@ export function useChatSidebar() {
 export function useSourcesSidebar() {
   const { activeSidebar, sidebarData, openSidebar, closeSidebar } =
     useContext(ChatSidebarContext);
+  const isOpen = activeSidebar === "sources";
+  const data = isOpen ? sidebarData : null;
   return {
-    sidebarOpen: activeSidebar === "sources",
-    sources: activeSidebar === "sources" ? sidebarData : [],
-    openSidebar: (sources) => openSidebar("sources", sources),
+    sidebarOpen: isOpen,
+    // `sidebarData` is either a plain sources array (older callers) or
+    // `{ sources, focusCitationIndex }` (a click on an inline "[n]" marker).
+    sources: (Array.isArray(data) ? data : data?.sources) || [],
+    focusCitationIndex: Array.isArray(data)
+      ? null
+      : (data?.focusCitationIndex ?? null),
+    openSidebar: (sources, focusCitationIndex = null) =>
+      openSidebar("sources", { sources, focusCitationIndex }),
     closeSidebar,
   };
 }

@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Warning } from "@phosphor-icons/react";
 import renderMarkdown from "@/utils/chat/markdown";
 import DOMPurify from "@/utils/chat/purify";
-import Citations from "../Citation";
+import Citations, { linkifyCitationMarkers } from "../Citation";
+import { useSourcesSidebar } from "../../ChatSidebar";
 import {
   THOUGHT_REGEX_CLOSE,
   THOUGHT_REGEX_COMPLETE,
@@ -12,7 +13,18 @@ import {
 
 const PromptReply = ({ uuid, reply, pending, error, sources = [] }) => {
   const { t } = useTranslation();
+  const { openSidebar: openSourcesSidebar } = useSourcesSidebar();
   if (!reply && sources.length === 0 && !pending && !error) return null;
+
+  // A click on an inline "[n]" citation marker (see linkifyCitationMarkers)
+  // opens the sources sidebar focused on the source that "[n]" refers to.
+  function handleCitationClick(event) {
+    const marker = event.target.closest?.(".citation-ref");
+    if (!marker) return;
+    const idx = Number(marker.dataset.citationIdx);
+    if (Number.isNaN(idx)) return;
+    openSourcesSidebar(sources, idx);
+  }
 
   if (pending) {
     return (
@@ -65,7 +77,10 @@ const PromptReply = ({ uuid, reply, pending, error, sources = [] }) => {
 
   return (
     <div key={uuid} className="flex justify-start w-full">
-      <div className="py-4 pl-0 pr-4 flex flex-col w-full">
+      <div
+        className="py-4 pl-0 pr-4 flex flex-col w-full"
+        onClick={handleCitationClick}
+      >
         <RenderAssistantChatContent
           key={`${uuid}-prompt-reply-content`}
           message={reply}
@@ -88,7 +103,9 @@ function RenderAssistantChatContent({ message }) {
     <span
       className="break-words flex flex-col gap-y-1"
       dangerouslySetInnerHTML={{
-        __html: DOMPurify.sanitize(renderMarkdown(msgToRender)),
+        __html: DOMPurify.sanitize(
+          linkifyCitationMarkers(renderMarkdown(msgToRender))
+        ),
       }}
     />
   );
