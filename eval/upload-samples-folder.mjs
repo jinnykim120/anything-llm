@@ -41,16 +41,31 @@ if (!files.length) {
 }
 
 const adds = [];
+const failed = [];
 for (const name of files) {
   process.stdout.write(`  uploading ${name} … `);
-  const loc = await client.uploadDoc(join(folder, name));
-  adds.push(loc);
-  console.log("ok ->", loc);
+  try {
+    const loc = await client.uploadDoc(join(folder, name));
+    adds.push(loc);
+    console.log("ok ->", loc);
+  } catch (e) {
+    failed.push({ name, error: e.message });
+    console.log("FAILED —", e.message.split("\n")[0]);
+  }
 }
 
-process.stdout.write(`• embedding ${adds.length} new doc(s) into ${SLUG} … `);
-await client.embed(SLUG, adds);
-console.log("ok");
+if (adds.length) {
+  process.stdout.write(`• embedding ${adds.length} new doc(s) into ${SLUG} … `);
+  await client.embed(SLUG, adds);
+  console.log("ok");
+} else {
+  console.log("• nothing to embed — every upload failed");
+}
+
+if (failed.length) {
+  console.log(`\n${failed.length} file(s) failed to upload:`);
+  for (const f of failed) console.log(`  - ${f.name}: ${f.error.split("\n")[0]}`);
+}
 
 const after = await client.getWorkspace(SLUG);
 console.log(`\n${SLUG} now has ${after?.documents?.length ?? 0} document(s).`);
