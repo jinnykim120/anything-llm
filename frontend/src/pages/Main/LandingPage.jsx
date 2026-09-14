@@ -103,6 +103,10 @@ export default function LandingPage() {
     navigate(paths.workspace.chat(ARCHIVE_SLUG));
   }
 
+  function openLibrary() {
+    navigate(paths.workspace.library(ARCHIVE_SLUG));
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-50 text-slate-950 light:bg-slate-50 dark:bg-zinc-950 dark:text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_75%_14%,rgba(15,98,254,0.12),transparent_34%),linear-gradient(135deg,rgba(15,98,254,0.04),transparent_45%)]" />
@@ -124,13 +128,6 @@ export default function LandingPage() {
               Document Expansion LLM
             </span>
           )}
-        </button>
-        <button
-          type="button"
-          onClick={openArchive}
-          className="hidden items-center gap-2 border-0 bg-transparent text-sm font-medium text-slate-600 transition hover:text-blue-700 light:text-slate-600 light:hover:text-blue-700 md:flex dark:text-zinc-300 dark:hover:text-blue-300"
-        >
-          작업 화면 열기 <ArrowRight size={16} />
         </button>
       </header>
 
@@ -434,10 +431,10 @@ export default function LandingPage() {
         <span>정책지원팀이 자료 기반 업무의 효율화를 위해 설계했습니다.</span>
         <button
           type="button"
-          onClick={openArchive}
+          onClick={openLibrary}
           className="w-fit border-0 bg-transparent p-0 font-medium text-blue-600 hover:text-blue-700"
         >
-          아카이브 열기 →
+          문서함 열기 →
         </button>
       </footer>
     </main>
