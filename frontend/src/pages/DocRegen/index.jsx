@@ -9,15 +9,19 @@ import {
   ArrowRight,
   Buildings,
   CheckCircle,
+  CheckSquare,
   CircleNotch,
   Circle,
   DownloadSimple,
   FileHtml,
   FileText,
+  Square,
+  UploadSimple,
   X,
 } from "@phosphor-icons/react";
 import ArchiveSidebar from "@/components/ArchiveSidebar";
 import Workspace from "@/models/workspace";
+import Classification from "@/models/classification";
 import DOMPurify from "@/utils/chat/purify";
 import showToast from "@/utils/toast";
 import {
@@ -43,14 +47,25 @@ function docTitleOf(doc) {
   }
 }
 
+function docContentHashOf(doc) {
+  try {
+    return JSON.parse(doc?.metadata || "{}").content_hash || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function DocRegen() {
   const { slug = "archive-full" } = useParams();
   const [step, setStep] = useState("name"); // name | baseDoc | guidance | progress | result
   const [title, setTitle] = useState("");
   const [documents, setDocuments] = useState([]);
   const [docQuery, setDocQuery] = useState("");
-  const [baseDoc, setBaseDoc] = useState(null);
+  const [baseDocs, setBaseDocs] = useState([]); // [{id, title, contentHash}] — 중복 선택 가능
+  const [classificationsByHash, setClassificationsByHash] = useState({});
   const [guidanceText, setGuidanceText] = useState("");
+  const [guidanceFileName, setGuidanceFileName] = useState(null);
+  const [uploadingGuidance, setUploadingGuidance] = useState(false);
 
   const [plan, setPlan] = useState([]); // [{title, status}]
   const [sections, setSections] = useState([]); // 채워지는 대로 index별로 들어감
@@ -64,6 +79,14 @@ export default function DocRegen() {
     Workspace.bySlug(slug).then((ws) => {
       setDocuments(Array.isArray(ws?.documents) ? ws.documents : []);
     });
+    Classification.documents(slug).then((rows) => {
+      const byHash = {};
+      for (const row of rows || []) {
+        if (row.contentHash && row.classification)
+          byHash[row.contentHash] = row.classification;
+      }
+      setClassificationsByHash(byHash);
+    });
   }, [slug]);
 
   useEffect(() => () => streamRef.current?.controller?.abort(), []);
@@ -73,6 +96,71 @@ export default function DocRegen() {
     if (!q) return documents;
     return documents.filter((d) => docTitleOf(d).toLowerCase().includes(q));
   }, [documents, docQuery]);
+
+  function toggleBaseDoc(doc) {
+    const id = doc.id;
+    setBaseDocs((prev) =>
+      prev.some((d) => d.id === id)
+        ? prev.filter((d) => d.id !== id)
+        : [
+            ...prev,
+            {
+              id,
+              title: docTitleOf(doc),
+              contentHash: docContentHashOf(doc),
+            },
+          ]
+    );
+  }
+
+  // 새 기준/가이던스 파일을 올릴 때 씌울 분류 — 고른 기준 문서들 중 이미
+  // 분류가 확정된 첫 문서의 값을 그대로 물려받는다(= 같은 폴더에 들어감).
+  const inheritedClassification = useMemo(() => {
+    for (const doc of baseDocs) {
+      const cls = doc.contentHash && classificationsByHash[doc.contentHash];
+      if (cls) {
+        return {
+          sensitivity: cls.sensitivity,
+          workType: cls.workType,
+          businessUnit: cls.businessUnit,
+          docType: cls.docType,
+          domain: cls.domain,
+          tags: (() => {
+            try {
+              return JSON.parse(cls.tags || "[]");
+            } catch {
+              return [];
+            }
+          })(),
+        };
+      }
+    }
+    return null;
+  }, [baseDocs, classificationsByHash]);
+
+  async function handleGuidanceFile(fileList) {
+    const file = fileList?.[0];
+    if (!file) return;
+    setUploadingGuidance(true);
+    const res = await Workspace.docRegenUploadGuidance(
+      slug,
+      file,
+      inheritedClassification || {}
+    );
+    setUploadingGuidance(false);
+    if (res?.error) {
+      showToast(res.error, "error");
+      return;
+    }
+    setGuidanceText(res.guidanceText || "");
+    setGuidanceFileName(res.title || file.name);
+    showToast(
+      inheritedClassification
+        ? "파일을 업로드했습니다. 기준 문서와 같은 분류로 아카이브에 추가했습니다."
+        : "파일을 업로드했습니다.",
+      "success"
+    );
+  }
 
   const previewHtml = useMemo(
     () =>
@@ -93,8 +181,9 @@ export default function DocRegen() {
   function reset() {
     setStep("name");
     setTitle("");
-    setBaseDoc(null);
+    setBaseDocs([]);
     setGuidanceText("");
+    setGuidanceFileName(null);
     setPlan([]);
     setSections([]);
     setResult(null);
@@ -110,7 +199,7 @@ export default function DocRegen() {
       slug,
       {
         title: title.trim(),
-        baseDocId: baseDoc.id,
+        baseDocIds: baseDocs.map((d) => d.id),
         guidanceText: guidanceText.trim(),
       },
       (event) => {
@@ -186,7 +275,7 @@ export default function DocRegen() {
           {step === "baseDoc" && (
             <StepCard
               heading="기준이 될 작년 문서를 골라주세요"
-              description="구조와 양식의 뼈대로 씁니다 — 문서함에 있는 자료 중에서 선택합니다."
+              description="구조와 양식의 뼈대로 씁니다 — 문서함에 있는 자료 중에서 여러 개를 함께 고를 수 있습니다."
               onBack={() => setStep("name")}
             >
               <input
@@ -201,46 +290,96 @@ export default function DocRegen() {
                     문서를 찾을 수 없습니다.
                   </p>
                 )}
-                {filteredDocuments.map((doc) => (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => {
-                      setBaseDoc({ id: doc.id, title: docTitleOf(doc) });
-                      setStep("guidance");
-                    }}
-                    className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-left text-sm hover:bg-violet-50 last:border-b-0 dark:border-zinc-800 dark:hover:bg-violet-950/20"
-                  >
-                    <FileText
-                      size={15}
-                      className="shrink-0 text-slate-400 dark:text-zinc-500"
-                    />
-                    <span className="truncate">{docTitleOf(doc)}</span>
-                  </button>
-                ))}
+                {filteredDocuments.map((doc) => {
+                  const checked = baseDocs.some((d) => d.id === doc.id);
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => toggleBaseDoc(doc)}
+                      className={`flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-left text-sm last:border-b-0 dark:border-zinc-800 ${
+                        checked
+                          ? "bg-violet-50 dark:bg-violet-950/20"
+                          : "hover:bg-violet-50 dark:hover:bg-violet-950/20"
+                      }`}
+                    >
+                      {checked ? (
+                        <CheckSquare
+                          size={16}
+                          weight="fill"
+                          className="shrink-0 text-violet-600"
+                        />
+                      ) : (
+                        <Square
+                          size={16}
+                          className="shrink-0 text-slate-300 dark:text-zinc-700"
+                        />
+                      )}
+                      <FileText
+                        size={15}
+                        className="shrink-0 text-slate-400 dark:text-zinc-500"
+                      />
+                      <span className="truncate">{docTitleOf(doc)}</span>
+                    </button>
+                  );
+                })}
               </div>
+              <NextButton
+                disabled={baseDocs.length === 0}
+                label={
+                  baseDocs.length ? `다음 (${baseDocs.length}개 선택)` : "다음"
+                }
+                onClick={() => setStep("guidance")}
+              />
             </StepCard>
           )}
 
           {step === "guidance" && (
             <StepCard
               heading="올해 새로 생긴 기준·가이던스를 입력해 주세요"
-              description={`기준 문서: "${baseDoc?.title}" — 이 내용에 맞춰 절별로 다시 채웁니다.`}
+              description={`기준 문서: ${baseDocs
+                .map((d) => `"${d.title}"`)
+                .join(", ")} — 이 내용에 맞춰 절별로 다시 채웁니다.`}
               onBack={() => setStep("baseDoc")}
             >
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm text-slate-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:text-zinc-300">
+                {uploadingGuidance ? (
+                  <CircleNotch size={15} className="animate-spin" />
+                ) : (
+                  <UploadSimple size={15} />
+                )}
+                {uploadingGuidance
+                  ? "업로드 중…"
+                  : guidanceFileName
+                    ? `업로드됨: ${guidanceFileName} (다시 올리기)`
+                    : "기준 파일 업로드 (선택)"}
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={uploadingGuidance}
+                  onChange={(e) => handleGuidanceFile(e.target.files)}
+                />
+              </label>
+              {inheritedClassification && (
+                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-zinc-600">
+                  업로드하면 기준 문서와 같은 분류(
+                  {inheritedClassification.workType} ·{" "}
+                  {inheritedClassification.businessUnit})로 아카이브에
+                  추가됩니다.
+                </p>
+              )}
               <textarea
-                autoFocus
                 value={guidanceText}
-                onChange={(e) => setGuidanceText(e.target.value)}
+                onChange={(e) => {
+                  setGuidanceText(e.target.value);
+                  setGuidanceFileName(null);
+                }}
                 rows={10}
-                placeholder="올해 새로 생긴 기준, 가이던스, 양식 요구사항 등을 붙여넣어 주세요."
-                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                placeholder="올해 새로 생긴 기준, 가이던스, 양식 요구사항 등을 붙여넣거나, 위에서 파일을 업로드하세요."
+                className="mt-3 w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
               />
-              <p className="mt-2 text-[11px] text-slate-400 dark:text-zinc-600">
-                지금은 텍스트 입력만 지원합니다. 파일 업로드는 준비 중입니다.
-              </p>
               <NextButton
-                disabled={!guidanceText.trim()}
+                disabled={!guidanceText.trim() || uploadingGuidance}
                 label="생성 시작"
                 onClick={startGeneration}
               />

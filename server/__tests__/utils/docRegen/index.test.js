@@ -5,7 +5,19 @@ jest.mock("../../../utils/helpers", () => ({
   }),
 }));
 
+const mockFindUnique = jest.fn();
+jest.mock("../../../utils/prisma", () => ({
+  workspace_documents: { findUnique: (...args) => mockFindUnique(...args) },
+}));
+
+const mockFileData = jest.fn();
+jest.mock("../../../utils/files", () => ({
+  fileData: (...args) => mockFileData(...args),
+}));
+
 const {
+  loadBaseDocument,
+  loadBaseDocuments,
   extractOutlineFromBlocks,
   extractOutlineViaLLM,
   getOutline,
@@ -20,6 +32,64 @@ const {
 
 const fakeConnector = (textResponse) => ({
   getChatCompletion: jest.fn().mockResolvedValue({ textResponse }),
+});
+
+describe("loadBaseDocument / loadBaseDocuments", () => {
+  beforeEach(() => {
+    mockFindUnique.mockReset();
+    mockFileData.mockReset();
+  });
+
+  it("loads a single document's title/pageContent/blocks by workspace_documents.id", async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 1,
+      docpath: "custom-documents\\a.json",
+      filename: "a.json",
+      metadata: JSON.stringify({ title: "문서 A" }),
+    });
+    mockFileData.mockResolvedValue({
+      pageContent: "본문 A",
+      blocks: JSON.stringify([{ section_path: "1 > 절", text: "본문 A" }]),
+    });
+    const doc = await loadBaseDocument(1);
+    expect(doc).toEqual({
+      title: "문서 A",
+      pageContent: "본문 A",
+      blocks: [{ section_path: "1 > 절", text: "본문 A" }],
+    });
+  });
+
+  it("throws a clear error when the id doesn't match any document", async () => {
+    mockFindUnique.mockResolvedValue(null);
+    await expect(loadBaseDocument(999)).rejects.toThrow(/찾을 수 없습니다/);
+  });
+
+  it("loadBaseDocuments loads every id in order (여러 기준 문서 선택)", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: 1,
+        docpath: "custom-documents\\a.json",
+        filename: "a.json",
+        metadata: JSON.stringify({ title: "문서 A" }),
+      })
+      .mockResolvedValueOnce({
+        id: 2,
+        docpath: "custom-documents\\b.json",
+        filename: "b.json",
+        metadata: JSON.stringify({ title: "문서 B" }),
+      });
+    mockFileData
+      .mockResolvedValueOnce({ pageContent: "본문 A", blocks: [] })
+      .mockResolvedValueOnce({ pageContent: "본문 B", blocks: [] });
+
+    const docs = await loadBaseDocuments([1, 2]);
+    expect(docs.map((d) => d.title)).toEqual(["문서 A", "문서 B"]);
+  });
+
+  it("loadBaseDocuments rejects with a clear error for an empty selection", async () => {
+    await expect(loadBaseDocuments([])).rejects.toThrow(/선택/);
+    expect(mockFindUnique).not.toHaveBeenCalled();
+  });
 });
 
 describe("extractOutlineFromBlocks", () => {
@@ -320,7 +390,7 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     const events = [];
     for await (const ev of regenerateDocument({
       workspace,
-      baseDoc,
+      baseDocs: [baseDoc],
       guidanceText: "올해 신규 기준",
       LLMConnector,
       title: "2026 보고서",
@@ -364,6 +434,48 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     );
   });
 
+  it("여러 기준 문서를 고르면 문서별 목차를 순서대로 이어붙인다", async () => {
+    const workspace = { slug: "archive-full" };
+    const baseDocs = [
+      {
+        title: "문서 A",
+        pageContent: "무시됨",
+        blocks: [{ section_path: "1 > A절", text: "A 문서 내용" }],
+      },
+      {
+        title: "문서 B",
+        pageContent: "무시됨",
+        blocks: [{ section_path: "1 > B절", text: "B 문서 내용" }],
+      },
+    ];
+    // 신구비교 1회만 호출 — 두 문서의 절 모두 그대로 유지.
+    const LLMConnector = fakeConnector(
+      JSON.stringify([
+        { title: "A절", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
+        { title: "B절", status: "keep", guidanceExcerpt: "", outlineIndex: 1 },
+      ])
+    );
+
+    const events = [];
+    for await (const ev of regenerateDocument({
+      workspace,
+      baseDocs,
+      guidanceText: "기준",
+      LLMConnector,
+      title: "합본 문서",
+    })) {
+      events.push(ev);
+    }
+
+    const outlineEvent = events.find((e) => e.type === "outline");
+    expect(outlineEvent.outline).toEqual(["A절", "B절"]);
+    expect(mockPerformSimilaritySearch).not.toHaveBeenCalled(); // 전부 keep
+    const done = events.at(-1);
+    expect(done.markdown).toBe(
+      "# 합본 문서\n\n## A절\n\nA 문서 내용\n\n## B절\n\nB 문서 내용"
+    );
+  });
+
   it("keeps going and marks a section as needing data when its search call fails", async () => {
     const workspace = { slug: "archive-full" };
     const baseDoc = {
@@ -386,7 +498,7 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     const events = [];
     for await (const ev of regenerateDocument({
       workspace,
-      baseDoc,
+      baseDocs: [baseDoc],
       guidanceText: "기준",
       LLMConnector,
       title: "제목",

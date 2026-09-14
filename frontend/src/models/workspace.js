@@ -322,13 +322,17 @@ const Workspace = {
   // {type: "outline_start"|"outline"|"plan"|"section_start"|"section_done"|"done"|"error", ...}
   // 형태의 이벤트를 절이 끝날 때마다 받는다. 반환된 controller.abort()로
   // 화면을 나갈 때 스트림을 중단할 수 있다.
-  docRegenStream: function (slug, { title, baseDocId, guidanceText }, onEvent) {
+  docRegenStream: function (
+    slug,
+    { title, baseDocIds, guidanceText },
+    onEvent
+  ) {
     const ctrl = new AbortController();
     const run = fetchEventSource(
       `${API_BASE}/workspace/${slug}/doc-regen/stream`,
       {
         method: "POST",
-        body: JSON.stringify({ title, baseDocId, guidanceText }),
+        body: JSON.stringify({ title, baseDocIds, guidanceText }),
         headers: baseHeaders(),
         signal: ctrl.signal,
         openWhenHidden: true,
@@ -356,6 +360,26 @@ const Workspace = {
         onEvent({ type: "error", error: err.message || "알 수 없는 오류" });
     });
     return { controller: ctrl, done: run };
+  },
+  // [auto-docu 전사문서작성tool] 올해 신규 기준/가이던스 파일을 업로드 —
+  // 그 자리에서 파싱해 아카이브에 추가(임베딩)하고, 기준 문서와 같은
+  // 분류(classification)로 확정해 같은 폴더에 놓은 뒤, 읽어낸 본문을
+  // 그대로 돌려준다. classification 필드는 파일보다 먼저 append해야
+  // multer가 request.body에 실어준다.
+  docRegenUploadGuidance: async function (slug, file, classification = {}) {
+    const fd = new FormData();
+    fd.append("classification", JSON.stringify(classification || {}));
+    fd.append("file", file);
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/doc-regen/upload-guidance`,
+      {
+        method: "POST",
+        body: fd,
+        headers: baseHeaders(),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
   },
   uploadFile: async function (slug, formData) {
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {

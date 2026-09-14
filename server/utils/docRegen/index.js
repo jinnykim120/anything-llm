@@ -53,6 +53,15 @@ async function loadBaseDocument(workspaceDocId) {
   };
 }
 
+/** 기준 문서를 여러 개 고른 경우 — 각각 읽어 배열로 반환한다. */
+async function loadBaseDocuments(workspaceDocIds = []) {
+  const ids = (
+    Array.isArray(workspaceDocIds) ? workspaceDocIds : [workspaceDocIds]
+  ).filter((id) => id !== null && id !== undefined);
+  if (!ids.length) throw new Error("기준 문서를 선택해 주세요.");
+  return Promise.all(ids.map((id) => loadBaseDocument(id)));
+}
+
 // ---------------------------------------------------------------------------
 // 목차 추출
 // ---------------------------------------------------------------------------
@@ -331,17 +340,25 @@ function assembleMarkdown({ title, sections }) {
 
 async function* regenerateDocument({
   workspace,
-  baseDoc,
+  baseDocs,
   guidanceText,
   LLMConnector,
   title,
 }) {
   yield { type: "outline_start" };
-  const outline = await getOutline({
-    pageContent: baseDoc.pageContent,
-    blocks: baseDoc.blocks,
-    LLMConnector,
-  });
+  // 기준 문서를 여러 개 고른 경우 — 문서별로 목차를 뽑아 이어붙인다. 절
+  // 제목이 서로 겹칠 일은 거의 없고, 겹쳐도 각 절은 독립적으로 처리되니
+  // 문제 없다.
+  const perDocOutlines = await Promise.all(
+    baseDocs.map((doc) =>
+      getOutline({
+        pageContent: doc.pageContent,
+        blocks: doc.blocks,
+        LLMConnector,
+      })
+    )
+  );
+  const outline = perDocOutlines.flat();
   yield { type: "outline", outline: outline.map((s) => s.title) };
 
   const plan = await diffOutlineAgainstGuidance({
@@ -410,6 +427,7 @@ async function* regenerateDocument({
 
 module.exports = {
   loadBaseDocument,
+  loadBaseDocuments,
   extractOutlineFromBlocks,
   extractOutlineViaLLM,
   getOutline,
