@@ -13,6 +13,8 @@ const {
   chatPrompt,
   recentChatHistory,
   sourceIdentifier,
+  condenseFollowupQuery,
+  mergeFollowupSearchResults,
 } = require("./index");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
@@ -185,11 +187,24 @@ async function streamChatWithWorkspace(
     });
   });
 
+  // [auto-docu 후속질문] A follow-up ("그중 A는 법률적으로...") searches blind
+  // without this — performSimilaritySearch only ever sees the literal current
+  // message. When there's prior conversation, rewrite it into a standalone
+  // query first; the search below then runs on that instead of the raw text.
+  const searchQuery =
+    embeddingsCount !== 0
+      ? await condenseFollowupQuery({
+          message: updatedMessage,
+          chatHistory,
+          LLMConnector,
+        })
+      : updatedMessage;
+
   const vectorSearchResults =
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
-          input: updatedMessage,
+          input: searchQuery,
           LLMConnector,
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
@@ -202,6 +217,36 @@ async function streamChatWithWorkspace(
           sources: [],
           message: null,
         };
+
+  // 보완 로직: the rewrite can drift or miss something the literal phrasing
+  // would have found — when it actually changed the query, also search on
+  // the raw message and additively fold in anything the primary search
+  // missed (never reorders or evicts the primary search's own results).
+  if (
+    embeddingsCount !== 0 &&
+    searchQuery !== updatedMessage &&
+    !vectorSearchResults.message
+  ) {
+    const rawSearchResults = await VectorDb.performSimilaritySearch({
+      namespace: workspace.slug,
+      input: updatedMessage,
+      LLMConnector,
+      similarityThreshold: workspace?.similarityThreshold,
+      topN: workspace?.topN,
+      filterIdentifiers: pinnedDocIdentifiers,
+      filterDocIds,
+      rerank: workspace?.vectorSearchMode === "rerank",
+    });
+    if (!rawSearchResults.message) {
+      const merged = mergeFollowupSearchResults(
+        vectorSearchResults,
+        rawSearchResults,
+        workspace?.topN || 4
+      );
+      vectorSearchResults.contextTexts = merged.contextTexts;
+      vectorSearchResults.sources = merged.sources;
+    }
+  }
 
   // Failed similarity search if it was run at all and failed.
   if (!!vectorSearchResults.message) {
