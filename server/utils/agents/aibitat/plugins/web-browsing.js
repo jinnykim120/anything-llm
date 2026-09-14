@@ -994,25 +994,25 @@ const webBrowsing = {
             const data = [];
             const results = html.split('<div class="result results_links');
 
-            // Skip first element since it's before the first result
+            // Skip first element since it's before the first result.
+            // Anchor attributes aren't matched in a fixed order here on
+            // purpose (a lookahead for the class + an independent href
+            // capture) — a regex assuming `class` always comes before
+            // `href` silently returns nothing the moment DDG's markup
+            // order differs.
             for (let i = 1; i < results.length; i++) {
               const result = results[i];
 
-              // Extract title
-              const titleMatch = result.match(
-                /<a[^>]*class="result__a"[^>]*>(.*?)<\/a>/
+              // Extract title + URL (redirect-cleaned) from the result link.
+              const anchorMatch = result.match(
+                /<a(?=[^>]*\bclass="result__a")[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/
               );
-              const title = titleMatch ? titleMatch[1].trim() : "";
-
-              // Extract URL and clean DDG redirect
-              const urlMatch = result.match(
-                /<a[^>]*class="result__a"[^>]*href="([^"]*)">/
-              );
-              const link = extractUrl(urlMatch ? urlMatch[1] : "");
+              const link = extractUrl(anchorMatch ? anchorMatch[1] : "");
+              const title = anchorMatch ? anchorMatch[2].trim() : "";
 
               // Extract snippet
               const snippetMatch = result.match(
-                /<a[^>]*class="result__snippet"[^>]*>(.*?)<\/a>/
+                /<a(?=[^>]*\bclass="result__snippet")[^>]*>([\s\S]*?)<\/a>/
               );
               const snippet = snippetMatch
                 ? snippetMatch[1].replace(/<\/?b>/g, "").trim()

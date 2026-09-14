@@ -204,10 +204,33 @@ function mergeFollowupSearchResults(primary, secondary, topN) {
   return { contextTexts, sources };
 }
 
+// [auto-docu 외부검색] Renders live web-search results as their own labeled
+// block, appended directly onto the system prompt string rather than folded
+// into `contextTexts` — every LLM provider's own compressMessages/
+// constructPrompt auto-numbers contextTexts as plain "[i]", and this needs a
+// visually distinct "[브라우징N]" label so a reader can tell at a glance
+// which facts came from the internal archive vs. the open web. Provider-
+// agnostic: this is just text appended to the prompt stream.js already
+// builds via chatPrompt(), no per-provider changes needed.
+function buildWebSearchContextBlock(webResults = []) {
+  if (!webResults.length) return "";
+  const entries = webResults
+    .map(
+      (r, i) => `[브라우징${i}]: ${r.title}\n${r.snippet}\n[END 브라우징${i}]`
+    )
+    .join("\n\n");
+  return (
+    "\n\n웹 검색 결과 (외부 자료 — 아카이브에 없는 최신 정보나 관련 법령·규제를 보완하기 위해 사용자가 요청한 실시간 검색 결과다. " +
+    "이 자료를 근거로 답할 때는 반드시 '[브라우징N]' 형식으로 표시하고, 내부 문서 인용('[0]', '[1]' 등)과 절대 섞어서 표기하지 않는다):\n" +
+    entries
+  );
+}
+
 module.exports = {
   sourceIdentifier,
   condenseFollowupQuery,
   mergeFollowupSearchResults,
+  buildWebSearchContextBlock,
   recentChatHistory,
   chatPrompt,
   grepCommand,

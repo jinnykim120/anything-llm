@@ -1,6 +1,8 @@
 // [auto-docu P2] Opens the ORIGINAL document for a citation and highlights the
 // exact region a chunk came from. PDF → pdf.js render + bbox overlay; anything
 // without a kept original (text/data files) → the chunk text, as before.
+// [auto-docu 외부검색] a "[브라우징n]" web-search result has no internal
+// original at all — it opens the actual live webpage in an iframe instead.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
@@ -11,11 +13,13 @@ import {
   Minus,
   Plus,
   ArrowsOutSimple,
+  ArrowSquareOut,
+  Globe,
 } from "@phosphor-icons/react";
 import { decode as HTMLDecode } from "he";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { omitChunkHeader } from "../../ChatHistory/Citation";
+import { omitChunkHeader, parseChunkSource } from "../../ChatHistory/Citation";
 import { API_BASE } from "@/utils/constants";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -124,7 +128,7 @@ function PdfPage({
 
 export default function SourceViewer({ source, initialChunkId, onClose }) {
   const [pdf, setPdf] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | pdf | text | error
+  const [status, setStatus] = useState("loading"); // loading | pdf | text | web | error
   const [activeChunkId, setActiveChunkId] = useState(
     initialChunkId ?? source?.chunks?.[0]?.id
   );
@@ -136,6 +140,31 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
   });
   const [zoom, setZoom] = useState(1);
 
+  // [auto-docu 외부검색] a "link://" source has no internal original — it's a
+  // live web-search result, so this opens the actual page in an iframe.
+  // Many sites refuse to be framed (X-Frame-Options/CSP) with no reliable
+  // way to detect that from here, since the frame is cross-origin — the
+  // browser still fires `onLoad` for a refused frame in most cases, so we
+  // fall back to "blocked" only when the frame never loads at all in time.
+  const linkInfo = useMemo(() => parseChunkSource(source), [source]);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [iframeBlocked, setIframeBlocked] = useState(false);
+  const iframeLoadedRef = useRef(false);
+
+  useEffect(() => {
+    iframeLoadedRef.current = iframeLoaded;
+  }, [iframeLoaded]);
+
+  useEffect(() => {
+    if (!linkInfo.isUrl) return;
+    setIframeLoaded(false);
+    setIframeBlocked(false);
+    const timer = setTimeout(() => {
+      if (!iframeLoadedRef.current) setIframeBlocked(true);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [linkInfo.isUrl, linkInfo.href]);
+
   const rawUrl =
     source?.doc_id && source?.has_original
       ? `${API_BASE}/document/raw/${source.doc_id}`
@@ -143,6 +172,10 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
 
   useEffect(() => {
     let cancelled = false;
+    if (linkInfo.isUrl) {
+      setStatus("web");
+      return;
+    }
     if (!rawUrl) {
       setStatus("text");
       return;
@@ -170,7 +203,7 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [rawUrl]);
+  }, [rawUrl, linkInfo.isUrl]);
 
   // group highlight rects by page for the PDF view
   const pages = useMemo(() => {
@@ -214,17 +247,27 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
     >
       <div className="flex items-start justify-between gap-2 p-4 border-b border-zinc-800 light:border-slate-200">
         <div className="flex items-start gap-2 min-w-0">
-          <FileText
-            size={18}
-            className="text-white/70 light:text-slate-500 flex-shrink-0 mt-[2px]"
-          />
+          {linkInfo.isUrl ? (
+            <Globe size={18} className="text-sky-400 flex-shrink-0 mt-[2px]" />
+          ) : (
+            <FileText
+              size={18}
+              className="text-white/70 light:text-slate-500 flex-shrink-0 mt-[2px]"
+            />
+          )}
           <div className="min-w-0">
             <p className="font-medium text-sm text-white light:text-slate-900 truncate">
               {source?.title}
             </p>
             <div className="flex items-center gap-2 mt-[2px] text-[11px] text-zinc-400 light:text-slate-500">
-              {source?.parse_path && <span>{source.parse_path}</span>}
-              {activePage > 0 && <span>p.{activePage}</span>}
+              {linkInfo.isUrl ? (
+                <span className="truncate text-sky-400">{linkInfo.text}</span>
+              ) : (
+                <>
+                  {source?.parse_path && <span>{source.parse_path}</span>}
+                  {activePage > 0 && <span>p.{activePage}</span>}
+                </>
+              )}
               {source?.sensitivity && source.sensitivity !== "unclassified" && (
                 <span className="text-amber-500">{source.sensitivity}</span>
               )}
@@ -236,13 +279,26 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
             )}
           </div>
         </div>
-        <button
-          onClick={onClose}
-          type="button"
-          className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 bg-transparent border-none cursor-pointer flex-shrink-0"
-        >
-          <X size={16} weight="bold" />
-        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {linkInfo.isUrl && (
+            <a
+              href={linkInfo.href}
+              target="_blank"
+              rel="noreferrer"
+              title="새 탭에서 열기"
+              className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900"
+            >
+              <ArrowSquareOut size={16} weight="bold" />
+            </a>
+          )}
+          <button
+            onClick={onClose}
+            type="button"
+            className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 bg-transparent border-none cursor-pointer"
+          >
+            <X size={16} weight="bold" />
+          </button>
+        </div>
       </div>
 
       {/* chunk chips — jump between the cited passages */}
@@ -361,6 +417,44 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
             active
             zoom={zoom}
           />
+        )}
+
+        {status === "web" && (
+          <div className="h-full min-h-[420px] flex flex-col">
+            {iframeBlocked ? (
+              <div className="flex flex-col items-center justify-center gap-3 h-full min-h-[420px] p-6 text-center">
+                <Globe size={28} className="text-sky-400" />
+                <p className="text-sm text-zinc-300 light:text-slate-600">
+                  이 페이지는 미리보기를 지원하지 않습니다 — 새 탭에서 열어
+                  확인하세요.
+                </p>
+                <a
+                  href={linkInfo.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-sm no-underline"
+                >
+                  <ArrowSquareOut size={14} weight="bold" /> 새 탭에서 열기
+                </a>
+              </div>
+            ) : (
+              <>
+                {!iframeLoaded && (
+                  <p className="text-sm text-zinc-400 light:text-slate-500 p-4">
+                    페이지를 불러오는 중…
+                  </p>
+                )}
+                <iframe
+                  src={linkInfo.href}
+                  title={source?.title || "외부 웹페이지"}
+                  className="w-full flex-1 min-h-[420px] rounded border border-zinc-800 light:border-slate-200 bg-white"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                  referrerPolicy="no-referrer"
+                  onLoad={() => setIframeLoaded(true)}
+                />
+              </>
+            )}
+          </div>
         )}
 
         {status === "text" && (

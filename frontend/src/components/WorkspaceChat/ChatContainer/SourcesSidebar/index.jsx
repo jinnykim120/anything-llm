@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { X } from "@phosphor-icons/react";
 import {
   combineLikeSources,
-  findCombinedSourceByCitationIndex,
+  findCombinedSourceByFocus,
 } from "../ChatHistory/Citation";
 import MobileCitationModal from "./MobileCitationModal";
 import SourceItem from "./SourceItem";
@@ -15,8 +15,7 @@ import ChatSidebar, { useSourcesSidebar } from "../ChatSidebar";
 export { useSourcesSidebar } from "../ChatSidebar";
 
 export default function SourcesSidebar() {
-  const { sources, sidebarOpen, focusCitationIndex, closeSidebar } =
-    useSourcesSidebar();
+  const { sources, sidebarOpen, focus, closeSidebar } = useSourcesSidebar();
   const { t } = useTranslation();
   const [selectedSource, setSelectedSource] = useState(null);
   const [flashTitle, setFlashTitle] = useState(null);
@@ -24,15 +23,13 @@ export default function SourcesSidebar() {
 
   const combined = combineLikeSources(sources);
 
-  // A click on an inline "[n]" marker opens the sidebar pointed at the
-  // matching source — select it, scroll it into view, and flash it so it's
-  // obvious which of the (possibly many) sources answered "[n]".
+  // A click on an inline "[n]"/"[브라우징n]" marker opens the sidebar
+  // pointed at the matching source — select it, scroll it into view, and
+  // flash it so it's obvious which of the (possibly many) sources answered
+  // that marker.
   useEffect(() => {
-    if (!sidebarOpen || focusCitationIndex === null) return;
-    const match = findCombinedSourceByCitationIndex(
-      combined,
-      focusCitationIndex
-    );
+    if (!sidebarOpen || !focus) return;
+    const match = findCombinedSourceByFocus(combined, focus);
     if (!match) return;
     setSelectedSource(match);
     setFlashTitle(match.title);
@@ -42,7 +39,7 @@ export default function SourcesSidebar() {
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     const timer = setTimeout(() => setFlashTitle(null), 1600);
     return () => clearTimeout(timer);
-  }, [sidebarOpen, focusCitationIndex, sources]);
+  }, [sidebarOpen, focus, sources]);
 
   if (isMobile) {
     return (

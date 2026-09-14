@@ -48,13 +48,13 @@ export function useSourcesSidebar() {
   return {
     sidebarOpen: isOpen,
     // `sidebarData` is either a plain sources array (older callers) or
-    // `{ sources, focusCitationIndex }` (a click on an inline "[n]" marker).
+    // `{ sources, focus }` (a click on an inline "[n]"/"[브라우징n]" marker).
+    // `focus` is `{ citationIndex }` for an internal source or
+    // `{ browsingIndex }` for an external web-search result.
     sources: (Array.isArray(data) ? data : data?.sources) || [],
-    focusCitationIndex: Array.isArray(data)
-      ? null
-      : (data?.focusCitationIndex ?? null),
-    openSidebar: (sources, focusCitationIndex = null) =>
-      openSidebar("sources", { sources, focusCitationIndex }),
+    focus: Array.isArray(data) ? null : (data?.focus ?? null),
+    openSidebar: (sources, focus = null) =>
+      openSidebar("sources", { sources, focus }),
     closeSidebar,
   };
 }

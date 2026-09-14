@@ -133,6 +133,10 @@ export function combineLikeSources(sources) {
       // (server/utils/chats/stream.js) — lets the UI link an inline "[n]"
       // marker back to the source it actually came from.
       citationIndex = null,
+      // [auto-docu 외부검색] the "[브라우징n]" number for a live web-search
+      // result — a separate namespace from citationIndex so the two never
+      // collide (an internal source and a web source can both be "index 0").
+      browsingIndex = null,
     } = source;
     const chunk = {
       id,
@@ -147,12 +151,15 @@ export function combineLikeSources(sources) {
       page_height,
       section_path,
       citationIndex,
+      browsingIndex,
     };
     if (combined.hasOwnProperty(title)) {
       combined[title].chunks.push(chunk);
       combined[title].references += 1;
       if (citationIndex !== null)
         combined[title].citationIndexes.push(citationIndex);
+      if (browsingIndex !== null)
+        combined[title].browsingIndexes.push(browsingIndex);
     } else {
       combined[title] = {
         title,
@@ -163,33 +170,61 @@ export function combineLikeSources(sources) {
         parse_path,
         sensitivity,
         citationIndexes: citationIndex !== null ? [citationIndex] : [],
+        browsingIndexes: browsingIndex !== null ? [browsingIndex] : [],
       };
     }
   });
   return Object.values(combined);
 }
 
-/** Find the combined source entry that carries a given citationIndex ("[n]"). */
-export function findCombinedSourceByCitationIndex(combined, citationIndex) {
-  if (citationIndex === null || citationIndex === undefined) return null;
-  const n = Number(citationIndex);
-  return combined.find((source) => source.citationIndexes.includes(n)) || null;
+/**
+ * Find the combined source entry that carries a given index — either an
+ * internal "[n]" citationIndex or an external "[브라우징n]" browsingIndex.
+ * @param {object[]} combined
+ * @param {{citationIndex?: number|null, browsingIndex?: number|null}} focus
+ */
+export function findCombinedSourceByFocus(combined, focus) {
+  if (!focus) return null;
+  if (focus.citationIndex !== null && focus.citationIndex !== undefined) {
+    const n = Number(focus.citationIndex);
+    return (
+      combined.find((source) => source.citationIndexes.includes(n)) || null
+    );
+  }
+  if (focus.browsingIndex !== null && focus.browsingIndex !== undefined) {
+    const n = Number(focus.browsingIndex);
+    return (
+      combined.find((source) => source.browsingIndexes.includes(n)) || null
+    );
+  }
+  return null;
 }
 
 const CITATION_MARKER_RE = /\[(\d{1,3})\]/g;
+const BROWSING_MARKER_RE = /\[브라우징(\d{1,3})\]/g;
 
 /**
- * Turn literal "[n]" citation markers left in the rendered answer HTML into
- * clickable buttons that open the sources sidebar focused on that source.
- * Must run on the markdown-rendered HTML (so real markdown links "[text](url)"
- * are already `<a>` tags and never get touched by this), before sanitizing.
+ * Turn literal "[n]" and "[브라우징n]" citation markers left in the rendered
+ * answer HTML into clickable buttons that open the sources sidebar focused
+ * on the source they refer to. Must run on the markdown-rendered HTML (so
+ * real markdown links "[text](url)" are already `<a>` tags and never get
+ * touched by this), before sanitizing. The 브라우징 pattern is replaced
+ * first — it's a superset of the plain-number pattern (both end in a
+ * bracketed number), so matching plain "[n]" first would eat the digits out
+ * of "[브라우징n]" and leave "[브라우징]" behind.
  */
 export function linkifyCitationMarkers(html = "") {
-  return html.replace(
-    CITATION_MARKER_RE,
-    (_match, n) =>
-      `<button type="button" class="citation-ref" data-citation-idx="${n}">[${n}]</button>`
-  );
+  return html
+    .replace(
+      BROWSING_MARKER_RE,
+      (_match, n) =>
+        `<button type="button" class="citation-ref" data-browsing-idx="${n}">[브라우징${n}]</button>`
+    )
+    .replace(
+      CITATION_MARKER_RE,
+      (_match, n) =>
+        `<button type="button" class="citation-ref" data-citation-idx="${n}">[${n}]</button>`
+    );
 }
 
 export default function Citations({ sources = [] }) {

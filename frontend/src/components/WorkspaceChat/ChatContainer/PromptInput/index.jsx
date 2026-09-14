@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import debounce from "lodash.debounce";
-import { ArrowUp, At } from "@phosphor-icons/react";
+import { ArrowUp, At, Archive, Globe } from "@phosphor-icons/react";
 import StopGenerationButton from "./StopGenerationButton";
 import SpeechToText from "./SpeechToText";
 import { Tooltip } from "react-tooltip";
@@ -45,6 +45,10 @@ export default function PromptInput({
   threadSlug = null,
   archiveMode = false,
   placeholder = null,
+  // [auto-docu 외부검색] "내부 자료만" / "내부 + 외부 자료" — per-message
+  // choice, only shown/usable in the archive.
+  webSearchEnabled = false,
+  onWebSearchChange = () => {},
 }) {
   const { t } = useTranslation();
   const { showAgentCommand = true } = workspace ?? {};
@@ -351,6 +355,12 @@ export default function PromptInput({
                 highlightedIndexRef={toolsHighlightRef}
               />
             )}
+            {archiveMode && (
+              <WebSearchToggle
+                enabled={webSearchEnabled}
+                onChange={onWebSearchChange}
+              />
+            )}
             <div className="bg-zinc-800 light:bg-white light:border light:border-slate-300 rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden">
               <AttachmentManager attachments={attachments} />
               <div className="flex items-center">
@@ -421,6 +431,51 @@ export default function PromptInput({
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+// [auto-docu 외부검색] "내부 자료만" / "내부 + 외부 자료" 상자 두 개.
+// 다음 보낼 메시지 하나에 적용되는 선택이고, 기본값은 내부만(지금까지의
+// 동작과 동일)이다. 아카이브에 없는 최신 정보나 법령·규제를 보완해야 할
+// 때만 두 번째 상자를 고르면 된다.
+function WebSearchToggle({ enabled, onChange }) {
+  const options = [
+    {
+      value: false,
+      label: "내부 자료만",
+      icon: Archive,
+      desc: "아카이브에 적재된 문서만 근거로 답변",
+    },
+    {
+      value: true,
+      label: "내부 + 외부 자료",
+      icon: Globe,
+      desc: "부족한 부분은 웹 검색으로 보완 (인용은 [브라우징N]으로 표시)",
+    },
+  ];
+
+  return (
+    <div className="mb-2 flex w-fit gap-1 rounded-full border border-slate-200 bg-white/70 p-1 backdrop-blur-sm dark:border-zinc-700 dark:bg-zinc-900/70">
+      {options.map((opt) => {
+        const active = enabled === opt.value;
+        return (
+          <button
+            key={String(opt.value)}
+            type="button"
+            title={opt.desc}
+            onClick={() => onChange(opt.value)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              active
+                ? "bg-blue-600 text-white"
+                : "text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            <opt.icon size={13} weight={active ? "fill" : "regular"} />
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

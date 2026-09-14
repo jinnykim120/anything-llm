@@ -154,22 +154,31 @@ const Workspace = {
     prompt,
     chatHandler,
     attachments = [],
+    webSearch = false,
   }) {
     if (!!threadSlug)
       return this.threads.streamChat(
         { workspaceSlug, threadSlug },
         prompt,
         chatHandler,
-        attachments
+        attachments,
+        webSearch
       );
     return this.streamChat(
       { slug: workspaceSlug },
       prompt,
       chatHandler,
-      attachments
+      attachments,
+      webSearch
     );
   },
-  streamChat: async function ({ slug }, message, handleChat, attachments = []) {
+  streamChat: async function (
+    { slug },
+    message,
+    handleChat,
+    attachments = [],
+    webSearch = false
+  ) {
     const ctrl = new AbortController();
 
     // Listen for the ABORT_STREAM_EVENT key to be emitted by the client
@@ -186,10 +195,12 @@ const Workspace = {
       await fetchEventSource(`${API_BASE}/workspace/${slug}/stream-chat`, {
         method: "POST",
         // [auto-docu v14 P4] archive sidebar scope filter (전체/실적/법규/대외)
+        // [auto-docu 외부검색] per-message "내부+외부 자료" toggle
         body: JSON.stringify({
           message,
           attachments,
           scope: safeGetArchiveScope(),
+          webSearch,
         }),
         headers: baseHeaders(),
         signal: ctrl.signal,
@@ -285,14 +296,23 @@ const Workspace = {
       .catch(() => false);
   },
   // [auto-docu 목표 3] Generate a document draft from a chat answer.
+  // dataScope: "answer_only" | "answer_plus_web" — 답변만 근거로 할지, 최신
+  // 외부 검색 자료로 보강할지. reportType: "basic" | "analysis" — 내용을
+  // 정리만 할지, 시사점/동향·리스크 같은 분석 절을 덧붙일지.
   generateDraft: async function (
     slug,
-    { sourceText, citations = [], mode, instructions = "" }
+    { sourceText, citations = [], dataScope, reportType, instructions = "" }
   ) {
     return await fetch(`${API_BASE}/workspace/${slug}/draft`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ sourceText, citations, mode, instructions }),
+      body: JSON.stringify({
+        sourceText,
+        citations,
+        dataScope,
+        reportType,
+        instructions,
+      }),
     })
       .then((res) => res.json())
       .catch((e) => ({ error: e.message }));

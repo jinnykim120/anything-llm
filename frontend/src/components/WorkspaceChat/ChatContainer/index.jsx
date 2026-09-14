@@ -69,6 +69,9 @@ export default function ChatContainer({
   );
   // [auto-docu 목표 3] 답변을 근거로 문서 초안을 작성하는 하단 분할 패널.
   const [draftSource, setDraftSource] = useState(null);
+  // [auto-docu 외부검색] "내부 자료만" / "내부 + 외부 자료" — 다음 보낼
+  // 메시지 하나에 대한 선택. 기본은 내부만(지금까지의 동작과 동일).
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   const isEmpty =
     chatHistory.length === 0 && !sessionStorage.getItem(PENDING_HOME_MESSAGE);
@@ -191,6 +194,7 @@ export default function ChatContainer({
         role: "assistant",
         pending: true,
         userMessage: currentMessage,
+        webSearch: webSearchEnabled,
         animate: true,
       },
     ];
@@ -282,6 +286,7 @@ export default function ChatContainer({
           pending: true,
           userMessage: text,
           attachments,
+          webSearch: webSearchEnabled,
           animate: true,
         },
       ];
@@ -299,6 +304,7 @@ export default function ChatContainer({
           pending: true,
           userMessage: text,
           attachments,
+          webSearch: webSearchEnabled,
           animate: true,
         },
       ];
@@ -407,6 +413,7 @@ export default function ChatContainer({
             setSocketId
           ),
         attachments,
+        webSearch: !!promptMessage.webSearch,
       });
       return;
     }
@@ -581,6 +588,8 @@ export default function ChatContainer({
                     attachments={files}
                     centered={true}
                     archiveMode={isArchive}
+                    webSearchEnabled={webSearchEnabled}
+                    onWebSearchChange={setWebSearchEnabled}
                     placeholder={
                       isArchive ? "문서에 대해 질문해 보세요." : undefined
                     }
@@ -681,6 +690,8 @@ export default function ChatContainer({
                       attachments={files}
                       centered={false}
                       archiveMode={isArchive}
+                      webSearchEnabled={webSearchEnabled}
+                      onWebSearchChange={setWebSearchEnabled}
                       placeholder={
                         isArchive ? "문서에 대해 질문해 보세요." : undefined
                       }

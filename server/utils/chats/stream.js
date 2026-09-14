@@ -15,7 +15,9 @@ const {
   sourceIdentifier,
   condenseFollowupQuery,
   mergeFollowupSearchResults,
+  buildWebSearchContextBlock,
 } = require("./index");
+const { webSearch } = require("../webSearch");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -29,7 +31,10 @@ async function streamChatWithWorkspace(
   attachments = [],
   // [auto-docu v14 P4] restrict retrieval to these doc_ids (the archive
   // sidebar's scope filter). null = search the whole workspace.
-  filterDocIds = null
+  filterDocIds = null,
+  // [auto-docu 외부검색] "내부+외부 자료" mode — the user opted, for this
+  // message, to supplement the internal archive with a live web search.
+  useWebSearch = false
 ) {
   const uuid = uuidv4();
   const updatedMessage = await grepCommand(message, user);
@@ -290,9 +295,40 @@ async function streamChatWithWorkspace(
     citationIndex,
   }));
 
+  // [auto-docu 외부검색] "내부+외부 자료" mode — the user opted in for THIS
+  // message, so supplement (never replace) the internal archive with a live
+  // web search on the same (possibly condensed) query. Web sources get their
+  // own `browsingIndex` — kept separate from `citationIndex` above — because
+  // the model is told to cite them with a visually distinct "[브라우징N]"
+  // label, not a plain number, so a reader can tell archive facts from open-
+  // web facts at a glance.
+  let webSearchResultsBlock = "";
+  if (useWebSearch) {
+    const webResults = await webSearch(searchQuery).catch((e) => {
+      console.error("[streamChatWithWorkspace] webSearch failed:", e.message);
+      return [];
+    });
+    if (webResults.length) {
+      webSearchResultsBlock = buildWebSearchContextBlock(webResults);
+      const webSources = webResults.map((result, browsingIndex) => ({
+        title: result.title,
+        text: result.snippet,
+        chunkSource: `link://${result.link}`,
+        score: null,
+        browsingIndex,
+      }));
+      sources = [...sources, ...webSources];
+    }
+  }
+
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
   // let the LLM try to hallucinate a response or use general knowledge and exit early
-  if (chatMode === "query" && contextTexts.length === 0) {
+  // (a live web search result counts as found context too — see 외부검색 above).
+  if (
+    chatMode === "query" &&
+    contextTexts.length === 0 &&
+    !webSearchResultsBlock
+  ) {
     const textResponse =
       workspace?.queryRefusalResponse ??
       "There is no relevant information in this workspace to answer your query.";
@@ -325,11 +361,11 @@ async function streamChatWithWorkspace(
   // and build system messages based on inputs and history.
   // Reuse the system prompt from routing pre-fetch when available.
   const systemPrompt =
-    prefetchedContext?.systemPrompt ??
-    (await chatPrompt(workspace, user, {
-      prompt: updatedMessage,
-      rawHistory,
-    }));
+    (prefetchedContext?.systemPrompt ??
+      (await chatPrompt(workspace, user, {
+        prompt: updatedMessage,
+        rawHistory,
+      }))) + webSearchResultsBlock;
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,

@@ -33,33 +33,69 @@ export function openDraftPanel({ message, sources = [], chatId = null }) {
   );
 }
 
-const MODES = [
+// 1단계: 어떤 자료를 근거로 쓸지.
+const DATA_SCOPES = [
   {
-    key: "report",
-    label: "보고용",
-    desc: "사내 보고 형식 · 개조식 · 목적 / 배경 / 현황 / 시사점 / 건의",
+    key: "answer_only",
+    label: "답변 내용만",
+    desc: "지금 답변에만 근거해서 작성합니다 · 새로운 사실은 추가하지 않음",
   },
   {
-    key: "external",
-    label: "대외기관용",
-    desc: "공문 형식 · 정중한 경어체 · 근거와 출처 명시",
+    key: "answer_plus_web",
+    label: "외부자료 보강",
+    desc: "답변 내용에 최신 웹 검색 자료를 더해 내용을 보강합니다",
   },
 ];
-
-const MODE_LABEL = {
-  report: "보고용 (사내 보고)",
-  external: "대외기관용 (외부 발송)",
+const DATA_SCOPE_LABEL = {
+  answer_only: "답변 내용만",
+  answer_plus_web: "외부자료 보강",
 };
 
+// 2단계: 어떤 형태의 문서로 만들지 — 1단계 선택에 따라 설명이 달라진다.
+const REPORT_TYPES = {
+  answer_only: [
+    {
+      key: "basic",
+      label: "기본보고서",
+      desc: "답변 내용을 목적 / 배경 / 현황 구조로 정리합니다.",
+    },
+    {
+      key: "analysis",
+      label: "분석보고서",
+      desc: "위 내용에 시사점 · 검토의견 · 향후조치(건의)를 덧붙입니다.",
+    },
+  ],
+  answer_plus_web: [
+    {
+      key: "basic",
+      label: "기본보고서",
+      desc: "답변 + 외부 자료를 종합해 더 풍부한 현황으로 정리합니다.",
+    },
+    {
+      key: "analysis",
+      label: "분석보고서",
+      desc: "위 내용에 관련 동향 · 문제점 및 리스크 파악을 덧붙입니다.",
+    },
+  ],
+};
+const REPORT_TYPE_LABEL = { basic: "기본보고서", analysis: "분석보고서" };
+
 export default function DraftPanel({ source, workspace, onClose }) {
-  const [mode, setMode] = useState(null);
+  const [dataScope, setDataScope] = useState(null);
+  const [reportType, setReportType] = useState(null);
   const [instructions, setInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState(null); // { markdown, title, designed }
   const [editing, setEditing] = useState(false);
 
   const designed = !!draft?.designed;
-  const accent = DRAFT_ACCENT[mode] || DRAFT_ACCENT.report;
+  const accent = DRAFT_ACCENT[reportType] || DRAFT_ACCENT.basic;
+  const comboLabel =
+    dataScope && reportType
+      ? `${DATA_SCOPE_LABEL[dataScope]} · ${REPORT_TYPE_LABEL[reportType]}`
+      : null;
+  const headerLabel =
+    comboLabel || (dataScope ? DATA_SCOPE_LABEL[dataScope] : null);
   const displayTitle = draft
     ? extractDraftTitle(draft.markdown, draft.title)
     : "";
@@ -69,14 +105,15 @@ export default function DraftPanel({ source, workspace, onClose }) {
   );
 
   async function generate() {
-    if (!mode) return;
+    if (!dataScope || !reportType) return;
     setGenerating(true);
     setDraft(null);
     setEditing(false);
     const res = await Workspace.generateDraft(workspace.slug, {
       sourceText: source.message,
       citations: source.sources || [],
-      mode,
+      dataScope,
+      reportType,
       instructions: instructions.trim(),
     });
     setGenerating(false);
@@ -87,11 +124,13 @@ export default function DraftPanel({ source, workspace, onClose }) {
       );
     setDraft({
       markdown: res.draft,
-      title: res.title || `${MODE_LABEL[mode]} 초안`,
+      title: res.title || `${comboLabel} 초안`,
       designed: detectDesignRequest(instructions),
     });
     showToast(
-      "초안이 생성되었습니다. 필요하면 내용을 직접 수정할 수 있습니다.",
+      res.externalSourcesUsed
+        ? `초안이 생성되었습니다. 외부 자료 ${res.externalSourcesUsed}건을 참고했습니다.`
+        : "초안이 생성되었습니다. 필요하면 내용을 직접 수정할 수 있습니다.",
       "success"
     );
   }
@@ -105,8 +144,8 @@ export default function DraftPanel({ source, workspace, onClose }) {
     downloadDraftHtml({
       markdown: draft.markdown,
       title: draft.title,
-      modeLabel: MODE_LABEL[mode],
-      mode,
+      modeLabel: comboLabel,
+      reportType,
       designed,
     });
     showToast("HTML 파일을 내려받았습니다.", "success");
@@ -119,12 +158,12 @@ export default function DraftPanel({ source, workspace, onClose }) {
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-zinc-100">
           <Sparkle size={16} weight="fill" className="text-blue-500" />
           문서 초안 작성
-          {mode && (
+          {headerLabel && (
             <span
               className="rounded-full px-2 py-0.5 text-[11px] font-medium"
               style={{ background: `${accent.accent}1a`, color: accent.accent }}
             >
-              {MODES.find((m) => m.key === mode)?.label}
+              {headerLabel}
             </span>
           )}
         </div>
@@ -159,40 +198,72 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
       {/* 본문 */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {/* 1단계: 유형 선택 */}
-        {!mode && (
+        {/* 1단계: 자료 범위 선택 */}
+        {!dataScope && (
           <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
             <p className="text-xs text-slate-500 dark:text-zinc-400">
-              위 답변을 바탕으로 어떤 문서를 만들까요? 사실 내용은 그대로 두고
-              형식과 표현만 다듬습니다.
+              위 답변을 바탕으로 문서를 만듭니다. 먼저 어떤 자료를 근거로 쓸지
+              골라주세요.
             </p>
-            {MODES.map((m) => (
+            {DATA_SCOPES.map((s) => (
               <button
-                key={m.key}
+                key={s.key}
                 type="button"
-                onClick={() => setMode(m.key)}
+                onClick={() => setDataScope(s.key)}
                 className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
               >
                 <span className="block text-sm font-semibold text-slate-800 dark:text-zinc-100">
-                  {m.label}
+                  {s.label}
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
-                  {m.desc}
+                  {s.desc}
                 </span>
               </button>
             ))}
           </div>
         )}
 
-        {/* 2단계: 추가 요청 + 생성 */}
-        {mode && !draft && !generating && (
+        {/* 2단계: 문서 유형 선택 — 1단계 선택에 따라 설명이 달라진다 */}
+        {dataScope && !reportType && (
           <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
             <button
               type="button"
-              onClick={() => setMode(null)}
+              onClick={() => setDataScope(null)}
               className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
             >
-              <ArrowLeft size={12} /> 유형 다시 선택
+              <ArrowLeft size={12} /> 자료 범위 다시 선택
+            </button>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">
+              어떤 형태의 문서로 만들까요? 사실 내용은 그대로 두고 형식과 표현만
+              다듬습니다.
+            </p>
+            {REPORT_TYPES[dataScope].map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() => setReportType(r.key)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+              >
+                <span className="block text-sm font-semibold text-slate-800 dark:text-zinc-100">
+                  {r.label}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+                  {r.desc}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 3단계: 추가 요청 + 생성 */}
+        {dataScope && reportType && !draft && !generating && (
+          <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+            <button
+              type="button"
+              onClick={() => setReportType(null)}
+              className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+            >
+              <ArrowLeft size={12} /> 문서 유형 다시 선택
             </button>
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
@@ -224,9 +295,12 @@ export default function DraftPanel({ source, workspace, onClose }) {
         {generating && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-zinc-400">
             <CircleNotch size={22} className="animate-spin" />
-            <p className="text-xs">
-              {MODE_LABEL[mode]} 초안을 작성하고 있습니다…
-            </p>
+            <p className="text-xs">{comboLabel} 초안을 작성하고 있습니다…</p>
+            {dataScope === "answer_plus_web" && (
+              <p className="text-[11px] text-slate-400 dark:text-zinc-500">
+                외부 자료를 검색하고 있어 조금 더 걸릴 수 있습니다.
+              </p>
+            )}
           </div>
         )}
 
@@ -268,7 +342,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
               <>
                 {designed && (
                   <DraftCover
-                    mode={mode}
+                    label={comboLabel}
                     title={displayTitle}
                     accent={accent}
                   />
@@ -316,7 +390,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
 }
 
 /** 다운로드되는 HTML의 표지 배너와 같은 모양을 패널 안에서 미리 보여준다. */
-function DraftCover({ mode, title, accent }) {
+function DraftCover({ label, title, accent }) {
   return (
     <div
       className="rounded-t-lg px-5 py-4 text-white"
@@ -325,7 +399,7 @@ function DraftCover({ mode, title, accent }) {
       }}
     >
       <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-        {MODE_LABEL[mode] || "문서 초안"}
+        {label || "문서 초안"}
       </span>
       <h3 className="mt-1.5 text-base font-extrabold leading-snug">{title}</h3>
       <p className="mt-0.5 text-[11px] text-white/80">

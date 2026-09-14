@@ -7,14 +7,14 @@ import MarkdownIt from "markdown-it";
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
 
-// 유형별 강조 색 — "디자인 요소" 요청이 있을 때만 쓰인다.
+// 문서 유형(기본/분석)별 강조 색 — "디자인 요소" 요청이 있을 때만 쓰인다.
 export const DRAFT_ACCENT = {
-  report: { accent: "#2563eb", accentSoft: "#eff6ff", accentDark: "#1e40af" },
-  external: { accent: "#0f766e", accentSoft: "#f0fdfa", accentDark: "#115e59" },
+  basic: { accent: "#2563eb", accentSoft: "#eff6ff", accentDark: "#1e40af" },
+  analysis: { accent: "#0f766e", accentSoft: "#f0fdfa", accentDark: "#115e59" },
 };
 
-function accentFor(mode) {
-  return DRAFT_ACCENT[mode] || DRAFT_ACCENT.report;
+function accentFor(reportType) {
+  return DRAFT_ACCENT[reportType] || DRAFT_ACCENT.basic;
 }
 
 // 추가 요청 문구에 이 중 하나라도 있으면 색이 들어간 디자인 테마를 적용한다.
@@ -213,7 +213,7 @@ export function draftToHtml({
   markdown = "",
   title = "문서 초안",
   modeLabel = "",
-  mode = "report",
+  reportType = "basic",
   designed = false,
 }) {
   const body = md.render(markdown || "");
@@ -236,7 +236,7 @@ ${body}
 </html>`;
   }
 
-  const { accent, accentSoft, accentDark } = accentFor(mode);
+  const { accent, accentSoft, accentDark } = accentFor(reportType);
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -264,10 +264,16 @@ export function downloadDraftHtml({
   markdown,
   title,
   modeLabel,
-  mode,
+  reportType,
   designed,
 }) {
-  const html = draftToHtml({ markdown, title, modeLabel, mode, designed });
+  const html = draftToHtml({
+    markdown,
+    title,
+    modeLabel,
+    reportType,
+    designed,
+  });
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

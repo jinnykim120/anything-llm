@@ -4,6 +4,7 @@ const {
   grepAllSlashCommands,
   condenseFollowupQuery,
   mergeFollowupSearchResults,
+  buildWebSearchContextBlock,
 } = require("../../../utils/chats");
 const { SlashCommandPresets } = require("../../../models/slashCommandsPresets");
 
@@ -223,5 +224,26 @@ describe("mergeFollowupSearchResults (보완 로직)", () => {
     };
     const merged = mergeFollowupSearchResults(primary, secondary, 4);
     expect(merged.sources).toHaveLength(1);
+  });
+});
+
+describe("buildWebSearchContextBlock (외부검색)", () => {
+  it("returns an empty string for no results (no-op when there's nothing to add)", () => {
+    expect(buildWebSearchContextBlock([])).toBe("");
+    expect(buildWebSearchContextBlock()).toBe("");
+  });
+
+  it("labels each result with its own [브라우징N] index, distinct from internal citations", () => {
+    const block = buildWebSearchContextBlock([
+      { title: "가맹사업법 개정안", link: "https://law.go.kr/a", snippet: "본문 A" },
+      { title: "관련 뉴스", link: "https://news.example.com/b", snippet: "본문 B" },
+    ]);
+    expect(block).toContain("[브라우징0]: 가맹사업법 개정안");
+    expect(block).toContain("본문 A");
+    expect(block).toContain("[END 브라우징0]");
+    expect(block).toContain("[브라우징1]: 관련 뉴스");
+    expect(block).toContain("본문 B");
+    // Instructs the model to keep the two citation schemes separate.
+    expect(block).toMatch(/브라우징N.*내부 문서 인용/);
   });
 });

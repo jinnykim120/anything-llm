@@ -101,7 +101,8 @@ const WorkspaceThread = {
     { workspaceSlug, threadSlug },
     message,
     handleChat,
-    attachments = []
+    attachments = [],
+    webSearch = false
   ) {
     const ctrl = new AbortController();
 
@@ -121,10 +122,12 @@ const WorkspaceThread = {
         {
           method: "POST",
           // [auto-docu v14 P4] archive sidebar scope filter
+          // [auto-docu 외부검색] per-message "내부+외부 자료" toggle
           body: JSON.stringify({
             message,
             attachments,
             scope: safeGetArchiveScope(),
+            webSearch,
           }),
           headers: baseHeaders(),
           signal: ctrl.signal,

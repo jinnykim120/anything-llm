@@ -27,6 +27,10 @@ export default function SourceItem({ source, onClick, active = false }) {
   const citationIndexes = [...new Set(source?.citationIndexes || [])].sort(
     (a, b) => a - b
   );
+  // [auto-docu 외부검색] same idea for a live web-search result's "[브라우징n]".
+  const browsingIndexes = [...new Set(source?.browsingIndexes || [])].sort(
+    (a, b) => a - b
+  );
 
   return (
     <button
@@ -50,6 +54,11 @@ export default function SourceItem({ source, onClick, active = false }) {
         {citationIndexes.length > 0 && (
           <span className="shrink-0 font-mono text-[10px] text-amber-400 light:text-amber-600">
             {citationIndexes.map((n) => `[${n}]`).join("")}
+          </span>
+        )}
+        {browsingIndexes.length > 0 && (
+          <span className="shrink-0 font-mono text-[10px] text-sky-400 light:text-sky-600">
+            {browsingIndexes.map((n) => `[브라우징${n}]`).join("")}
           </span>
         )}
       </div>

@@ -77,9 +77,15 @@ const HistoricalMessage = ({
   function handleCitationClick(event) {
     const marker = event.target.closest?.(".citation-ref");
     if (!marker) return;
-    const idx = Number(marker.dataset.citationIdx);
-    if (Number.isNaN(idx)) return;
-    openSourcesSidebar(sources, idx);
+    if (marker.dataset.browsingIdx !== undefined) {
+      const browsingIndex = Number(marker.dataset.browsingIdx);
+      if (!Number.isNaN(browsingIndex))
+        openSourcesSidebar(sources, { browsingIndex });
+      return;
+    }
+    const citationIndex = Number(marker.dataset.citationIdx);
+    if (!Number.isNaN(citationIndex))
+      openSourcesSidebar(sources, { citationIndex });
   }
 
   const isRefusalMessage =
