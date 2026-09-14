@@ -27,6 +27,7 @@ const { workspaceThreadEndpoints } = require("./endpoints/workspaceThreads");
 const { documentEndpoints } = require("./endpoints/document");
 const { classificationEndpoints } = require("./endpoints/classification");
 const { draftEndpoints } = require("./endpoints/draft");
+const { docRegenEndpoints } = require("./endpoints/docRegen");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -94,6 +95,7 @@ utilEndpoints(apiRouter);
 documentEndpoints(apiRouter);
 classificationEndpoints(apiRouter);
 draftEndpoints(apiRouter);
+docRegenEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);

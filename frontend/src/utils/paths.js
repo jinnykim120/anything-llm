@@ -105,6 +105,9 @@ export default {
     library: (slug, options = {}) => {
       return applyOptions(`/workspace/${slug}/library`, options);
     },
+    docRegen: (slug) => {
+      return `/workspace/${slug}/doc-regen`;
+    },
   },
   apiDocs: () => {
     return `${API_BASE}/docs`;

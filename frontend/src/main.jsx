@@ -74,6 +74,13 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/workspace/:slug/doc-regen",
+        lazy: async () => {
+          const { default: DocRegen } = await import("@/pages/DocRegen");
+          return { element: <PrivateRoute Component={DocRegen} /> };
+        },
+      },
+      {
         path: "/workspace/:slug",
         lazy: async () => {
           const { default: WorkspaceChat } = await import(

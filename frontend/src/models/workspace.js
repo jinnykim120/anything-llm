@@ -317,6 +317,46 @@ const Workspace = {
       .then((res) => res.json())
       .catch((e) => ({ error: e.message }));
   },
+  // [auto-docu 전사문서작성tool] 정기 문서 갱신 작성 — 작년(기준) 문서 +
+  // 신규 기준/가이던스로 절별 재작성을 스트리밍한다. onEvent(evt)는
+  // {type: "outline_start"|"outline"|"plan"|"section_start"|"section_done"|"done"|"error", ...}
+  // 형태의 이벤트를 절이 끝날 때마다 받는다. 반환된 controller.abort()로
+  // 화면을 나갈 때 스트림을 중단할 수 있다.
+  docRegenStream: function (slug, { title, baseDocId, guidanceText }, onEvent) {
+    const ctrl = new AbortController();
+    const run = fetchEventSource(
+      `${API_BASE}/workspace/${slug}/doc-regen/stream`,
+      {
+        method: "POST",
+        body: JSON.stringify({ title, baseDocId, guidanceText }),
+        headers: baseHeaders(),
+        signal: ctrl.signal,
+        openWhenHidden: true,
+        async onopen(response) {
+          if (!response.ok)
+            throw new Error(
+              `문서 생성 요청이 실패했습니다 (${response.status}).`
+            );
+        },
+        async onmessage(msg) {
+          const event = safeJsonParse(msg.data, null);
+          if (event) onEvent(event);
+        },
+        onerror(err) {
+          onEvent({
+            type: "error",
+            error: err.message || "연결이 끊겼습니다.",
+          });
+          ctrl.abort();
+          throw err;
+        },
+      }
+    ).catch((err) => {
+      if (err?.name !== "AbortError")
+        onEvent({ type: "error", error: err.message || "알 수 없는 오류" });
+    });
+    return { controller: ctrl, done: run };
+  },
   uploadFile: async function (slug, formData) {
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {
       method: "POST",
