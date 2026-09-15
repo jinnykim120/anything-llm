@@ -340,7 +340,7 @@ export default function DocRegen() {
                 autoFocus
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="예: 2026년 지속가능경영보고서"
+                placeholder="예: 2026년 공정거래협약이행평가"
                 className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && title.trim()) setStep("template");
