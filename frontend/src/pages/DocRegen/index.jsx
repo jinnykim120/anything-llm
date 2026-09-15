@@ -15,6 +15,7 @@ import {
   CircleNotch,
   Circle,
   DownloadSimple,
+  FileDoc,
   FileHtml,
   FileText,
   Folder,
@@ -85,6 +86,7 @@ export default function DocRegen() {
   const [result, setResult] = useState(null); // {title, sections, markdown}
   const [error, setError] = useState(null);
   const [detailNeed, setDetailNeed] = useState(null); // {description, section}
+  const [exportingDocx, setExportingDocx] = useState(false);
   const streamRef = useRef(null);
 
   useEffect(() => {
@@ -304,6 +306,36 @@ export default function DocRegen() {
       }
     );
     streamRef.current = stream;
+  }
+
+  function archiveResultInBackground() {
+    // [auto-docu 내부생성자료] 다운로드와 별개로 백그라운드 아카이빙 —
+    // 실패해도 다운로드 자체엔 영향 없음.
+    Workspace.archiveGenerated(slug, {
+      title: result.title,
+      markdown: result.markdown,
+      kind: "docregen",
+    }).then((res) => {
+      if (res?.success)
+        showToast(
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
+          "info"
+        );
+    });
+  }
+
+  async function downloadDocx() {
+    if (!result || exportingDocx) return;
+    setExportingDocx(true);
+    const res = await Workspace.downloadAsDocx({
+      title: result.title,
+      markdown: result.markdown,
+    });
+    setExportingDocx(false);
+    if (!res?.success)
+      return showToast(res?.error || "DOCX 다운로드에 실패했습니다.", "error");
+    showToast("DOCX 파일을 내려받았습니다.", "success");
+    archiveResultInBackground();
   }
 
   function handleResultClick(clickEvent) {
@@ -667,10 +699,24 @@ export default function DocRegen() {
                         title: result.title,
                       });
                       showToast("HTML 파일을 내려받았습니다.", "success");
+                      archiveResultInBackground();
                     }}
                     className="flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
                   >
                     <FileHtml size={13} weight="fill" /> HTML 다운로드
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadDocx}
+                    disabled={exportingDocx}
+                    className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+                  >
+                    {exportingDocx ? (
+                      <CircleNotch size={13} className="animate-spin" />
+                    ) : (
+                      <FileDoc size={13} weight="fill" />
+                    )}
+                    DOCX 다운로드
                   </button>
                 </div>
               </div>

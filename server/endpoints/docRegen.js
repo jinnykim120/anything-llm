@@ -22,91 +22,11 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider } = require("../utils/helpers");
 const { writeResponseChunk } = require("../utils/helpers/chat/responses");
 const { handleFileUpload } = require("../utils/files/multer");
-const { CollectorApi } = require("../utils/collectorApi");
-const { Document } = require("../models/documents");
-const { DocumentClassification } = require("../models/documentClassification");
+const {
+  parseAndArchiveUpload,
+} = require("../utils/files/parseAndArchiveUpload");
 const { loadBaseDocuments, regenerateDocument } = require("../utils/docRegen");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
-
-/**
- * 업로드된 파일을 파싱 → 아카이브에 추가(임베딩) → (분류가 주어졌으면) 그
- * 분류로 확정 — upload-guidance/upload-template이 공유하는 로직. 반환값은
- * 두 라우트 모두가 필요로 하는 {title, pageContent, blocks, contentHash}.
- */
-async function parseAndArchiveUpload({
-  workspace,
-  originalname,
-  classification,
-  userId,
-}) {
-  const Collector = new CollectorApi();
-  if (!(await Collector.online()))
-    throw new Error("문서 처리 서비스가 응답하지 않습니다.");
-
-  const { success, reason, documents } = await Collector.processDocument(
-    originalname,
-    {}
-  );
-  if (!success) throw new Error(reason || "파일 처리에 실패했습니다.");
-
-  const location = documents?.[0]?.location;
-  if (!location) throw new Error("처리된 문서 위치를 찾지 못했습니다.");
-
-  // 지연 require — utils/files 는 모듈 로드 시점에 NODE_ENV 기준으로
-  // 저장 경로를 계산한다(docRegen/index.js와 같은 이유).
-  const { fileData } = require("../utils/files");
-  const doc = await fileData(location);
-  if (!doc) throw new Error("업로드한 파일을 읽지 못했습니다.");
-
-  const {
-    failedToEmbed = [],
-    errors = [],
-    embedded = [],
-  } = await Document.addDocuments(workspace, [location], userId);
-  if (failedToEmbed.length > 0)
-    throw new Error(errors.join(" ") || "아카이브에 추가하지 못했습니다.");
-
-  // content_hash 는 addDocuments가 임베딩하면서 계산해 workspace_documents
-  // 행의 metadata에 써넣는다(원본 파일 자체는 안 건드림) — 업로드 직후
-  // 읽은 doc.content_hash 는 pdf/hwp 외 파일 형식에서 비어 있을 수 있어
-  // 여기서 임베딩된 행을 다시 조회해 확실한 값을 가져온다.
-  const prisma = require("../utils/prisma");
-  const embeddedRow = embedded.length
-    ? await prisma.workspace_documents.findFirst({
-        where: { workspaceId: workspace.id, docpath: embedded[0] },
-      })
-    : null;
-  const embeddedMeta = embeddedRow
-    ? JSON.parse(embeddedRow.metadata || "{}")
-    : {};
-  const contentHash = embeddedMeta.content_hash || doc.content_hash || null;
-
-  // 기준 문서와 같은 분류(같은 폴더)로 바로 확정 — 이미 확정된 분류를
-  // 그대로 물려받는 것이므로 검수 대기 없이 곧바로 "confirmed".
-  if (contentHash && classification && Object.keys(classification).length > 0) {
-    await DocumentClassification.confirm({
-      contentHash,
-      ...classification,
-      userId: userId ?? null,
-    });
-  }
-
-  let blocks = doc.blocks;
-  if (typeof blocks === "string") {
-    try {
-      blocks = JSON.parse(blocks);
-    } catch {
-      blocks = [];
-    }
-  }
-
-  return {
-    title: doc.title || originalname,
-    pageContent: String(doc.pageContent || ""),
-    blocks: Array.isArray(blocks) ? blocks : [],
-    contentHash,
-  };
-}
 
 function docRegenEndpoints(app) {
   if (!app) return;
@@ -160,8 +80,7 @@ function docRegenEndpoints(app) {
           blankForm: hasBlankForm ? blankForm : null,
           guidanceText: String(guidanceText).trim(),
           LLMConnector,
-          title:
-            String(title).trim() || baseDocs[0]?.title || blankForm?.title,
+          title: String(title).trim() || baseDocs[0]?.title || blankForm?.title,
           filterDocIds,
         })) {
           writeResponseChunk(response, event);
@@ -190,13 +109,14 @@ function docRegenEndpoints(app) {
         // request.body에 실린다 — 프론트에서 classification을 file보다
         // 먼저 append하는 이유.
         const { classification: classificationRaw = "{}" } = reqBody(request);
-        const { title, pageContent, contentHash } =
-          await parseAndArchiveUpload({
+        const { title, pageContent, contentHash } = await parseAndArchiveUpload(
+          {
             workspace,
             originalname: request.file.originalname,
             classification: safeJsonParse(classificationRaw, {}),
             userId: response.locals?.user?.id,
-          });
+          }
+        );
 
         return response
           .status(200)

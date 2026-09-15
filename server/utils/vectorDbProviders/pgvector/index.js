@@ -535,7 +535,8 @@ class PGVector extends VectorDatabase {
    * they can be tuned via env without touching the scoring formula. */
   static hybridWeights() {
     return {
-      keyword: PGVector.integerSetting("HYBRID_KEYWORD_WEIGHT_PCT", 12, 0, 100) / 100,
+      keyword:
+        PGVector.integerSetting("HYBRID_KEYWORD_WEIGHT_PCT", 12, 0, 100) / 100,
       tag: PGVector.integerSetting("HYBRID_TAG_WEIGHT_PCT", 15, 0, 100) / 100,
     };
   }
@@ -1369,7 +1370,7 @@ class PGVector extends VectorDatabase {
 
       // 2. Wide dense candidate pull.
       const candidateK = Math.min(200, Math.max(Number(topN) * 5, 60));
-      const dense = rerank
+      const rawDense = rerank
         ? await this.rerankedSimilarityResponse({
             client: connection,
             namespace,
@@ -1389,6 +1390,19 @@ class PGVector extends VectorDatabase {
             filterIdentifiers,
             filterDocIds: docIdFilter,
           });
+
+      // [auto-docu 내부생성자료] 다운로드 시점에 자동 아카이빙된 초안/전사문서
+      // 결과물은, 사람이 분류 검수에서 확정(승인)하기 전까지는 검색에서 아예
+      // 빠져야 한다 — 이 목록에 해당하는 문서가 없으면 아무 영향도 없다.
+      const {
+        resolveUnapprovedGeneratedDocIds,
+      } = require("../../classification/generatedDocs");
+      const unapprovedGenerated = new Set(
+        await resolveUnapprovedGeneratedDocIds().catch(() => [])
+      );
+      const dense = unapprovedGenerated.size
+        ? this.#excludeDocIds(rawDense, unapprovedGenerated)
+        : rawDense;
 
       // 2b. Hybrid rerank — blend a modest keyword-overlap and classification
       //    -tag boost into the dense candidate order before capping/truncating.
@@ -1442,7 +1456,7 @@ class PGVector extends VectorDatabase {
 
       // 4. Additive lexical merge — recall safety net for exact names/numbers
       //    that embed poorly. Only appends documents dense did not return.
-      const lexical = await this.lexicalSearchResponse({
+      const rawLexical = await this.lexicalSearchResponse({
         client: connection,
         namespace,
         input,
@@ -1451,6 +1465,9 @@ class PGVector extends VectorDatabase {
         filterIdentifiers,
         filterDocIds: docIdFilter,
       });
+      const lexical = unapprovedGenerated.size
+        ? this.#excludeDocIds(rawLexical, unapprovedGenerated)
+        : rawLexical;
       picked = this.#mergeLexicalAdditions(picked, lexical, Number(topN));
 
       // 5. Truncate to the workspace topN — but a document that is clearly
@@ -1525,6 +1542,23 @@ class PGVector extends VectorDatabase {
     } finally {
       if (connection) await connection.end();
     }
+  }
+
+  /** [auto-docu 내부생성자료] Drop every row whose doc_id is in `excludeSet` —
+   * used to keep an unapproved auto-archived draft/전사문서작성tool result out
+   * of every stage of ranking, not just the final truncation. */
+  #excludeDocIds(
+    { contextTexts = [], sourceDocuments = [], scores = [] },
+    excludeSet
+  ) {
+    const out = { contextTexts: [], sourceDocuments: [], scores: [] };
+    for (let i = 0; i < sourceDocuments.length; i++) {
+      if (excludeSet.has(sourceDocuments[i]?.doc_id)) continue;
+      out.contextTexts.push(contextTexts[i]);
+      out.sourceDocuments.push(sourceDocuments[i]);
+      out.scores.push(scores[i]);
+    }
+    return out;
   }
 
   /**

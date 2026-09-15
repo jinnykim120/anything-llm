@@ -28,6 +28,8 @@ const { documentEndpoints } = require("./endpoints/document");
 const { classificationEndpoints } = require("./endpoints/classification");
 const { draftEndpoints } = require("./endpoints/draft");
 const { docRegenEndpoints } = require("./endpoints/docRegen");
+const { generatedArchiveEndpoints } = require("./endpoints/generatedArchive");
+const { exportDocEndpoints } = require("./endpoints/exportDoc");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -96,6 +98,8 @@ documentEndpoints(apiRouter);
 classificationEndpoints(apiRouter);
 draftEndpoints(apiRouter);
 docRegenEndpoints(apiRouter);
+generatedArchiveEndpoints(apiRouter);
+exportDocEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);

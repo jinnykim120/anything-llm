@@ -16,6 +16,24 @@ function safeGetArchiveScope() {
   }
 }
 
+// [auto-docu 내부생성자료] 저장 파일명으로 쓰기 위해 문서 제목에서 파일시스템
+// 이 못 받는 문자(윈도우 금지문자 + 제어문자)만 제거한다 — 확장자는 호출부가
+// 붙인다. 정규식에 제어문자 범위를 직접 넣으면 lint(no-control-regex)에
+// 걸려서 문자 단위로 걸러낸다.
+function sanitizeFilename(title = "") {
+  const illegal = new Set(["<", ">", ":", '"', "/", "\\", "|", "?", "*"]);
+  let cleaned = "";
+  for (const ch of String(title || "")) {
+    const code = ch.codePointAt(0);
+    if (code < 0x20 || illegal.has(ch)) {
+      cleaned += " ";
+    } else {
+      cleaned += ch;
+    }
+  }
+  return cleaned.replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
 const Workspace = {
   workspaceOrderStorageKey: "anythingllm-workspace-order",
   /** The maximum percentage of the context window that can be used for attachments */
@@ -405,6 +423,59 @@ const Workspace = {
     )
       .then((res) => res.json())
       .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu 내부생성자료] 초안(§06)/전사문서작성tool(§07) 결과를 다운로드
+  // 하는 순간 markdown을 아카이브에도 같이 넣는다 — "내부생성자료" 폴더로
+  // "제안" 상태만 만들고 절대 자동 확정하지 않는다(분류 검수에서 확인해야
+  // 검색에 쓰임). 다운로드 자체를 막지 않는 백그라운드 동작이라 실패해도
+  // 조용히 넘어간다 — 호출부에서 await 없이 fire-and-forget으로 쓴다.
+  archiveGenerated: async function (slug, { title, markdown, kind }) {
+    try {
+      const filename = `${sanitizeFilename(title) || "생성문서"}.md`;
+      const fd = new FormData();
+      fd.append("kind", kind || "");
+      fd.append(
+        "file",
+        new Blob([markdown || ""], { type: "text/markdown" }),
+        filename
+      );
+      const res = await fetch(
+        `${API_BASE}/workspace/${slug}/archive-generated`,
+        { method: "POST", body: fd, headers: baseHeaders() }
+      );
+      return await res.json();
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+  // [auto-docu 다른 파일 형태 다운로드] 초안/전사문서작성tool 결과를 HTML
+  // 대신 실제 .docx 파일로 — 서버가 markdown을 진짜 워드 문서로 변환해
+  // 바이너리로 돌려주고, 여기서 HTML 다운로드와 같은 방식(Blob + 임시
+  // <a download>)으로 저장한다. 워크스페이스와 무관한 순수 변환이라 slug가
+  // 필요 없다.
+  downloadAsDocx: async function ({ title, markdown }) {
+    const res = await fetch(`${API_BASE}/doc-export/docx`, {
+      method: "POST",
+      body: JSON.stringify({ title, markdown }),
+      headers: baseHeaders(),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: body?.error || "DOCX 변환에 실패했습니다.",
+      };
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${sanitizeFilename(title) || "문서"}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { success: true };
   },
   uploadFile: async function (slug, formData) {
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {

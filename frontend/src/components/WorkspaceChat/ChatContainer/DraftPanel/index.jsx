@@ -87,6 +87,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState(null); // { markdown, title, designed }
   const [editing, setEditing] = useState(false);
+  const [exportingDocx, setExportingDocx] = useState(false);
 
   const designed = !!draft?.designed;
   const accent = DRAFT_ACCENT[reportType] || DRAFT_ACCENT.basic;
@@ -139,6 +140,22 @@ export default function DraftPanel({ source, workspace, onClose }) {
     setDraft((prev) => (prev ? { ...prev, markdown: value } : prev));
   }
 
+  function archiveDraftInBackground() {
+    // [auto-docu 내부생성자료] 다운로드와 별개로 백그라운드에서 아카이빙 —
+    // 실패해도 다운로드 자체엔 영향 없음(await 안 함).
+    Workspace.archiveGenerated(workspace.slug, {
+      title: draft.title,
+      markdown: draft.markdown,
+      kind: "draft",
+    }).then((res) => {
+      if (res?.success)
+        showToast(
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
+          "info"
+        );
+    });
+  }
+
   function downloadHtml() {
     if (!draft) return;
     downloadDraftHtml({
@@ -149,6 +166,21 @@ export default function DraftPanel({ source, workspace, onClose }) {
       designed,
     });
     showToast("HTML 파일을 내려받았습니다.", "success");
+    archiveDraftInBackground();
+  }
+
+  async function downloadDocx() {
+    if (!draft || exportingDocx) return;
+    setExportingDocx(true);
+    const res = await Workspace.downloadAsDocx({
+      title: extractDraftTitle(draft.markdown, draft.title),
+      markdown: draft.markdown,
+    });
+    setExportingDocx(false);
+    if (!res?.success)
+      return showToast(res?.error || "DOCX 다운로드에 실패했습니다.", "error");
+    showToast("DOCX 파일을 내려받았습니다.", "success");
+    archiveDraftInBackground();
   }
 
   return (
@@ -381,7 +413,19 @@ export default function DraftPanel({ source, workspace, onClose }) {
           >
             <FileHtml size={15} weight="fill" /> HTML 다운로드
           </button>
-          <DisabledExport icon={FileDoc} label="DOCX" />
+          <button
+            type="button"
+            onClick={downloadDocx}
+            disabled={exportingDocx}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+          >
+            {exportingDocx ? (
+              <CircleNotch size={15} className="animate-spin" />
+            ) : (
+              <FileDoc size={15} weight="fill" />
+            )}
+            DOCX 다운로드
+          </button>
           <DisabledExport icon={FileXls} label="XLSX" />
         </div>
       )}

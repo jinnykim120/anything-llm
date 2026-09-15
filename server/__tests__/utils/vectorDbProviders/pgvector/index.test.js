@@ -1,3 +1,9 @@
+const mockResolveUnapprovedGeneratedDocIds = jest.fn().mockResolvedValue([]);
+jest.mock("../../../../utils/classification/generatedDocs", () => ({
+  resolveUnapprovedGeneratedDocIds: (...args) =>
+    mockResolveUnapprovedGeneratedDocIds(...args),
+}));
+
 const {
   PGVector: PGVectorClass,
 } = require("../../../../utils/vectorDbProviders/pgvector");
@@ -478,6 +484,80 @@ describe("PGVector lexical fallback", () => {
     // All 15 lead-document chunks survive even though topN is 12.
     expect(result.contextTexts).toHaveLength(15);
     expect(result.sources.every((s) => s.doc_id === "LEAD")).toBe(true);
+  });
+});
+
+// [auto-docu 내부생성자료] 다운로드 시점에 자동 아카이빙된 초안/전사문서작성
+// 결과물은 분류 검수에서 확정(승인)되기 전까지 검색에서 완전히 빠져야 한다 —
+// 심지어 1등 문서(#capPerDocument가 우대하는)로 랭크되더라도 예외 없이.
+describe("PGVector unapproved-generated-doc exclusion", () => {
+  afterEach(() => {
+    mockResolveUnapprovedGeneratedDocIds.mockReset();
+    mockResolveUnapprovedGeneratedDocIds.mockResolvedValue([]);
+  });
+
+  it("excludes a doc_id flagged unapproved even when it dense-ranks #1", async () => {
+    mockResolveUnapprovedGeneratedDocIds.mockResolvedValue(["pending-doc"]);
+    const dense = {
+      contextTexts: ["초안 내용", "정상 문서 내용"],
+      sourceDocuments: [
+        { doc_id: "pending-doc", title: "승인 대기 초안" },
+        { doc_id: "ok-doc", title: "정상 문서" },
+      ],
+      scores: [0.95, 0.8],
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue({
+      end: jest.fn().mockResolvedValue(),
+    });
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
+    jest
+      .spyOn(PGVector, "lexicalSearchResponse")
+      .mockResolvedValue({ contextTexts: [], sourceDocuments: [], scores: [] });
+    jest.spyOn(PGVector, "tagsForDocIds").mockResolvedValue(new Map());
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive",
+      input: "질문",
+      LLMConnector: { embedTextInput: jest.fn().mockResolvedValue([0.1, 0.2]) },
+      similarityThreshold: 0.15,
+      topN: 12,
+    });
+
+    expect(result.sources.map((s) => s.doc_id)).toEqual(["ok-doc"]);
+  });
+
+  it("does nothing when no doc is flagged (the common case)", async () => {
+    const dense = {
+      contextTexts: ["내용"],
+      sourceDocuments: [{ doc_id: "ok-doc", title: "정상 문서" }],
+      scores: [0.9],
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue({
+      end: jest.fn().mockResolvedValue(),
+    });
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
+    jest
+      .spyOn(PGVector, "lexicalSearchResponse")
+      .mockResolvedValue({ contextTexts: [], sourceDocuments: [], scores: [] });
+    jest.spyOn(PGVector, "tagsForDocIds").mockResolvedValue(new Map());
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive",
+      input: "질문",
+      LLMConnector: { embedTextInput: jest.fn().mockResolvedValue([0.1, 0.2]) },
+      similarityThreshold: 0.15,
+      topN: 12,
+    });
+
+    expect(result.sources.map((s) => s.doc_id)).toEqual(["ok-doc"]);
   });
 });
 
