@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Expansion LLM — Architecture v19 (시스템 소개)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#faf9fc; --surface:#ffffff; --surface-2:#f2f0f8; --border:#e3e0ee;
+  --text:#201e2b; --text-dim:#635f78; --text-faint:#8b87a0;
+  --accent:#7c3aed; --accent-ink:#ffffff; --accent-soft:#7c3aed14; --accent-line:#7c3aed3d;
+  --good:#0f8f52; --good-soft:#0f8f5214;
+  --warn:#a5620a; --warn-soft:#a5620a14;
+  --bad:#c4342f; --bad-soft:#c4342f14;
+  --hold:#6d5bd0; --hold-soft:#6d5bd014;
+  --mono-bg:#f2f0f8;
+  --shadow:0 1px 2px rgba(32,20,60,.06),0 8px 24px -12px rgba(32,20,60,.12);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#100f1a; --surface:#1a1826; --surface-2:#211f30; --border:#2f2c40;
+    --text:#ece9f8; --text-dim:#a49fbe; --text-faint:#726d8c;
+    --accent:#a78bfa; --accent-ink:#150f2e; --accent-soft:#a78bfa1f; --accent-line:#a78bfa4d;
+    --good:#3fd08a; --good-soft:#3fd08a1a;
+    --warn:#f0a93e; --warn-soft:#f0a93e1a;
+    --bad:#f2726d; --bad-soft:#f2726d1a;
+    --hold:#a99cf2; --hold-soft:#a99cf21a;
+    --mono-bg:#161425;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#100f1a; --surface:#1a1826; --surface-2:#211f30; --border:#2f2c40;
+  --text:#ece9f8; --text-dim:#a49fbe; --text-faint:#726d8c;
+  --accent:#a78bfa; --accent-ink:#150f2e; --accent-soft:#a78bfa1f; --accent-line:#a78bfa4d;
+  --good:#3fd08a; --good-soft:#3fd08a1a;
+  --warn:#f0a93e; --warn-soft:#f0a93e1a;
+  --bad:#f2726d; --bad-soft:#f2726d1a;
+  --hold:#a99cf2; --hold-soft:#a99cf21a;
+  --mono-bg:#161425;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"Noto Sans KR","IBM Plex Mono",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--accent-line); }
+a{ color:var(--accent); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+code, .mono, .pill, .kv dd, .cmd, td.num, .badge-commit{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+h1,h2,h3,h4{ font-weight:700; text-wrap:balance; letter-spacing:-.01em; }
+p{ line-height:1.65; }
+.container{ max-width:1160px; margin:0 auto; }
+
+.shell{ display:grid; grid-template-columns:250px 1fr; gap:0; max-width:1320px; margin:0 auto; }
+.nav{
+  position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+  padding:28px 18px 40px 28px; border-right:1px solid var(--border);
+}
+.nav-brand{ display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+.nav-mark{
+  width:26px; height:26px; border-radius:7px; background:var(--accent);
+  display:grid; place-items:center; color:var(--accent-ink); font-weight:900; font-size:13px; flex:none;
+}
+.nav-title{ font-size:13.5px; font-weight:700; line-height:1.25; }
+.nav-title small{ display:block; font-weight:500; color:var(--text-faint); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; margin-top:2px; }
+.nav-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px; }
+.nav-list a{
+  display:block; color:var(--text-dim); font-size:12.8px; padding:6px 10px; border-radius:6px;
+  border-left:2px solid transparent;
+}
+.nav-list a:hover{ color:var(--text); text-decoration:none; background:var(--surface-2); }
+.nav-list a.active{ color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); font-weight:500; }
+.nav-section-label{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); margin:16px 10px 6px; font-weight:600; }
+.nav-section-label:first-of-type{ margin-top:4px; }
+
+.mobile-nav{ display:none; }
+main{ padding:36px 44px 90px; min-width:0; }
+
+.hero{ padding-bottom:30px; border-bottom:1px solid var(--border); margin-bottom:38px; }
+.eyebrow{
+  font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:700;
+  display:flex; align-items:center; gap:8px; margin-bottom:12px;
+}
+.eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--warn); box-shadow:0 0 0 3px var(--warn-soft); }
+.hero h1{ font-size:34px; margin:0 0 8px; }
+.hero .sub{ font-size:15px; color:var(--text-dim); max-width:760px; margin:0 0 20px; }
+.hero-meta{ display:flex; flex-wrap:wrap; gap:8px; }
+.chip{
+  display:inline-flex; align-items:center; gap:6px; font-size:11.5px; padding:5px 10px;
+  border-radius:100px; border:1px solid var(--border); color:var(--text-dim); background:var(--surface);
+}
+.chip b{ color:var(--text); font-weight:600; }
+.chip.accent{ border-color:var(--accent-line); color:var(--accent); background:var(--accent-soft); }
+.chip.bad{ border-color:var(--bad); color:var(--bad); background:var(--bad-soft); }
+
+section{ margin-bottom:52px; }
+section:target, section.linked{ scroll-margin-top:20px; }
+.section-head{ display:flex; align-items:baseline; gap:12px; margin-bottom:6px; }
+.section-num{ font-size:12px; color:var(--text-faint); font-weight:600; }
+h2{ font-size:22px; margin:0; }
+.section-dek{ color:var(--text-dim); font-size:13.5px; max-width:780px; margin:6px 0 22px; }
+h3{ font-size:15.5px; margin:28px 0 10px; }
+h3:first-child{ margin-top:0; }
+
+.dtable{ display:flex; flex-direction:column; gap:1px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--border); }
+.drow{ display:grid; grid-template-columns:52px 200px 1fr; gap:16px; background:var(--surface); padding:14px 18px; }
+.drow .id{ font-family:"IBM Plex Mono",monospace; font-weight:700; color:var(--accent); font-size:13px; }
+.drow .choice{ font-size:12.8px; font-weight:600; }
+.drow .why{ font-size:12.5px; color:var(--text-dim); line-height:1.55; }
+.overflow-x{ overflow-x:auto; }
+
+.pill{
+  display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; padding:3px 9px;
+  border-radius:100px; letter-spacing:.02em; white-space:nowrap;
+}
+.pill.done{ background:var(--good-soft); color:var(--good); }
+.pill.next{ background:var(--accent-soft); color:var(--accent); }
+.pill.deferred{ background:var(--warn-soft); color:var(--warn); }
+.pill.dropped{ background:var(--bad-soft); color:var(--bad); }
+.pill.hold{ background:var(--hold-soft); color:var(--hold); }
+.pill::before{ content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
+
+.badge-commit{
+  font-size:10.5px; color:var(--text-faint); background:var(--mono-bg); border:1px solid var(--border);
+  padding:1px 6px; border-radius:5px; margin-left:6px;
+}
+
+.rule-callout{
+  border:1px solid var(--accent-line); background:var(--accent-soft); border-radius:10px; padding:12px 14px;
+  font-size:12.5px; color:var(--text); line-height:1.55; margin-top:8px;
+}
+.rule-callout b{ color:var(--accent); }
+.rule-callout.warn{ border-color:var(--warn); background:var(--warn-soft); }
+.rule-callout.warn b{ color:var(--warn); }
+.rule-callout.bad{ border-color:var(--bad); background:var(--bad-soft); }
+.rule-callout.bad b{ color:var(--bad); }
+.rule-callout.good{ border-color:var(--good); background:var(--good-soft); }
+.rule-callout.good b{ color:var(--good); }
+
+.finding-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+.stat{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:13px 14px; }
+.stat .num{ font-size:22px; font-weight:700; font-family:"IBM Plex Mono",monospace; }
+.stat .lbl{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+.stat.bad .num{ color:var(--bad); }
+.stat.warn .num{ color:var(--warn); }
+.stat.good .num{ color:var(--good); }
+
+.risk{ border:1px solid var(--border); border-radius:10px; padding:14px 16px; background:var(--surface); margin-bottom:10px; }
+.risk .rhead{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:6px; flex-wrap:wrap; }
+.risk .rtitle{ font-size:13px; font-weight:600; }
+.risk .rbody{ font-size:12.3px; color:var(--text-dim); line-height:1.6; }
+.risk.crit{ border-color:var(--bad); }
+.risk.crit .rtitle{ color:var(--bad); }
+
+.ctable{ width:100%; border-collapse:collapse; font-size:12px; }
+.ctable th, .ctable td{ border:1px solid var(--border); padding:9px 11px; text-align:left; vertical-align:top; }
+.ctable th{ background:var(--surface-2); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
+.ctable td{ background:var(--surface); color:var(--text-dim); }
+.ctable td.strong{ color:var(--text); font-weight:500; }
+
+.sample{
+  background:var(--mono-bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; line-height:1.7; color:var(--text-dim); margin-top:6px;
+  overflow-x:auto; white-space:pre-wrap;
+}
+
+ul.plain{ margin:0; padding-left:18px; font-size:13px; color:var(--text-dim); line-height:1.7; }
+ul.plain li::marker{ color:var(--text-faint); }
+ul.plain li{ margin-bottom:5px; }
+.footer{ border-top:1px solid var(--border); padding-top:20px; font-size:11.5px; color:var(--text-faint); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+.phase{ border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:16px 18px; margin-bottom:12px; }
+.phase h4{ margin:0 0 4px; font-size:14px; display:flex; align-items:center; gap:10px; }
+.phase .pid{ font-family:"IBM Plex Mono",monospace; color:var(--accent); font-weight:700; font-size:12px; }
+.phase ul{ margin:8px 0 0; padding-left:18px; font-size:12.3px; color:var(--text-dim); line-height:1.65; }
+.phase ul li{ margin-bottom:3px; }
+.phase .out{ font-size:11.5px; color:var(--text-faint); margin-top:8px; }
+.phase .out b{ color:var(--good); }
+
+/* ===== 소개 파트(비개발자용 · 프레젠테이션) ===== */
+
+.roadmap{ display:flex; gap:0; margin:20px 0 4px; position:relative; }
+.roadmap::before{ content:""; position:absolute; top:20px; left:38px; right:38px; height:2px; background:var(--border); z-index:0; }
+.rstep{ flex:1; position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 6px; }
+.rstep .rdot{ width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:800; font-size:15px; border:2px solid var(--border); background:var(--surface); margin-bottom:10px; }
+.rstep.done .rdot{ background:var(--good); border-color:var(--good); color:#fff; }
+.rstep.now .rdot{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.rstep.next .rdot{ background:var(--surface); border-color:var(--border); color:var(--text-faint); }
+.rstep h4{ margin:0 0 4px; font-size:13.5px; }
+.rstep p{ margin:0; font-size:11.5px; color:var(--text-dim); max-width:175px; line-height:1.5; }
+.rstep .rtag{ margin-top:8px; }
+
+.benefit-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.benefit{ border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:16px 18px; box-shadow:var(--shadow); }
+.benefit .bicon{ font-size:19px; }
+.benefit h4{ margin:8px 0 4px; font-size:14px; }
+.benefit p{ margin:0; font-size:12.5px; color:var(--text-dim); line-height:1.6; }
+
+.flow{ display:flex; align-items:center; gap:8px; padding:24px 4px; overflow-x:auto; }
+.flow-box{ flex:none; border:1.5px solid var(--accent-line); background:var(--accent-soft); border-radius:12px; padding:18px 20px; text-align:center; min-width:140px; }
+.flow-box .fbicon{ font-size:22px; }
+.flow-box .fbtitle{ font-weight:700; font-size:13.5px; margin-top:4px; }
+.flow-box .fbsub{ font-size:11px; color:var(--text-dim); margin-top:3px; line-height:1.5; }
+.flow-chain{ flex:1; display:flex; align-items:center; gap:2px; min-width:340px; }
+.flow-step{ flex:1; text-align:center; padding:0 4px; }
+.flow-step .fsicon{ font-size:15px; }
+.flow-step .fstitle{ font-size:12px; font-weight:700; color:var(--accent); margin-top:3px; }
+.flow-step .fsdesc{ font-size:10.5px; color:var(--text-dim); margin-top:2px; line-height:1.5; }
+.flow-arrow{ color:var(--text-faint); font-size:17px; flex:none; }
+
+.qa-wrap{ display:flex; flex-direction:column; align-items:stretch; gap:0; max-width:780px; }
+.qa-bubble{ border-radius:12px; padding:14px 18px; font-size:12.8px; line-height:1.65; }
+.qa-bubble.q{ background:var(--surface-2); border:1px solid var(--border); color:var(--text); }
+.qa-bubble.q b{ color:var(--accent); }
+.qa-bubble.a{ background:var(--good-soft); border:1px solid var(--good); color:var(--text); }
+.qa-bubble.a b{ color:var(--good); }
+.qa-down{ align-self:center; color:var(--text-faint); font-size:17px; padding:6px 0; }
+.qa-steps{ display:flex; flex-direction:column; gap:1px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--border); margin:2px 0; }
+.qa-step{ display:grid; grid-template-columns:30px 1fr; gap:12px; background:var(--surface); padding:12px 16px; align-items:start; }
+.qa-step .qsnum{ width:22px; height:22px; border-radius:50%; background:var(--accent-soft); color:var(--accent); font-size:11px; font-weight:700; display:grid; place-items:center; font-family:"IBM Plex Mono",monospace; }
+.qa-step .qstitle{ font-size:12.8px; font-weight:700; }
+.qa-step .qsdesc{ font-size:11.8px; color:var(--text-dim); margin-top:2px; line-height:1.55; }
+.qa-step.branch{ background:var(--accent-soft); }
+.qa-step.warn-branch{ background:var(--warn-soft); }
+
+.journey-rail{ display:flex; flex-direction:column; }
+.jitem{ display:grid; grid-template-columns:34px 1fr; gap:14px; position:relative; padding-bottom:22px; }
+.jitem:last-child{ padding-bottom:0; }
+.jitem .jrail{ display:flex; flex-direction:column; align-items:center; }
+.jitem .jdot{ width:32px; height:32px; border-radius:9px; background:var(--accent-soft); border:1px solid var(--accent-line); display:grid; place-items:center; font-size:15px; flex:none; }
+.jitem .jline{ flex:1; width:2px; background:var(--border); margin-top:4px; }
+.jitem:last-child .jline{ display:none; }
+.jitem .jbody{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-top:-2px; }
+.jitem .jkey{ display:inline-block; font-size:10.5px; font-weight:700; color:var(--accent); letter-spacing:.02em; margin-bottom:3px; }
+.jitem h4{ margin:0 0 6px; font-size:14px; }
+.jitem p{ margin:0; font-size:12.3px; color:var(--text-dim); line-height:1.65; }
+
+.hub-wrap{ display:flex; justify-content:center; padding:8px 0 4px; }
+.hub-wrap svg{ max-width:100%; height:auto; }
+.hub-caption{ text-align:center; font-size:11.5px; color:var(--text-faint); margin-top:2px; }
+
+.next-card{ border:1.5px dashed var(--accent-line); background:var(--accent-soft); border-radius:12px; padding:18px 20px; margin-bottom:14px; }
+.next-card h4{ margin:0 0 6px; font-size:14.5px; display:flex; align-items:center; gap:8px; }
+.next-card p{ margin:0 0 8px; font-size:12.8px; color:var(--text-dim); line-height:1.65; }
+.next-flow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:10px; }
+.next-flow .nf-box{ font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:8px; background:var(--surface); border:1px solid var(--border); }
+.next-flow .nf-arrow{ color:var(--text-faint); font-size:13px; }
+
+@media (max-width:880px){
+  .shell{ grid-template-columns:1fr; }
+  .nav{ display:none; }
+  .mobile-nav{
+    display:flex; gap:6px; overflow-x:auto; position:sticky; top:0; background:var(--bg);
+    padding:12px 16px; border-bottom:1px solid var(--border); z-index:5;
+  }
+  .mobile-nav a{
+    flex:none; font-size:11.5px; padding:6px 11px; border-radius:100px; border:1px solid var(--border);
+    color:var(--text-dim); white-space:nowrap;
+  }
+  main{ padding:26px 18px 70px; }
+  .goals, .finding-grid, .benefit-grid{ grid-template-columns:1fr; }
+  .drow{ grid-template-columns:1fr; gap:4px; }
+  .ctable{ font-size:11px; }
+  .roadmap{ flex-direction:column; gap:16px; }
+  .roadmap::before{ display:none; }
+  .rstep{ flex-direction:row; text-align:left; align-items:center; gap:12px; }
+  .rstep p{ max-width:none; }
+  .flow{ flex-direction:column; align-items:stretch; }
+  .flow-chain{ flex-direction:column; min-width:0; }
+  .flow-arrow{ transform:rotate(90deg); align-self:center; }
+  .jitem{ grid-template-columns:28px 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="mobile-nav" id="mobileNav"></div>
+
+<div class="shell">
+  <nav class="nav" id="sideNav">
+    <div class="nav-brand">
+      <div class="nav-mark">D</div>
+      <div class="nav-title">Document Expansion LLM<small>Architecture · v19</small></div>
+    </div>
+    <div class="nav-section-label">시스템 소개</div>
+    <ul class="nav-list">
+      <li><a href="#roadmap">00 · 로드맵 · 현재 단계</a></li>
+      <li><a href="#capable">01 · 할 수 있는 것</a></li>
+      <li><a href="#tools">02 · 어떤 도구로 만들었나</a></li>
+      <li><a href="#flow-ingest">03 · 자료 적재 흐름</a></li>
+      <li><a href="#flow-qa">04 · 질문 → 답변 흐름</a></li>
+      <li><a href="#flow-web">05 · 내부 + 외부 자료 흐름</a></li>
+      <li><a href="#flow-draft">06 · 답변 → 보고서 작성</a></li>
+      <li><a href="#flow-regen">07 · 전사문서작성tool</a></li>
+    </ul>
+    <div class="nav-section-label">현재 상태</div>
+    <ul class="nav-list">
+      <li><a href="#status">08 · 상태 · 한계 · 필요한 것</a></li>
+    </ul>
+    <div class="nav-section-label">기술 아키텍처</div>
+    <ul class="nav-list">
+      <li><a href="#classify">09 · 분류 체계</a></li>
+      <li><a href="#citation">10 · 인용 추적 · 후속질문</a></li>
+      <li><a href="#websearch">11 · 내부+외부 자료 검색</a></li>
+      <li><a href="#hybrid">12 · 검색 하이브리드 리랭크</a></li>
+      <li><a href="#draftv2">13 · 문서 초안 작성</a></li>
+      <li><a href="#docregen">14 · 전사문서작성tool</a></li>
+      <li><a href="#limits">15 · 알려진 이슈</a></li>
+      <li><a href="#stack">16 · 스택 · 실행</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="eyebrow"><span class="dot"></span>feat/archive-qa · 2026-09-15 · 시스템 공유회용</div>
+      <h1>Document Expansion LLM — v19 시스템 소개</h1>
+      <p class="sub">정책지원팀의 자료 정리·검색·활용을 돕기 위해 만든 사내 문서 아카이브 + AI 질의응답 + 문서 작성 시스템. 위쪽은 무엇을 할 수 있는지 도식으로 소개하고, 가운데는 지금 상태와 한계를, 아래쪽은 기술 아키텍처를 기록한다.</p>
+      <div class="hero-meta">
+        <span class="chip accent">목표 1·2 완료 · 목표 3 확장(전사문서작성tool: 폴더 지정 + 빈양식 채우기)</span>
+        <span class="chip">실코퍼스 85+문서 · 서버 테스트 584/584</span>
+        <span class="chip">할루시네이션 방지 원칙 — 근거 없으면 "확인 필요"</span>
+        <span class="chip bad">서버 미확보 · 로컬 PC 한정 운영</span>
+      </div>
+    </header>
+
+    <!-- ============ 00. 로드맵 ============ -->
+    <section id="roadmap">
+      <div class="section-head"><span class="section-num">00</span><h2>우리가 만들고자 하는 4단계 · 지금 어디까지 왔나</h2></div>
+      <p class="section-dek">처음 기획했던 목표는 4단계다. 1·2단계는 완료했고, 3단계(문서 작성)는 두 갈래로 확장 중이다.</p>
+      <div class="roadmap">
+        <div class="rstep done">
+          <div class="rdot">✓</div>
+          <h4>1단계 · 자동 분류·적재</h4>
+          <p>문서를 올리면 AI가 종류·업무·분야를 제안하고, 사람이 확인만 하면 자동으로 정리돼 보관된다.</p>
+          <span class="rtag pill done">완료</span>
+        </div>
+        <div class="rstep done">
+          <div class="rdot">✓</div>
+          <h4>2단계 · 자연어 검색·답변</h4>
+          <p>질문하면 근거를 들어 답한다. 출처 번호를 눌러 바로 검증하고, 필요하면 최신 외부 자료까지 더해 답한다.</p>
+          <span class="rtag pill done">완료 + 고도화</span>
+        </div>
+        <div class="rstep now">
+          <div class="rdot">●</div>
+          <h4>3단계 · 문서 작성</h4>
+          <p>① 답변 하나를 보고서로 바로 만들기, ② 작년 문서 + 신규 기준으로 올해 문서 전체를 다시 채워 넣기, ③ 빈양식을 주면 그 서식을 채우기, ④ 미리 모아둔 문서함 폴더로 참고자료 범위 좁히기.</p>
+          <span class="rtag pill next">진행 중</span>
+        </div>
+        <div class="rstep next">
+          <div class="rdot">4</div>
+          <h4>4단계 · 모바일·웹 접근</h4>
+          <p>사무실 PC가 아니어도 어디서든 접속해 검색·확인이 가능해지는 단계.</p>
+          <span class="rtag pill deferred">착수 전</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 01. 할 수 있는 것 ============ -->
+    <section id="capable">
+      <div class="section-head"><span class="section-num">01</span><h2>이 시스템이 할 수 있는 것</h2></div>
+      <p class="section-dek">지금 시점에서 실제로 쓸 수 있는 기능 전체를 한눈에 정리했다.</p>
+      <div class="benefit-grid">
+        <div class="benefit">
+          <div class="bicon">📥</div>
+          <h4>업로드만 하면 자동 정리</h4>
+          <p>PDF·워드·엑셀·한글 파일을 가리지 않고 올리면 AI가 업무 분류·문서 종류·분야를 제안한다. 사람이 확인만 하면 태그가 붙은 채로 아카이브에 쌓인다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🔍</div>
+          <h4>자연어로 질문, 근거로 답변</h4>
+          <p>관련 문서를 찾아 그 내용만으로 답한다. 문서에 없는 내용은 지어내지 않고 "확인 필요"라고 표시한다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🎯</div>
+          <h4>출처 번호를 눌러 바로 검증</h4>
+          <p>답변 속 <code>[3]</code> 같은 번호가 클릭 가능한 버튼이 된다. 누르면 원문의 정확한 위치가 사이드바에 열린다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🧵</div>
+          <h4>맥락을 이어가는 후속 질문</h4>
+          <p>"그중 A 부분은…" 같은 후속 질문도 이전 대화를 참고해 정확히 찾아낸다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🌐</div>
+          <h4>필요하면 외부 최신 자료까지</h4>
+          <p>아카이브에 없을 수 있는 최신 법·규제·동향은 웹 검색으로 보강하고, <code>[브라우징N]</code>으로 구분해 표시한다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">📝</div>
+          <h4>답변을 그 자리에서 보고서로</h4>
+          <p>답변 내용만 쓸지 외부자료로 보강할지, 정리만 할지 시사점·동향·리스크까지 분석할지 — 2축으로 골라 바로 만든다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🏢</div>
+          <h4>전사문서작성tool — 작년 문서 갱신 + 빈양식 채우기</h4>
+          <p>작년 문서를 뼈대로 삼아 절별로 다시 채우거나, <b>(신규)</b> 빈 서식을 그대로 올려 그 항목들을 채운다. <b>(신규)</b> 미리 모아둔 문서함 폴더로 참고자료 범위를 좁힐 수도 있다. 부족한 자료는 <code>[자료 필요]</code>로 표시하고 바로 요청서로 뽑는다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🎯</div>
+          <h4>(신규) 검색이 태그·키워드까지 함께 본다</h4>
+          <p>벡터 유사도만으로는 표·목록 같은 내용이 순위 밖으로 밀리곤 했다. 이제 질문 키워드와 사람이 확정한 분류 태그가 일치하면 가산점을 줘서, 진짜 필요한 내용이 더 잘 올라온다.</p>
+        </div>
+        <div class="benefit">
+          <div class="bicon">🛡️</div>
+          <h4>사람이 마지막 확인</h4>
+          <p>분류도, 답변도, 초안도 AI가 제안만 하고 최종 확정·수정은 항상 사람이 한다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 02. 어떤 도구 ============ -->
+    <section id="tools">
+      <div class="section-head"><span class="section-num">02</span><h2>어떤 도구로 만들었나</h2></div>
+      <p class="section-dek">개발은 팀원 개인 컴퓨터에서, 아래 도구들을 조합해 진행했다. 가운데 "Orca"가 전체 작업을 조율하고, AI 코딩 에이전트(Claude Code)가 실제 코드 작성·설치·테스트·문서화를 맡는다.</p>
+      <div class="hub-wrap">
+        <svg viewBox="0 0 720 420" width="720" height="420" role="img" aria-label="가운데 Orca를 중심으로 Claude Code, Python, GitHub, PostgreSQL, Node.js 등 도구가 방사형으로 연결된 도식">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--text-faint)"></path>
+            </marker>
+          </defs>
+          <g stroke="var(--text-faint)" stroke-width="1.4" fill="none" marker-end="url(#arrow)">
+            <line x1="150" y1="80"  x2="305" y2="178"></line>
+            <line x1="570" y1="80"  x2="415" y2="178"></line>
+            <line x1="90"  y1="230" x2="290" y2="222"></line>
+            <line x1="630" y1="230" x2="430" y2="222"></line>
+            <line x1="180" y1="360" x2="310" y2="252"></line>
+            <line x1="540" y1="360" x2="410" y2="252"></line>
+            <line x1="360" y1="360" x2="360" y2="262"></line>
+          </g>
+          <g text-anchor="middle" font-family="Noto Sans KR, sans-serif">
+            <circle cx="360" cy="210" r="52" fill="var(--accent)"></circle>
+            <text x="360" y="204" font-size="14" font-weight="700" fill="var(--accent-ink)">Orca</text>
+            <text x="360" y="222" font-size="9.5" fill="var(--accent-ink)">오케스트레이션</text>
+
+            <rect x="90"  y="46" width="130" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="155" y="68" font-size="12" font-weight="700" fill="var(--text)">Claude Code</text>
+            <text x="155" y="83" font-size="9.5" fill="var(--text-dim)">AI 코딩 에이전트(CLI)</text>
+
+            <rect x="500" y="46" width="130" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="565" y="68" font-size="12" font-weight="700" fill="var(--text)">Claude API</text>
+            <text x="565" y="83" font-size="9.5" fill="var(--text-dim)">분류·답변·초안 생성</text>
+
+            <rect x="15"  y="196" width="120" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="75"  y="218" font-size="12" font-weight="700" fill="var(--text)">Python</text>
+            <text x="75"  y="233" font-size="9.5" fill="var(--text-dim)">HWP 파싱 등 로컬 실행</text>
+
+            <rect x="585" y="196" width="120" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="645" y="218" font-size="12" font-weight="700" fill="var(--text)">Node.js</text>
+            <text x="645" y="233" font-size="9.5" fill="var(--text-dim)">서버·프론트 실행</text>
+
+            <rect x="120" y="330" width="140" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="190" y="352" font-size="12" font-weight="700" fill="var(--text)">GitHub</text>
+            <text x="190" y="367" font-size="9.5" fill="var(--text-dim)">AnythingLLM 오픈소스</text>
+
+            <rect x="460" y="330" width="140" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="530" y="352" font-size="12" font-weight="700" fill="var(--text)">PostgreSQL</text>
+            <text x="530" y="367" font-size="9.5" fill="var(--text-dim)">문서·검색 데이터 저장</text>
+
+            <rect x="295" y="330" width="130" height="52" rx="10" fill="var(--surface)" stroke="var(--border)"></rect>
+            <text x="360" y="352" font-size="12" font-weight="700" fill="var(--text)">임베딩 모델</text>
+            <text x="360" y="367" font-size="9.5" fill="var(--text-dim)">문장을 검색용 숫자로</text>
+          </g>
+        </svg>
+      </div>
+      <p class="hub-caption">화살표는 "이 도구가 Orca(작업 조율)로 투입되어 함께 쓰인다"는 뜻이다. 오픈소스(AnythingLLM)를 베이스로 포크해 우리 것으로 개조했다 — 처음부터 새로 만들지 않고, 검증된 기반 위에서 아카이브·질의응답·문서작성 기능을 쌓아 올렸다.</p>
+    </section>
+
+    <!-- ============ 03. 적재 흐름 ============ -->
+    <section id="flow-ingest">
+      <div class="section-head"><span class="section-num">03</span><h2>자료가 아카이브에 쌓이는 흐름</h2></div>
+      <p class="section-dek">문서를 올렸을 때 내부적으로 어떤 단계를 거쳐 검색 가능한 상태가 되는지를 단순화한 그림이다.</p>
+      <div class="flow">
+        <div class="flow-box">
+          <div class="fbicon">📄</div>
+          <div class="fbtitle">원본 문서</div>
+          <div class="fbsub">PDF · 워드 · 엑셀<br>한글(HWP) 등</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-chain">
+          <div class="flow-step">
+            <div class="fsicon">🧩</div>
+            <div class="fstitle">파싱</div>
+            <div class="fsdesc">문서의 제목·조항·표 같은 구조를 읽어낸다</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="fsicon">✂️</div>
+            <div class="fstitle">청킹</div>
+            <div class="fsdesc">읽어낸 내용을 의미 단위(문단·조항·표)로 잘게 나눈다</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="fsicon">✅</div>
+            <div class="fstitle">무결성 검증</div>
+            <div class="fsdesc">이미 있는 문서와 완전히 같은 내용인지 확인해 중복 적재를 막는다</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">
+          <div class="fbicon">🗄️</div>
+          <div class="fbtitle">아카이브</div>
+          <div class="fbsub">검색 가능한<br>벡터 저장소</div>
+        </div>
+      </div>
+      <div class="rule-callout">이 단계와 별도로, AI가 문서의 업무 분류·종류·분야를 제안하고 사람이 검수·확정하는 절차가 붙는다(§09). 이 확정 결과가 사이드바의 업무별 뷰 필터, 그리고 §07 전사문서작성tool의 "같은 폴더로 분류" 기능과 연결된다.</div>
+    </section>
+
+    <!-- ============ 04. 질문 흐름 ============ -->
+    <section id="flow-qa">
+      <div class="section-head"><span class="section-num">04</span><h2>질문을 던졌을 때 답변이 만들어지는 흐름</h2></div>
+      <p class="section-dek">아카이브 내부 자료만으로 답하는 기본 흐름이다.</p>
+      <div class="qa-wrap">
+        <div class="qa-bubble q"><b>예시 질문 ·</b> "2025년 GS리테일의 국수 출하량은? 그중 가장 많은 출하량 제품은 무엇이고, 국수 출하량이 강제되는 이유는 뭐야?"</div>
+        <div class="qa-down">↓</div>
+        <div class="qa-steps">
+          <div class="qa-step">
+            <div class="qsnum">1</div>
+            <div><div class="qstitle">(선택) 업무 범위로 좁히기</div><div class="qsdesc">사이드바에서 "실적"·"법규"처럼 범위를 골라두면 그 범위의 문서로만 검색을 좁힌다.</div></div>
+          </div>
+          <div class="qa-step">
+            <div class="qsnum">2</div>
+            <div><div class="qstitle">후속 질문이면 독립 질문으로 재작성</div><div class="qsdesc">"그중 A는…" 같은 질문은 최근 대화를 참고해 그 자체로 이해되는 질문으로 다시 쓴다.</div></div>
+          </div>
+          <div class="qa-step">
+            <div class="qsnum">3</div>
+            <div><div class="qstitle">의미로 관련 문서 조각 찾기 + 보완</div><div class="qsdesc">질문을 숫자로 바꿔(임베딩) 아카이브에서 뜻이 가까운 조각을 넓게 찾고, 부족하면 추가로 보완한다.</div></div>
+          </div>
+          <div class="qa-step">
+            <div class="qsnum">4</div>
+            <div><div class="qstitle">AI(Claude)가 근거만으로 종합</div><div class="qsdesc">모아온 문서 조각만 근거로 답을 작성한다. 근거에 없는 내용은 "확인 필요"로 표시한다.</div></div>
+          </div>
+        </div>
+        <div class="qa-down">↓</div>
+        <div class="qa-bubble a"><b>답변 ·</b> 실적 수치와 근거 조항이 함께 제시되고, 각 문장 옆에 <code>[1][2]</code> 처럼 출처 번호가 붙는다. 번호를 클릭하면 원문의 정확한 위치가 열려 눈으로 재검증할 수 있다.</div>
+      </div>
+    </section>
+
+    <!-- ============ 05. 내부+외부 자료 흐름 ============ -->
+    <section id="flow-web">
+      <div class="section-head"><span class="section-num">05</span><h2>내부 + 외부 자료를 함께 쓰면</h2></div>
+      <p class="section-dek">관련 법·규제·동향은 언제 어디서 새로 생길지 모르고, 그걸 전부 미리 아카이빙해두는 건 불가능하다. 이럴 때를 위한 확장이다.</p>
+      <div class="qa-steps">
+        <div class="qa-step">
+          <div class="qsnum">1</div>
+          <div><div class="qstitle">질문창에서 자료 범위 선택</div><div class="qsdesc">"내부 자료만" / "내부 + 외부 자료" 중 고른다. 안 고르면 항상 내부만.</div></div>
+        </div>
+        <div class="qa-step">
+          <div class="qsnum">2</div>
+          <div><div class="qstitle">내부 검색은 그대로 실행</div><div class="qsdesc">§04와 동일하게 아카이브 전체에서 근거를 찾는다.</div></div>
+        </div>
+        <div class="qa-step branch">
+          <div class="qsnum">3</div>
+          <div><div class="qstitle">★ "외부" 선택 시 — 웹 검색도 함께 실행</div><div class="qsdesc">키 없는 웹 검색(DuckDuckGo)으로 관련 페이지를 찾는다. 별도 계약·API 키 없이 동작한다.</div></div>
+        </div>
+        <div class="qa-step">
+          <div class="qsnum">4</div>
+          <div><div class="qstitle">근거를 이름표로 구분해 결합</div><div class="qsdesc">내부는 <code>[1][2]</code>, 외부는 <code>[브라우징0][브라우징1]</code> — 절대 서로 섞이지 않는다.</div></div>
+        </div>
+        <div class="qa-step">
+          <div class="qsnum">5</div>
+          <div><div class="qstitle">AI가 두 근거를 함께 종합해 답변</div><div class="qsdesc">내부 자료와 외부 자료를 모두 참고해 하나의 답을 만든다.</div></div>
+        </div>
+      </div>
+      <div class="rule-callout good"><b>실제 라이브 확인:</b> "최근 유통산업발전법 개정 동향을 알려줘. 내부 문서에 없는 최신 정보도 찾아줘"라는 질문에, 내부 문서에 없다는 걸 스스로 인지하고 웹 검색으로 국회입법현황·법령정보센터 등 5개 페이지를 찾아 답을 구성했다. <code>[브라우징N]</code>을 클릭하면 사이드바에 실제 웹페이지가 그대로 열린다.</div>
+      <h3>왜 필요한가</h3>
+      <ul class="plain">
+        <li>새 법·규제·가이드라인이 어디서 생길지 미리 알 수 없어, 아카이브만으로는 항상 최신 상태를 유지하기 어렵다.</li>
+        <li>"순수 내부 자료 기반 답변"과 "내부 + 외부 이슈까지 파악한 답변"을 상황에 맞게 선택할 수 있다.</li>
+        <li>답변마다 어떤 문장이 내부/외부 근거인지 항상 구분되어 표시되므로, 신뢰도를 스스로 판단할 수 있다.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 06. 답변 -> 보고서 ============ -->
+    <section id="flow-draft">
+      <div class="section-head"><span class="section-num">06</span><h2>확정된 답변을 그 자리에서 보고서로</h2></div>
+      <p class="section-dek">답변 아래 "문서 작성" 버튼 — 자료 범위와 문서 유형, 두 축을 골라 바로 만든다.</p>
+      <table class="ctable">
+        <tr><th></th><th>기본보고서</th><th>분석보고서</th></tr>
+        <tr><td class="strong">답변 내용만</td><td>목적/배경/현황만 정리</td><td>+ 시사점 및 검토의견, 향후 조치(건의) — 답변 안에서만 판단</td></tr>
+        <tr><td class="strong">외부자료 보강</td><td>+ 웹 검색 자료로 현황을 더 풍부하게</td><td>+ 관련 동향, 문제점 및 리스크 — 외부 최신 정보 적극 반영</td></tr>
+      </table>
+      <div class="flow" style="padding-top:18px;">
+        <div class="flow-box">
+          <div class="fbicon">💬</div>
+          <div class="fbtitle">확정된 답변</div>
+          <div class="fbsub">근거·출처 포함</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-chain">
+          <div class="flow-step">
+            <div class="fsicon">🧭</div>
+            <div class="fstitle">자료 범위 선택</div>
+            <div class="fsdesc">답변만 / 외부자료 보강(§05 재사용)</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="fsicon">📐</div>
+            <div class="fstitle">문서 유형 선택</div>
+            <div class="fsdesc">기본 / 분석(시사점·동향·리스크)</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="fsicon">✍️</div>
+            <div class="fstitle">근거 기반 작성</div>
+            <div class="fsdesc">근거 부족하면 "확인 필요"로 표시</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">
+          <div class="fbicon">📄</div>
+          <div class="fbtitle">HTML 다운로드</div>
+          <div class="fbsub">그 자리에서 수정 가능</div>
+        </div>
+      </div>
+      <div class="rule-callout good"><b>실제 라이브 검증:</b> "외부보강 · 분석보고서" 조합에서, 내부 근거("총량 30% 감축")와 외부 보도("원단위 25% 감축")의 기준 차이를 모델이 스스로 짚어내 리스크로 지적했다 — 내부·외부를 종합해 방향성 판단에 도움을 준다는 설계 의도가 실제로 작동함을 확인했다.</div>
+    </section>
+
+    <!-- ============ 07. 전사문서작성tool ============ -->
+    <section id="flow-regen">
+      <div class="section-head"><span class="section-num">07</span><h2>(신규) 전사문서작성tool — 정기 문서 갱신 작성</h2></div>
+      <p class="section-dek">§06은 "답변 하나"를 보고서로 만드는 것이었다. 이건 그보다 훨씬 큰 작업이다 — <b>작년에 완성된 문서 전체</b>를 양식/구조로 삼아, <b>올해 새로 생긴 기준</b>에 맞춰 <b>아카이브 전체에서 근거를 찾아</b> 문서를 절별로 다시 채워 넣는다.</p>
+      <div class="journey-rail">
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">1️⃣</div><div class="jline"></div></div>
+          <div class="jbody">
+            <span class="jkey">이름 입력</span>
+            <h4>어떤 문서를 만들지 정하기</h4>
+            <p>예: "2026년 공정거래협약 이행평가"</p>
+          </div>
+        </div>
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">2️⃣</div><div class="jline"></div></div>
+          <div class="jbody">
+            <span class="jkey">(신규) 빈양식 있으신가요? — 선택</span>
+            <h4>이미 만들어진 서식/표가 있으면 업로드</h4>
+            <p>있으면 이 서식을 채우는 게 <b>우선</b>이 된다 — 다음 단계(기준 문서)는 참고용(선택)으로 바뀐다. 없으면 그대로 다음 단계에서 고를 작년 문서의 구조를 쓴다.</p>
+          </div>
+        </div>
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">3️⃣</div><div class="jline"></div></div>
+          <div class="jbody">
+            <span class="jkey">기준 문서 선택 (다중 가능, 빈양식 있으면 선택)</span>
+            <h4>작년 문서를 문서함에서 고른다</h4>
+            <p>구조와 양식의 뼈대로 쓴다. 여러 문서를 함께 골라 하나로 이어붙일 수도 있다.</p>
+          </div>
+        </div>
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">4️⃣</div><div class="jline"></div></div>
+          <div class="jbody">
+            <span class="jkey">신규 기준/가이던스 입력</span>
+            <h4>텍스트로 붙여넣거나, 파일을 업로드</h4>
+            <p>파일을 올리면 그 자리에서 파싱해 <b>아카이브에 바로 추가</b>하고, 기준 문서와 <b>같은 분류로 즉시 확정</b>(같은 폴더 효과)한 뒤 본문을 읽어온다.</p>
+          </div>
+        </div>
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">5️⃣</div><div class="jline"></div></div>
+          <div class="jbody">
+            <span class="jkey">(신규) 참고할 자료 범위 좁히기 — 선택</span>
+            <h4>미리 모아둔 문서함 폴더를 고른다 (중복 선택 가능)</h4>
+            <p>이 작업에 쓸 자료를 미리 폴더에 모아둔 경우, 그 폴더로 근거 검색 범위를 좁힌다. 상위 폴더(전체 업무분류)와 하위 폴더(특정 사업부)를 겹쳐서 고를 수 있고, 아무것도 안 고르면 아카이브 전체에서 찾는다 — 폴더 안에 작년 자료와 새 자료가 같이 있으면 검색이 둘 다 자연히 찾아준다.</p>
+          </div>
+        </div>
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">6️⃣</div><div class="jline"></div></div>
+          <div class="jbody">
+            <span class="jkey">자동 처리</span>
+            <h4>목차 추출 → 신구 비교 → 절별 처리</h4>
+            <p>기준 문서 기반이면 각 절을 <b>유지</b>(그대로) / <b>갱신</b>(내용 다시 채움) / <b>신규</b>(새로 작성)로 나누고, 갱신·신규 절만 아카이브를 검색해 근거를 채운다. 빈양식 기반이면 "유지"가 없다 — 모든 항목을 채워야 할 대상으로 보고 전부 검색·작성한다.</p>
+          </div>
+        </div>
+        <div class="jitem">
+          <div class="jrail"><div class="jdot">7️⃣</div></div>
+          <div class="jbody">
+            <span class="jkey">결과 확인</span>
+            <h4>[자료 필요] 클릭 → 근거 · 과거자료 → 다운로드</h4>
+            <p>부족한 항목을 누르면 근거(신규 기준 발췌)와 과거 참고자료를 보여준다. 전체를 자료요청서 또는 HTML로 내려받는다.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:30px;">이게 왜 중요한가</h3>
+      <div class="rule-callout good">
+        <b>(1) 아카이브에 뭐가 이미 쌓여있는지 절별로 눈에 보인다</b> — "유지"·"갱신" 표시로 얼마나 자동으로 채워졌는지 한눈에 확인된다.<br>
+        <b>(2) 이미 있는 자료를 또 요청하지 않는다</b> — <code>[자료 필요]</code> 표시된 항목만 관계 부서에 요청하면 된다.
+      </div>
+
+      <h3>실제 라이브 검증</h3>
+      <p class="section-dek" style="margin-top:-8px;">GS25 상생협력 협약서(19개 조항)를 기준으로, 반경 250m·판촉비용 70:30·디지털전환·ESG 4개 신규 기준을 입력했다.</p>
+      <div class="finding-grid">
+        <div class="stat good"><div class="num">15</div><div class="lbl">그대로 유지된 조항</div></div>
+        <div class="stat warn"><div class="num">2</div><div class="lbl">정확히 갱신된 조항(반경 250m, 판촉비용)</div></div>
+        <div class="stat"><div class="num">2</div><div class="lbl">신규 추가된 절(디지털전환, ESG)</div></div>
+        <div class="stat good"><div class="num">45.1%→46%</div><div class="lbl">ESG 절에서 실제 지속가능보고서 수치를 찾아 인용</div></div>
+      </div>
+      <p class="section-dek" style="margin-top:-8px;">ESG 절은 아카이브의 실제 지속가능보고서 데이터(포장재 적용률)를 찾아 채우고, 없는 부분(외부 협업사 역할분담)만 <code>[자료 필요]</code>로 남겼다 — "다른 목적으로 적재된 자료도 함께 활용"이 정확히 작동함을 확인했다.</p>
+
+      <h3>(신규) 빈양식 + 폴더 지정 — 실제 라이브 검증</h3>
+      <p class="section-dek" style="margin-top:-8px;">필드 3개짜리 빈양식(회사명 / 작성일 / 필수 또는 권장 품목 목록)을 업로드하고, 폴더를 <code>양식 &gt; 편의점BU</code>로 좁혀서 실행했다.</p>
+      <div class="finding-grid">
+        <div class="stat good"><div class="num">4</div><div class="lbl">추출된 목차(필드) — 전부 "채워야 할 대상"으로 분류</div></div>
+        <div class="stat"><div class="num">2</div><div class="lbl">그 폴더 안 문서로만 근거 제한(GS25 계약서 + 추가합의서)</div></div>
+        <div class="stat good"><div class="num">7</div><div class="lbl">"필수 또는 권장 품목" 필드에서 정확히 찾아 채운 표 항목 수</div></div>
+      </div>
+      <p class="section-dek" style="margin-top:-8px;">같은 검증 중 검색 랭킹 버그를 하나 발견해 고쳤다(§12) — 표 내용이 벡터 유사도만으로는 문서 안 다른 조항보다 순위가 낮아 topN 밖으로 밀려났었다.</p>
+    </section>
+
+    <!-- ============ 08. 상태/한계 ============ -->
+    <section id="status">
+      <div class="section-head"><span class="section-num">08</span><h2>지금 상태 · 한계 · 필요한 것</h2></div>
+      <p class="section-dek">더 나은 성능과 실사용을 위해 필요한 자원과, 지금 못 하고 있는 것을 정리했다.</p>
+
+      <h3>필요한 자원</h3>
+      <table class="ctable">
+        <tr><th>항목</th><th>현재 상태</th><th>비고</th></tr>
+        <tr><td class="strong">작업 환경(PC)</td><td>팀원 개인 Windows PC, 메모리(RAM) 제한적</td><td>서버·프론트·수집기가 개인 PC에서 함께 돌아가야 해 여유가 적다</td></tr>
+        <tr><td class="strong">운영 서버</td><td>미확보 — 지금은 개인 PC에서만 실행</td><td>정책지원팀 전체가 실사용하려면 서버(또는 클라우드) 배정 필요</td></tr>
+        <tr><td class="strong">Google Gemini API</td><td>미승인 · 미발급</td><td>스캔 이미지 문서·이미지 위주 PPT 내용 인식용, 계속 대기 중</td></tr>
+        <tr><td class="strong">Claude(Anthropic) API/CLI</td><td>확보·사용 중</td><td>분류·답변·후속질문·검색어 추출·초안·전사문서작성tool 전부 이걸로 동작</td></tr>
+      </table>
+
+      <h3>지금 안 되는 것 · 한계</h3>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">스캔·이미지 문서의 내용 인식</span><span class="pill hold">보류</span></div>
+        <div class="rbody">이미지 위주 문서는 "이미지 기반 문서"로만 표시되고 글자 내용은 못 읽는다. Gemini API 발급 대기 중.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">초안·전사문서작성tool의 docx·xlsx 내보내기</span><span class="pill next">준비 중</span></div>
+        <div class="rbody">지금은 둘 다 HTML로만 내려받을 수 있다.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">웹 검색의 구조적 한계</span><span class="pill hold">구조적 한계</span></div>
+        <div class="rbody">키 없는 스크래핑 방식이라 대상 사이트의 화면 구조 변경에 취약하다. 정식 검색 API는 별도 비용·계약이 필요하다.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">전사문서작성tool — 생성 시간</span><span class="pill warn">개선 필요</span></div>
+        <div class="rbody">절이 많은 문서(연차보고서 등)는 절마다 검색+생성을 반복해 시간이 걸린다(예: 19개 조항 기준 약 40초~수 분). 진행 화면으로 대응 중이나, 근본적으로는 절 단위 병렬화 등 속도 개선이 필요하다.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">전사문서작성tool — 목차 추출 정확도</span><span class="pill hold">구조적 한계</span></div>
+        <div class="rbody">원본 문서에 뚜렷한 구조(조항 번호 등)가 있으면 정확하고, 구조가 약한 문서(일부 docx 등)는 AI가 절 경계를 추정해 다소 편차가 있을 수 있다.</div>
+      </div>
+      <div class="risk">
+        <div class="rhead"><span class="rtitle">모바일·웹 접근(목표 4)</span><span class="pill deferred">착수 전</span></div>
+        <div class="rbody">지금은 사무실 PC의 브라우저로만 접속 가능.</div>
+      </div>
+      <div class="risk crit">
+        <div class="rhead"><span class="rtitle">WSL2 ↔ Postgres 연결 불안정</span><span class="pill hold">근본 원인 미해결</span></div>
+        <div class="rbody">검색·임베딩 도중 WSL2 VM이 스스로 내려가는 현상이 간헐적으로 재발한다 — 그 순간엔 "자료가 있는데 검색이 안 됨"처럼 보인다. WSL2 재기동으로 즉시 복구는 되지만 재발을 막는 근본 조치는 아직 없다. 완전한 재부팅이 가장 유력한 해결책으로 보이나 아직 확인 전.</div>
+      </div>
+
+      <h3>해결된 것 (이전 버전에서 이어옴 + 이번에 새로 발견·수정)</h3>
+      <div class="rule-callout good"><b>초안 생성 간헐적 실패</b> — 원인은 새 기능 버그가 아니라 Anthropic 계정의 사용량 제한(rate limit)이었다. 실패해도 실제 에러 내용을 그대로 보여주도록 수정해, 재발 시 바로 원인을 알 수 있다.</div>
+      <div class="rule-callout bad"><b>(신규 발견) 일괄 확정이 태그를 전부 지우던 버그</b> — 분류 검수의 "일괄 확정" 기능이 항상 <code>tags:[]</code>를 같이 보내서, 확정된 문서 79건 중 74건의 AI 제안 태그가 조용히 비워져 있었다. 원인 수정(§09) + AI 재분류로 72건 복구, 나머지 2건은 실제 문서가 연결 안 된 고아 레코드라 삭제. 검색 하이브리드 리랭크(§12)가 태그를 실제로 쓰기 시작한 직후 발견했다 — 태그가 비어있으니 가산점 자체가 늘 0이었던 것.</div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- 아래부터는 기술 아키텍처 — 엔지니어를 위한 상세 기록.               -->
+    <!-- ================================================================ -->
+
+    <section id="classify">
+      <div class="section-head"><span class="section-num">09</span><h2>분류 체계</h2></div>
+      <p class="section-dek">6개 축(민감도/업무분류/사업부/문서종류/분야/태그)으로 AI가 제안하고 사람이 확정한다. <code>taxonomy.js</code>가 기준값의 단일 소스다.</p>
+      <ul class="plain">
+        <li>값 삭제 UI — 각 드롭다운에 삭제 버튼. 확정된 문서가 그 값을 쓰면 건수를 안내하며 차단한다.</li>
+        <li>기본 정렬 — "미확정 먼저"로, 검수 화면에 들어가면 처리할 문서가 항상 위에 보인다.</li>
+        <li>사업부 목록에서 전사·유통BU·정책지원팀·기타를 정리 — 실제 조직 단위(홈쇼핑BU·편의점BU·수퍼마켓BU)만 남겼다.</li>
+        <li><code>DocumentClassification.confirm()</code> — 사람이 직접 확정하거나(검수 화면), §14처럼 이미 확정된 값을 그대로 물려받아 즉시 확정할 수도 있다.</li>
+        <li><b>(신규) 업로드자 팀명</b> — 이 인스턴스는 로그인이 없어(멀티유저 모드 꺼짐, 계정 0개) "누가 올렸는지"를 자동으로 남길 방법이 없다. 대신 자료 업로드 팝업에 "업로드한 팀명" 입력을 필수로 추가해 <code>workspace_documents.uploadedByOrgUnit</code>에 기록하고, 검수 화면의 "업로드자:" 표시가 여기 연결된다(코드·화면은 이미 있었고 실제로 채워지지 않았을 뿐이었다).</li>
+        <li><b>(발견·수정한 버그) 일괄 확정 태그 소실</b> — <code>POST /classification/confirm-bulk</code>가 항상 <code>tags:[]</code>를 함께 보내 선택한 문서 전체의 태그를 매번 지우고 있었다(<code>confirm()</code>은 <code>tags</code>가 <code>undefined</code>일 때만 그 칼럼을 안 건드리는데, 명시적 <code>[]</code>는 값으로 취급됨). 확정 79건 중 74건 영향, 72건은 AI 재분류로 복구. 일괄 확정은 이제 태그를 절대 건드리지 않는다.</li>
+      </ul>
+    </section>
+
+    <section id="citation">
+      <div class="section-head"><span class="section-num">10</span><h2>인용 추적 · 후속질문 보완 로직</h2></div>
+      <h3>인용 추적</h3>
+      <ul class="plain">
+        <li><code>stream.js</code>에서 <code>sources.map((s,i) => ({...s, citationIndex: i}))</code>로 모델이 쓰는 번호와 소스 배열 인덱스를 항상 일치시킨다.</li>
+        <li>프론트 <code>linkifyCitationMarkers()</code>가 답변 텍스트의 <code>[n]</code>을 클릭 가능한 버튼으로 바꾸고, 클릭 시 사이드바가 정확히 그 출처로 스크롤·강조된다.</li>
+        <li>같은 구조를 <code>browsingIndex</code> 네임스페이스로 확장해 <code>[브라우징n]</code>(§11)도 동일하게 동작한다.</li>
+      </ul>
+      <h3>후속질문 보완 로직</h3>
+      <ul class="plain">
+        <li><b>질의 재작성(<code>condenseFollowupQuery</code>):</b> 대화 기록이 있을 때만, 최근 6턴을 참고해 LLM 1회로 독립적인 질문으로 다시 쓴다. 첫 질문이면 건너뛴다.</li>
+        <li><b>보완 병합(<code>mergeFollowupSearchResults</code>):</b> 재작성 질문의 검색이 부족하면 원래 질문으로도 한 번 더 검색해 새로 찾은 것만 덧붙인다(순서·기존 결과는 안 건드림).</li>
+      </ul>
+    </section>
+
+    <section id="websearch">
+      <div class="section-head"><span class="section-num">11</span><h2>내부 + 외부 자료 검색 (기술)</h2></div>
+      <ul class="plain">
+        <li><b>검색:</b> <code>server/utils/webSearch</code> — 별도 계약·API 키 없이 DuckDuckGo 결과 화면(HTML)을 읽어 제목·요약·링크를 뽑는다.</li>
+        <li><b>인용 분리:</b> 내부는 <code>citationIndex</code>(<code>[n]</code>), 외부는 <code>browsingIndex</code>(<code>[브라우징n]</code>) — 시스템 프롬프트 문자열에 직접 덧붙여 모델의 자동 번호 매기기와 충돌하지 않는다.</li>
+        <li><b>출처 화면:</b> <code>[브라우징N]</code> 클릭 시 실제 웹페이지를 iframe으로 띄운다. 6초 안에 로딩이 안 끝나면 "새 탭에서 열기"로 전환.</li>
+        <li><b>발견·수정한 버그:</b> DuckDuckGo 파싱 정규식이 속성 순서를 가정하고 있어 실패하는 경우가 있었다 — 순서 무관 방식으로 수정. 서버 실행 시 사내 인증서 경로(<code>NODE_EXTRA_CA_CERTS</code>)가 없으면 외부 요청이 전부 실패한다는 것도 재확인.</li>
+      </ul>
+    </section>
+
+    <section id="hybrid">
+      <div class="section-head"><span class="section-num">12</span><h2>(신규) 검색 하이브리드 리랭크</h2></div>
+      <p class="section-dek">GS25 계약서의 필수품목 표가 자연어 질문("구입 필수 품목을 알려줘")에 대해 벡터 유사도만으로는 같은 문서 안 다른 조항보다 순위가 낮아, topN(당시 12) 밖으로 밀려 답변에서 빠지는 일이 실제로 있었다. <code>performSimilaritySearch</code>(모든 검색이 거치는 핵심 함수 — 채팅/쿼리, 전사문서작성tool 근거검색 전부 포함)를 이렇게 고쳤다.</p>
+      <ul class="plain">
+        <li><b>키워드 + 태그 가산점:</b> 벡터 후보를 최종 순위로 확정하기 전에, 질문 키워드가 청크 본문에 얼마나 겹치는지(+12%) 그리고 문서의 <b>확정된 분류 태그</b>에 얼마나 겹치는지(+15%, env로 조정 가능)를 벡터 점수에 가산한다. 사람이 확정한 태그이므로 원본 벡터 유사도보다 신뢰도를 조금 더 준다. <code>PGVector.tagsForDocIds()</code>가 청크의 <code>doc_id</code> → <code>workspace_documents</code> → <code>content_hash</code> → <code>document_classifications.tags</code>를 이어 붙인다.</li>
+        <li><b>1등 문서 전체 포함 (버그 수정):</b> 기존에도 "1등 문서는 청크 개수 제한 없이 가져온다"는 로직이 있었으나, 그 뒤 <code>topN</code>으로 다시 한 번 통째로 잘라내는 코드가 이 우대를 무력화시키고 있었다 — 지금 수정으로 1등 문서 몫은 지켜지고, 그래도 다른 문서를 위한 최소 슬롯은 항상 남겨둔다.</li>
+        <li><b>topN 12 → 25</b> (archive-full 워크스페이스) — 위 두 수정과 함께 여유 폭을 넓혔다.</li>
+      </ul>
+      <div class="rule-callout bad"><b>수정 중 발견한 부작용:</b> "1등 문서는 무제한"을 실제로 무제한으로 풀어주자, 특정 질문 표현에서 임베딩 모델이 전혀 무관한 문서 하나에 200개 넘는 후보 전부를 몰아주는 경우가 실제로 있었다(재현 확인됨) — 그 문서가 결과를 통째로 차지해버렸다. 1등 문서 허용량에 상한(최대 30)을 두고, 키워드 매칭(lexical) 구제 결과를 위한 슬롯을 항상 최소한 확보하도록 다시 수정해 해결했다.</div>
+      <p class="section-dek" style="margin-top:10px;">종단 검증: 수정 전 표 항목이 topN 밖(21~25위)에 있어 "구체적인 목록은 문서에 없다"고 잘못 답하던 것이, 수정 후 표 12개 항목 전부를 정확히 인용하는 답변으로 바뀜을 확인. 단위테스트 27개(하이브리드 부스트 + 1등문서 보존 케이스 포함) + 서버 전체 584개 통과.</p>
+    </section>
+
+    <section id="draftv2">
+      <div class="section-head"><span class="section-num">13</span><h2>문서 초안 작성 (기술)</h2></div>
+      <ul class="plain">
+        <li><b>2축 구조:</b> 자료범위(<code>answer_only</code>/<code>answer_plus_web</code>) × 문서유형(<code>basic</code>/<code>analysis</code>) — 공통 뼈대 + 조건별 추가 절로 구성해 4가지 조합을 하나의 프롬프트 매트릭스로 관리.</li>
+        <li><b>외부자료 보강 시:</b> 답변 내용으로 검색어를 뽑는 LLM 호출 → 웹 검색 → 채팅 답변에 이미 있던 <code>[브라우징N]</code> 소스를 URL 기준으로 재사용·병합 → 외부 근거는 <code>(외부 자료)</code> 표시 + "외부 참고자료" 절로 정리.</li>
+        <li><b>근거 부족 처리:</b> "추가 확인 필요" 원칙 유지 — 외부 검색을 켜도 새 사실을 지어내지 않는다.</li>
+      </ul>
+    </section>
+
+    <section id="docregen">
+      <div class="section-head"><span class="section-num">14</span><h2>전사문서작성tool (기술)</h2></div>
+      <h3>목차 추출</h3>
+      <ul class="plain">
+        <li><code>extractOutlineFromBlocks()</code> — 청크의 <code>section_path</code> 메타데이터로 절을 나눈다. 커버리지가 30% 미만이면(예: 구조 인식이 약한 docx) null을 반환해 다음 방식으로 넘긴다.</li>
+        <li><code>extractOutlineViaLLM()</code> — 모델에게 원문을 다시 쓰게 하지 않고, 각 절이 "이 구절로 시작한다"는 경계 마커만 받아 원문(<code>pageContent</code>)에서 직접 잘라낸다 — 원문이 그대로 보존된다.</li>
+        <li>기준 문서를 여러 개 고르면(다중 선택) 문서별 목차를 순서대로 이어붙인다.</li>
+      </ul>
+      <h3>신구 비교 · 절 작성</h3>
+      <ul class="plain">
+        <li><code>diffOutlineAgainstGuidance()</code> — LLM 1회로 절마다 keep(유지)/update(갱신)/new(신규) 분류. 응답이 비정상이면 전부 keep으로 취급(잘못 지우는 것보다 안전).</li>
+        <li>keep 절은 검색 없이 작년 내용을 그대로 통과시킨다 — update/new 절만 <code>performSimilaritySearch</code>로 아카이브 전체를 검색해 근거를 채운다.</li>
+        <li>근거 부족 시 본문에 <code>[자료 필요: 설명]</code> 마커를 남긴다(draft.js의 "확인 필요"와 같은 원칙) — <code>extractNeeds()</code>가 이 마커를 정규식으로 뽑아 프론트의 클릭 가능한 버튼으로 연결한다.</li>
+      </ul>
+      <h3>신규 기준 파일 업로드</h3>
+      <ul class="plain">
+        <li><code>POST /workspace/:slug/doc-regen/upload-guidance</code> — Collector로 파싱 → <code>Document.addDocuments()</code>로 워크스페이스에 바로 임베딩 → 기준 문서와 같은 분류를 <code>DocumentClassification.confirm()</code>으로 즉시 확정(검수 대기 없음) → 읽어낸 본문을 응답으로 반환.</li>
+        <li><b>발견·수정한 버그:</b> <code>content_hash</code>는 <code>addDocuments</code>가 임베딩하면서 계산해 <code>workspace_documents</code> 행에 써넣는다 — 업로드 직후 원본 파일을 그대로 읽으면 txt 등 일부 형식에서 비어 있어, 임베딩된 행을 다시 조회하도록 수정했다.</li>
+      </ul>
+      <h3>진행 상황 스트리밍</h3>
+      <p class="section-dek" style="margin-top:-8px;"><code>POST /workspace/:slug/doc-regen/stream</code> — stream-chat과 같은 SSE 패턴. <code>outline_start → outline → plan → (section_start → section_done)×N → done</code> 순서로 이벤트를 흘려보내, 절이 많아 시간이 걸려도 진행 화면에서 무엇이 처리되고 있는지 실시간으로 보여준다.</p>
+
+      <h3>(신규) 빈양식 채우기 모드</h3>
+      <ul class="plain">
+        <li><code>POST /workspace/:slug/doc-regen/upload-template</code> — <code>upload-guidance</code>와 파싱·아카이빙·분류확정 로직을 <code>parseAndArchiveUpload()</code> 헬퍼로 공유하지만, 반환값이 <code>{title, pageContent, blocks}</code>라 목차 추출에 바로 쓸 수 있다.</li>
+        <li><code>regenerateDocument({..., blankForm})</code> — <code>blankForm</code>이 있으면 목차 추출 대상이 기준 문서(<code>baseDocs</code>)가 아니라 이 서식이 되고(<code>baseDocs</code>는 넘겨도 무시됨, 선택 사항으로 강등), <code>planFromBlankForm()</code>이 <code>diffOutlineAgainstGuidance()</code>를 그대로 재사용하면서 결과의 "keep"만 전부 "update"로 강제 승격한다 — 빈 서식에는 보존할 기존 내용이 없기 때문이다.</li>
+        <li><code>/doc-regen/stream</code>은 <code>baseDocIds</code> 또는 <code>blankForm</code> 중 하나만 있어도 동작하도록 완화됨.</li>
+      </ul>
+
+      <h3>(신규) 문서함 폴더로 근거 검색 범위 좁히기</h3>
+      <ul class="plain">
+        <li><code>resolveFolderDocIds(workspace, folderKeys)</code> — 사이드바의 굵은 스코프(전체/실적/법규/대외, <code>resolveScopeDocIds</code>)와 같은 패턴이지만, 문서함의 세밀한 업무분류→사업부 트리를 그대로 쓴다. <code>"work:&lt;업무분류&gt;"</code>(그 업무분류 전체) / <code>"unit:&lt;업무분류&gt;:&lt;사업부&gt;"</code>(정확히 그 조합)를 여러 개 겹쳐서(OR) 고를 수 있고, <code>"전체"</code>가 섞여 있으면 필터 없음과 동일하다.</li>
+        <li>이 <code>filterDocIds</code>가 절 검색(<code>performSimilaritySearch</code>)에 그대로 전달돼, 지정한 폴더 안에서만 근거를 찾는다 — "작년 자료 참고 + 새 자료 반영"은 별도 로직 없이, 그 폴더 안에 두 종류가 같이 있으면 검색이 자연히 둘 다 찾아주는 구조다.</li>
+      </ul>
+    </section>
+
+    <section id="limits">
+      <div class="section-head"><span class="section-num">15</span><h2>알려진 이슈</h2></div>
+      <ul class="plain">
+        <li><b>WSL2 ↔ Postgres 연결 불안정</b> — VM이 간헐적으로 스스로 내려간다. 재기동으로 즉시 복구되나 근본 원인 미해결(§08).</li>
+        <li><b>전사문서작성tool 생성 시간</b> — 절마다 검색+생성이 필요해 절이 많으면 오래 걸린다. 절 단위 병렬 처리는 아직 미구현(순차 처리).</li>
+        <li><b>officeparser 대체 경로의 표 인식</b> — docling-serve가 죽어있을 때만 타는 예비 경로에서, PPTX/DOCX 표가 구조 없이 평문으로 뭉개진다(officeparser 라이브러리 자체가 표 구조를 안 보존함). docling 정상 가동 중엔 거의 안 쓰이는 경로라 낮은 우선순위로 보류.</li>
+        <li><b>웹 검색의 구조적 한계</b> — 키 없는 스크래핑 방식이라 대상 사이트 구조 변경에 취약(§11).</li>
+        <li><b>초안·전사문서작성tool의 docx·xlsx 내보내기</b> — 버튼은 있으나 비활성. HTML만 동작(빈양식 채우기도 지금은 구조화된 콘텐츠로만 나가고, 원본 서식 그대로 채우는 건 2단계로 남겨둠).</li>
+        <li><b>고성능 임베딩(bge-m3) 미사용</b> — 로컬 PC 메모리 한계로 경량 모델(e5-small) 유지 중.</li>
+        <li><b>서버 미확보</b> — 팀원 개인 PC에서만 실행.</li>
+      </ul>
+    </section>
+
+    <section id="stack">
+      <div class="section-head"><span class="section-num">16</span><h2>스택 · 로컬 실행</h2></div>
+      <div class="dtable overflow-x">
+        <div class="drow" style="grid-template-columns:150px 90px 1fr;"><span class="choice">server (Express API)</span><span class="id" style="color:var(--text)">:3001</span><span class="why"><code>server/</code> · <code>node --trace-warnings index.js</code> · <code>NODE_ENV=development</code>와 <code>NODE_EXTRA_CA_CERTS</code>(사내 인증서 경로)를 함께 지정해야 함(§11)</span></div>
+        <div class="drow" style="grid-template-columns:150px 90px 1fr;"><span class="choice">frontend (Vite/React)</span><span class="id" style="color:var(--text)">:3000</span><span class="why"><code>frontend/</code> · 커스텀 UI는 workspace slug <code>archive-full</code>에서 활성</span></div>
+        <div class="drow" style="grid-template-columns:150px 90px 1fr;"><span class="choice">collector (파싱)</span><span class="id" style="color:var(--text)">:8888</span><span class="why"><code>collector/</code> · docling autostart off</span></div>
+        <div class="drow" style="grid-template-columns:150px 90px 1fr;"><span class="choice">Postgres + pgvector</span><span class="id" style="color:var(--text)">WSL2</span><span class="why"><code>AutoDocu-Postgres</code>, <code>run-local.ps1</code> 자동 기동, 384d 테이블</span></div>
+        <div class="drow" style="grid-template-columns:150px 90px 1fr;"><span class="choice">생성 LLM</span><span class="id" style="color:var(--text)">claudecli</span><span class="why"><code>claude -p</code> headless — 분류·답변·후속질문·검색어 추출·초안·전사문서작성tool 전부 이걸로</span></div>
+        <div class="drow" style="grid-template-columns:150px 90px 1fr;"><span class="choice">웹 검색</span><span class="id" style="color:var(--text)">키 없음</span><span class="why"><code>server/utils/webSearch</code> · 사내 인증서 경로 필요(§11)</span></div>
+      </div>
+      <div class="sample">cd "D:\ai factory\auto docu\anything-llm"
+.\run-local.ps1                                          # 서비스 + WSL2 Postgres
+http://localhost:3000/workspace/archive-full             # 커스텀 아카이브 UI
+cd server && npx jest                                     # 단위테스트 584/584
+POST /api/workspace/:slug/stream-chat  { webSearch: true }         # 외부자료 보강 채팅
+POST /api/workspace/:slug/draft  { dataScope, reportType }         # 초안 생성
+POST /api/workspace/:slug/doc-regen/stream  { title, baseDocIds|blankForm, guidanceText, folderKeys }  # 전사문서작성tool
+POST /api/workspace/:slug/doc-regen/upload-guidance  (multipart)   # 신규 기준 파일 업로드
+POST /api/workspace/:slug/doc-regen/upload-template  (multipart)   # (신규) 빈양식 업로드
+POST /api/workspace/:slug/upload-and-embed  (multipart, + orgUnit) # (신규) 업로드한 팀명과 함께 자료 저장</div>
+    </section>
+
+    <footer class="footer container">
+      <span>Document Expansion LLM · <code>feat/archive-qa</code> · AnythingLLM v1.16.0 fork</span>
+      <span>architecture v19 · 2026-09-15 · 전사문서작성tool(빈양식 채우기 + 문서함 폴더 지정) + 검색 하이브리드 리랭크 + 분류 태그 소실 버그 수정·복구 + 업로드자 팀명 태깅. 기술 상세는 v16~v18 참고.</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+(function(){
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section[id]'));
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.nav-list a'));
+  var mobileNav = document.getElementById('mobileNav');
+  sections.forEach(function(s){
+    var label = s.querySelector('h2');
+    if(!label) return;
+    var a = document.createElement('a');
+    a.href = '#' + s.id;
+    a.textContent = label.textContent;
+    mobileNav.appendChild(a);
+  });
+  var allLinks = navLinks.concat(Array.prototype.slice.call(mobileNav.querySelectorAll('a')));
+  function setActive(id){
+    allLinks.forEach(function(a){ a.classList.toggle('active', a.getAttribute('href') === '#' + id); });
+  }
+  if('IntersectionObserver' in window){
+    var obs = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ if(e.isIntersecting) setActive(e.target.id); });
+    }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+    sections.forEach(function(s){ obs.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
