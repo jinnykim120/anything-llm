@@ -22,6 +22,7 @@ const {
   extractOutlineViaLLM,
   getOutline,
   diffOutlineAgainstGuidance,
+  planFromBlankForm,
   needsMarker,
   extractNeeds,
   writeSection,
@@ -278,6 +279,45 @@ describe("diffOutlineAgainstGuidance", () => {
   });
 });
 
+// [auto-docu 전사문서작성tool v2] 빈양식 모드 — diffOutlineAgainstGuidance는
+// 그대로 재사용해 절별 guidanceExcerpt를 뽑지만, "유지할 기존 내용"이 없는
+// 빈 서식에는 "keep"이 의미가 없으므로 update로 강제 승격돼야 한다.
+describe("planFromBlankForm", () => {
+  const outline = [
+    { title: "필드1", content: "" },
+    { title: "필드2", content: "" },
+  ];
+
+  it("promotes a 'keep' verdict to 'update' and clears its (blank) priorContent", async () => {
+    const LLMConnector = fakeConnector(
+      JSON.stringify([
+        { title: "필드1", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
+        { title: "필드2", status: "new", guidanceExcerpt: "새 요구사항", outlineIndex: null },
+      ])
+    );
+    const plan = await planFromBlankForm({
+      outline,
+      guidanceText: "올해 기준...",
+      LLMConnector,
+    });
+    expect(plan).toEqual([
+      { title: "필드1", status: "update", guidanceExcerpt: "", priorContent: "" },
+      { title: "필드2", status: "new", guidanceExcerpt: "새 요구사항", priorContent: "" },
+    ]);
+  });
+
+  it("leaves 'update'/'new' verdicts untouched", async () => {
+    const LLMConnector = fakeConnector(
+      JSON.stringify([
+        { title: "필드1", status: "update", guidanceExcerpt: "발췌", outlineIndex: 0 },
+      ])
+    );
+    const plan = await planFromBlankForm({ outline, guidanceText: "...", LLMConnector });
+    expect(plan[0].status).toBe("update");
+    expect(plan[0].guidanceExcerpt).toBe("발췌");
+  });
+});
+
 describe("needsMarker / extractNeeds", () => {
   it("round-trips a description through the marker format", () => {
     const marker = needsMarker("2025년 매출 실적 수치");
@@ -520,6 +560,62 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     expect(done.markdown).toBe(
       "# 합본 문서\n\n## A절\n\nA 문서 내용\n\n## B절\n\nB 문서 내용"
     );
+  });
+
+  // [auto-docu 전사문서작성tool v2] 빈양식 모드 — 목차는 blankForm에서
+  // 뽑고(baseDocs는 무시), 모든 절이 검색 대상(new/update)이 된다.
+  it("빈양식이 주어지면 baseDocs 대신 그 목차를 쓰고, 'keep'을 만들지 않는다", async () => {
+    const workspace = { slug: "archive-full" };
+    const blankForm = {
+      title: "빈 서식",
+      pageContent: "무시됨",
+      // 실제 빈양식은 라벨만 있고 값은 비어 있다 — text가 아예 빈 문자열이면
+      // extractOutlineFromBlocks가 그 절을 통째로 드롭하므로(내용 없는 절 제외),
+      // 라벨 텍스트만 있는 최소한의 형태로 준다.
+      blocks: [{ section_path: "1 > 필수 품목", text: "필수 품목: ___" }],
+    };
+    const ignoredBaseDoc = {
+      title: "무시될 기준 문서",
+      pageContent: "무시됨",
+      blocks: [{ section_path: "1 > 다른 절", text: "다른 절 내용" }],
+    };
+    const LLMConnector = fakeConnector(
+      JSON.stringify([
+        { title: "필수 품목", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
+      ])
+    );
+    LLMConnector.getChatCompletion
+      .mockResolvedValueOnce({
+        textResponse: JSON.stringify([
+          { title: "필수 품목", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
+        ]),
+      })
+      .mockResolvedValueOnce({ textResponse: "채워진 필수 품목 내용" });
+    mockPerformSimilaritySearch.mockResolvedValue({
+      contextTexts: ["근거"],
+      sources: [],
+    });
+
+    const events = [];
+    for await (const ev of regenerateDocument({
+      workspace,
+      baseDocs: [ignoredBaseDoc],
+      blankForm,
+      guidanceText: "올해 기준",
+      LLMConnector,
+      title: "제목",
+    })) {
+      events.push(ev);
+    }
+
+    const outlineEvent = events.find((e) => e.type === "outline");
+    expect(outlineEvent.outline).toEqual(["필수 품목"]); // baseDocs의 "다른 절"은 안 섞임
+    const planEvent = events.find((e) => e.type === "plan");
+    expect(planEvent.plan).toEqual([{ title: "필수 품목", status: "update" }]);
+    // "keep"이 아니므로(update로 승격) 아카이브 검색이 실제로 일어난다.
+    expect(mockPerformSimilaritySearch).toHaveBeenCalledTimes(1);
+    const done = events.at(-1);
+    expect(done.markdown).toBe("# 제목\n\n## 필수 품목\n\n채워진 필수 품목 내용");
   });
 
   it("keeps going and marks a section as needing data when its search call fails", async () => {

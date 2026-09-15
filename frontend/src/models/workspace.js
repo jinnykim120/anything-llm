@@ -324,7 +324,7 @@ const Workspace = {
   // 화면을 나갈 때 스트림을 중단할 수 있다.
   docRegenStream: function (
     slug,
-    { title, baseDocIds, guidanceText, folderKeys },
+    { title, baseDocIds, blankForm, guidanceText, folderKeys },
     onEvent
   ) {
     const ctrl = new AbortController();
@@ -332,7 +332,13 @@ const Workspace = {
       `${API_BASE}/workspace/${slug}/doc-regen/stream`,
       {
         method: "POST",
-        body: JSON.stringify({ title, baseDocIds, guidanceText, folderKeys }),
+        body: JSON.stringify({
+          title,
+          baseDocIds,
+          blankForm,
+          guidanceText,
+          folderKeys,
+        }),
         headers: baseHeaders(),
         signal: ctrl.signal,
         openWhenHidden: true,
@@ -372,6 +378,25 @@ const Workspace = {
     fd.append("file", file);
     return await fetch(
       `${API_BASE}/workspace/${slug}/doc-regen/upload-guidance`,
+      {
+        method: "POST",
+        body: fd,
+        headers: baseHeaders(),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu 전사문서작성tool v2] 빈양식 파일을 업로드 — upload-guidance와
+  // 같은 방식으로 그 자리에서 파싱해 아카이브에 추가하지만, 반환값은
+  // {title, pageContent, blocks, contentHash} — 목차 추출(regenerateDocument의
+  // blankForm)에 그대로 쓸 수 있는 모양이다.
+  docRegenUploadTemplate: async function (slug, file, classification = {}) {
+    const fd = new FormData();
+    fd.append("classification", JSON.stringify(classification || {}));
+    fd.append("file", file);
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/doc-regen/upload-template`,
       {
         method: "POST",
         body: fd,

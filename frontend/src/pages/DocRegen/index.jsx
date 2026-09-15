@@ -60,11 +60,15 @@ function docContentHashOf(doc) {
 
 export default function DocRegen() {
   const { slug = "archive-full" } = useParams();
-  const [step, setStep] = useState("name"); // name | baseDoc | guidance | folder | progress | result
+  const [step, setStep] = useState("name"); // name | template | baseDoc | guidance | folder | progress | result
   const [title, setTitle] = useState("");
   const [documents, setDocuments] = useState([]);
   const [docQuery, setDocQuery] = useState("");
   const [baseDocs, setBaseDocs] = useState([]); // [{id, title, contentHash}] — 중복 선택 가능
+  // [auto-docu 전사문서작성tool v2] 빈양식 — 있으면 목차/구조의 원천이 이
+  // 서식으로 바뀌고(baseDocs는 참고용/선택 사항이 됨), null이면 기존과 동일.
+  const [blankForm, setBlankForm] = useState(null); // {title, pageContent, blocks, contentHash}
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [classificationsByHash, setClassificationsByHash] = useState({});
   const [guidanceText, setGuidanceText] = useState("");
   const [guidanceFileName, setGuidanceFileName] = useState(null);
@@ -214,6 +218,27 @@ export default function DocRegen() {
     );
   }
 
+  // [auto-docu 전사문서작성tool v2] 빈양식 업로드 — 기준 문서를 아직 고르기
+  // 전 단계라 물려받을 분류가 없다(일반 업로드처럼 분류 검수 대기로 들어감).
+  async function handleTemplateFile(fileList) {
+    const file = fileList?.[0];
+    if (!file) return;
+    setUploadingTemplate(true);
+    const res = await Workspace.docRegenUploadTemplate(slug, file, {});
+    setUploadingTemplate(false);
+    if (res?.error) {
+      showToast(res.error, "error");
+      return;
+    }
+    setBlankForm({
+      title: res.title || file.name,
+      pageContent: res.pageContent || "",
+      blocks: res.blocks || [],
+      contentHash: res.contentHash || null,
+    });
+    showToast("빈양식을 업로드했습니다.", "success");
+  }
+
   const previewHtml = useMemo(
     () =>
       result
@@ -234,6 +259,7 @@ export default function DocRegen() {
     setStep("name");
     setTitle("");
     setBaseDocs([]);
+    setBlankForm(null);
     setGuidanceText("");
     setGuidanceFileName(null);
     setSelectedFolders([]);
@@ -253,6 +279,7 @@ export default function DocRegen() {
       {
         title: title.trim(),
         baseDocIds: baseDocs.map((d) => d.id),
+        blankForm,
         guidanceText: guidanceText.trim(),
         folderKeys: selectedFolders,
       },
@@ -316,11 +343,51 @@ export default function DocRegen() {
                 placeholder="예: 2026년 지속가능경영보고서"
                 className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && title.trim()) setStep("baseDoc");
+                  if (e.key === "Enter" && title.trim()) setStep("template");
                 }}
               />
               <NextButton
                 disabled={!title.trim()}
+                onClick={() => setStep("template")}
+              />
+            </StepCard>
+          )}
+
+          {step === "template" && (
+            <StepCard
+              heading="빈양식이 있으신가요?"
+              description="이미 만들어진 서식/표에 자료를 채워 넣어야 하는 경우라면 그 파일을 올려주세요. 있으면 이 서식을 채우는 게 우선이 되고, 없으면 다음 단계에서 고를 작년 문서의 구조를 그대로 씁니다."
+              onBack={() => setStep("name")}
+            >
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm text-slate-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:text-zinc-300">
+                {uploadingTemplate ? (
+                  <CircleNotch size={15} className="animate-spin" />
+                ) : (
+                  <UploadSimple size={15} />
+                )}
+                {uploadingTemplate
+                  ? "업로드 중…"
+                  : blankForm
+                    ? `업로드됨: ${blankForm.title} (다시 올리기)`
+                    : "빈양식 파일 업로드 (선택)"}
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={uploadingTemplate}
+                  onChange={(e) => handleTemplateFile(e.target.files)}
+                />
+              </label>
+              {blankForm && (
+                <button
+                  type="button"
+                  onClick={() => setBlankForm(null)}
+                  className="mt-2 flex items-center gap-1 text-xs text-slate-400 hover:text-red-600 dark:text-zinc-600"
+                >
+                  <X size={11} /> 빈양식 선택 해제
+                </button>
+              )}
+              <NextButton
+                disabled={uploadingTemplate}
                 onClick={() => setStep("baseDoc")}
               />
             </StepCard>
@@ -328,9 +395,17 @@ export default function DocRegen() {
 
           {step === "baseDoc" && (
             <StepCard
-              heading="기준이 될 작년 문서를 골라주세요"
-              description="구조와 양식의 뼈대로 씁니다 — 문서함에 있는 자료 중에서 여러 개를 함께 고를 수 있습니다."
-              onBack={() => setStep("name")}
+              heading={
+                blankForm
+                  ? "참고할 작년 문서가 있다면 골라주세요 (선택)"
+                  : "기준이 될 작년 문서를 골라주세요"
+              }
+              description={
+                blankForm
+                  ? `빈양식(${blankForm.title})을 채우는 게 우선이라 이 선택은 참고용입니다 — 문서함에 있는 자료 중에서 여러 개를 함께 고를 수 있습니다.`
+                  : "구조와 양식의 뼈대로 씁니다 — 문서함에 있는 자료 중에서 여러 개를 함께 고를 수 있습니다."
+              }
+              onBack={() => setStep("template")}
             >
               <input
                 value={docQuery}
@@ -379,9 +454,13 @@ export default function DocRegen() {
                 })}
               </div>
               <NextButton
-                disabled={baseDocs.length === 0}
+                disabled={!blankForm && baseDocs.length === 0}
                 label={
-                  baseDocs.length ? `다음 (${baseDocs.length}개 선택)` : "다음"
+                  baseDocs.length
+                    ? `다음 (${baseDocs.length}개 선택)`
+                    : blankForm
+                      ? "다음 (건너뛰기)"
+                      : "다음"
                 }
                 onClick={() => setStep("guidance")}
               />
@@ -391,9 +470,13 @@ export default function DocRegen() {
           {step === "guidance" && (
             <StepCard
               heading="올해 새로 생긴 기준·가이던스를 입력해 주세요"
-              description={`기준 문서: ${baseDocs
-                .map((d) => `"${d.title}"`)
-                .join(", ")} — 이 내용에 맞춰 절별로 다시 채웁니다.`}
+              description={
+                blankForm && !baseDocs.length
+                  ? `빈양식: "${blankForm.title}" — 이 내용에 맞춰 서식의 각 항목을 채웁니다.`
+                  : `기준 문서: ${baseDocs
+                      .map((d) => `"${d.title}"`)
+                      .join(", ")} — 이 내용에 맞춰 절별로 다시 채웁니다.`
+              }
               onBack={() => setStep("baseDoc")}
             >
               <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm text-slate-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:text-zinc-300">

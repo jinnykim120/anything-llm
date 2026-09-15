@@ -249,6 +249,25 @@ async function diffOutlineAgainstGuidance({
   });
 }
 
+/**
+ * [auto-docu 전사문서작성tool v2] 빈양식 모드 — 채워진 작년 문서 대신 빈
+ * 서식 자체가 구조의 원천일 때 쓴다. 신구비교(diffOutlineAgainstGuidance)는
+ * 그대로 재사용해 절마다 관련 가이던스 발췌(guidanceExcerpt)를 뽑아내지만,
+ * 빈 서식에는 "유지할 기존 내용"이라는 게 존재하지 않으므로 — 서식의 필드에
+ * 마침 무언가 적혀 있어 LLM이 "keep"으로 잘못 분류하더라도 — 결과의 모든
+ * 절을 "채워야 할 대상"으로 강제한다.
+ */
+async function planFromBlankForm({ outline, guidanceText, LLMConnector }) {
+  const plan = await diffOutlineAgainstGuidance({
+    outline,
+    guidanceText,
+    LLMConnector,
+  });
+  return plan.map((p) =>
+    p.status === "keep" ? { ...p, status: "update", priorContent: "" } : p
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 절 작성 — "[자료 필요: ...]" 마커
 // ---------------------------------------------------------------------------
@@ -340,7 +359,13 @@ function assembleMarkdown({ title, sections }) {
 
 async function* regenerateDocument({
   workspace,
-  baseDocs,
+  baseDocs = [],
+  // [auto-docu 전사문서작성tool v2] 빈양식 — {title, pageContent, blocks}.
+  // 주어지면 구조의 원천이 작년 기준 문서(baseDocs)가 아니라 이 서식이
+  // 된다("이 양식을 넣으면, 이걸 채우는게 우선"): 목차는 서식에서 뽑고,
+  // 모든 절이 "채워야 할 대상"으로 취급된다. baseDocs는 이때도 선택 사항 —
+  // 넘겨줘도 목차 추출에는 안 쓰이고 무시된다(아카이브 검색이 대신 찾음).
+  blankForm = null,
   guidanceText,
   LLMConnector,
   title,
@@ -350,26 +375,33 @@ async function* regenerateDocument({
   filterDocIds = null,
 }) {
   yield { type: "outline_start" };
-  // 기준 문서를 여러 개 고른 경우 — 문서별로 목차를 뽑아 이어붙인다. 절
-  // 제목이 서로 겹칠 일은 거의 없고, 겹쳐도 각 절은 독립적으로 처리되니
-  // 문제 없다.
-  const perDocOutlines = await Promise.all(
-    baseDocs.map((doc) =>
-      getOutline({
-        pageContent: doc.pageContent,
-        blocks: doc.blocks,
-        LLMConnector,
-      })
-    )
-  );
-  const outline = perDocOutlines.flat();
+  let outline;
+  if (blankForm) {
+    outline = await getOutline({
+      pageContent: blankForm.pageContent,
+      blocks: blankForm.blocks,
+      LLMConnector,
+    });
+  } else {
+    // 기준 문서를 여러 개 고른 경우 — 문서별로 목차를 뽑아 이어붙인다. 절
+    // 제목이 서로 겹칠 일은 거의 없고, 겹쳐도 각 절은 독립적으로 처리되니
+    // 문제 없다.
+    const perDocOutlines = await Promise.all(
+      baseDocs.map((doc) =>
+        getOutline({
+          pageContent: doc.pageContent,
+          blocks: doc.blocks,
+          LLMConnector,
+        })
+      )
+    );
+    outline = perDocOutlines.flat();
+  }
   yield { type: "outline", outline: outline.map((s) => s.title) };
 
-  const plan = await diffOutlineAgainstGuidance({
-    outline,
-    guidanceText,
-    LLMConnector,
-  });
+  const plan = blankForm
+    ? await planFromBlankForm({ outline, guidanceText, LLMConnector })
+    : await diffOutlineAgainstGuidance({ outline, guidanceText, LLMConnector });
   yield {
     type: "plan",
     plan: plan.map((p) => ({ title: p.title, status: p.status })),
@@ -437,6 +469,7 @@ module.exports = {
   extractOutlineViaLLM,
   getOutline,
   diffOutlineAgainstGuidance,
+  planFromBlankForm,
   needsMarker,
   extractNeeds,
   writeSection,
