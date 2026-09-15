@@ -108,7 +108,10 @@ export default function ClassificationReview() {
         ? { docType: bulkValues.docType.trim() }
         : {}),
       ...(bulkValues.domain.trim() ? { domain: bulkValues.domain.trim() } : {}),
-      tags: [],
+      // 태그는 문서마다 AI가 내용 기반으로 제안한 값이라 일괄 확정으로 같이
+      // 덮어쓰면 안 된다(과거 버그: 여기서 항상 tags:[]를 보내 확정된
+      // 문서들의 기존 태그가 전부 비워졌었음) — 일괄 확정은 태그를 절대
+      // 건드리지 않는다.
     });
     setBulkSaving(false);
     if (result?.error)

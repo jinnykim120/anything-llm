@@ -507,7 +507,12 @@ function classificationEndpoints(app) {
           workType,
           businessUnit,
           domain,
-          tags = [],
+          // 태그는 문서마다 AI가 내용을 보고 제안한 값이라 일괄 확정으로 함께
+          // 지정할 수 없다(입력 필드 자체가 없음) — 기본값을 []로 두면 매번
+          // DocumentClassification.confirm()에 tags:[]가 defined로 전달돼
+          // 선택된 문서들의 기존 태그를 전부 지워버렸다(실제로 74건 발생).
+          // undefined로 둬야 confirm()이 tags를 건드리지 않는다.
+          tags,
         } = reqBody(request);
         const hashes = [
           ...new Set(
