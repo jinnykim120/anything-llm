@@ -87,6 +87,7 @@ export default function DocRegen() {
   const [error, setError] = useState(null);
   const [detailNeed, setDetailNeed] = useState(null); // {description, section}
   const [exportingDocx, setExportingDocx] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState(false);
   const streamRef = useRef(null);
 
   useEffect(() => {
@@ -237,6 +238,10 @@ export default function DocRegen() {
       pageContent: res.pageContent || "",
       blocks: res.blocks || [],
       contentHash: res.contentHash || null,
+      // [auto-docu 빈양식 채우기 2단계] 원본 서식 그대로 다운로드할 때 이걸로
+      // 원본 파일을 다시 찾아간다 — .docx일 때만 그 버튼이 뜬다.
+      docId: res.docId || null,
+      isDocx: /\.docx$/i.test(file.name),
     });
     showToast("빈양식을 업로드했습니다.", "success");
   }
@@ -335,6 +340,27 @@ export default function DocRegen() {
     if (!res?.success)
       return showToast(res?.error || "DOCX 다운로드에 실패했습니다.", "error");
     showToast("DOCX 파일을 내려받았습니다.", "success");
+    archiveResultInBackground();
+  }
+
+  async function downloadFilledTemplate() {
+    if (!result || !blankForm?.docId || exportingTemplate) return;
+    setExportingTemplate(true);
+    const res = await Workspace.downloadFilledTemplate(slug, {
+      docId: blankForm.docId,
+      sections: result.sections,
+      title: blankForm.title,
+    });
+    setExportingTemplate(false);
+    if (!res?.success)
+      return showToast(
+        res?.error || "원본 서식 다운로드에 실패했습니다.",
+        "error"
+      );
+    showToast(
+      `원본 서식에 ${res.inserted}/${res.total}개 항목을 채워 내려받았습니다.`,
+      "success"
+    );
     archiveResultInBackground();
   }
 
@@ -718,6 +744,22 @@ export default function DocRegen() {
                     )}
                     DOCX 다운로드
                   </button>
+                  {blankForm?.docId && blankForm?.isDocx && (
+                    <button
+                      type="button"
+                      onClick={downloadFilledTemplate}
+                      disabled={exportingTemplate}
+                      className="flex items-center gap-1.5 rounded-md border border-dashed border-violet-300 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/30"
+                      title="빈양식으로 올린 원본 파일 그대로, 채운 내용을 삽입해서 내려받습니다"
+                    >
+                      {exportingTemplate ? (
+                        <CircleNotch size={13} className="animate-spin" />
+                      ) : (
+                        <FileDoc size={13} weight="duotone" />
+                      )}
+                      원본 서식으로 다운로드
+                    </button>
+                  )}
                 </div>
               </div>
 

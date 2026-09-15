@@ -13,7 +13,7 @@ const {
  * 그 분류로 즉시 확정. classification을 안 넘기면 확정 단계는 건너뛰고 그냥
  * 임베딩만 한다 — 호출자가 별도로(예: upsertProposal로 "제안" 상태만) 분류를
  * 처리하고 싶을 때를 위해서다.
- * @returns {Promise<{title:string, pageContent:string, blocks:object[], contentHash:string|null}>}
+ * @returns {Promise<{title:string, pageContent:string, blocks:object[], contentHash:string|null, docId:string|null}>}
  */
 async function parseAndArchiveUpload({
   workspace,
@@ -85,6 +85,9 @@ async function parseAndArchiveUpload({
     pageContent: String(doc.pageContent || ""),
     blocks: Array.isArray(blocks) ? blocks : [],
     contentHash,
+    // [auto-docu 빈양식 채우기 2단계] 원본 서식 그대로 다운로드할 때 이
+    // docId로 원본 파일(word/document.xml 등)을 다시 찾아간다.
+    docId: embeddedRow?.docId || null,
   };
 }
 

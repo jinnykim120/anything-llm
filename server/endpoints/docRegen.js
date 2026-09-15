@@ -3,6 +3,7 @@
 //   POST /workspace/:slug/doc-regen/stream           { title, baseDocIds|blankForm, guidanceText }
 //   POST /workspace/:slug/doc-regen/upload-guidance   multipart: file (+ classification JSON)
 //   POST /workspace/:slug/doc-regen/upload-template   multipart: file (+ classification JSON)
+//   POST /workspace/:slug/doc-regen/download-filled-template   { docId, sections }
 //
 // stream 은 SSE — 절이 많은 문서는 절마다 검색+생성이 필요해 시간이
 // 걸리므로, 절이 끝날 때마다 진행 상황을 흘려보낸다(stream-chat과 같은
@@ -12,6 +13,10 @@
 // upload-guidance/upload-template 둘 다 파일을 그 자리에서 파싱해 아카이브에
 // 추가(임베딩)하고, 기준 문서와 같은 분류로 확정해 같은 폴더에 놓는다 — 차이는
 // 반환 모양뿐(전자는 guidanceText 텍스트, 후자는 목차 추출용 pageContent+blocks).
+//
+// download-filled-template (빈양식 채우기 2단계) — upload-template이 돌려준
+// docId로 원본 서식(.docx만 지원 — HWP는 쓰기 라이브러리가 없음) 파일을 다시
+// 찾아서, 채워진 절 내용을 그 원본에 그대로 삽입해 돌려준다.
 const { reqBody, safeJsonParse } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
@@ -22,6 +27,10 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider } = require("../utils/helpers");
 const { writeResponseChunk } = require("../utils/helpers/chat/responses");
 const { handleFileUpload } = require("../utils/files/multer");
+const { Document } = require("../models/documents");
+const {
+  fillDocxTemplateFromPath,
+} = require("../utils/exporters/fillDocxTemplate");
 const {
   parseAndArchiveUpload,
 } = require("../utils/files/parseAndArchiveUpload");
@@ -143,7 +152,7 @@ function docRegenEndpoints(app) {
         const workspace = response.locals.workspace;
         if (!request.file) throw new Error("업로드된 파일이 없습니다.");
         const { classification: classificationRaw = "{}" } = reqBody(request);
-        const { title, pageContent, blocks, contentHash } =
+        const { title, pageContent, blocks, contentHash, docId } =
           await parseAndArchiveUpload({
             workspace,
             originalname: request.file.originalname,
@@ -153,12 +162,80 @@ function docRegenEndpoints(app) {
 
         return response
           .status(200)
-          .json({ title, pageContent, blocks, contentHash });
+          .json({ title, pageContent, blocks, contentHash, docId });
       } catch (e) {
         console.error("POST /workspace/:slug/doc-regen/upload-template", e);
         return response
           .status(500)
           .json({ error: e.message || "파일 업로드 중 오류가 발생했습니다." });
+      }
+    }
+  );
+
+  // [auto-docu 빈양식 채우기 2단계] 원본 서식(.docx)에 그대로 값을 써서
+  // 돌려준다 — DOCX만 지원(HWP는 쓰기 라이브러리가 없어 안 됨). doc/raw
+  // 엔드포인트와 같은 방식으로 docId → workspace_documents → 파싱 결과의
+  // original_path를 다시 찾아가며, 클라이언트가 임의 경로를 주입할 수 없다.
+  app.post(
+    "/workspace/:slug/doc-regen/download-filled-template",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const { docId, sections = [] } = reqBody(request);
+        if (!docId) throw new Error("빈양식 문서 ID가 없습니다.");
+
+        const doc = await Document.get({ docId: String(docId) });
+        if (!doc) throw new Error("원본 빈양식을 찾지 못했습니다.");
+
+        const {
+          fileData,
+          documentsPath,
+          normalizePath,
+          isWithin,
+        } = require("../utils/files");
+        const parsed = await fileData(doc.docpath);
+        const rel = parsed?.original_path;
+        if (!rel)
+          throw new Error(
+            "이 빈양식은 원본 파일이 보관돼 있지 않아 서식 그대로 채울 수 없습니다."
+          );
+
+        const path = require("path");
+        const fs = require("fs");
+        const originalsRoot = path.resolve(documentsPath, "originals");
+        const filePath = path.resolve(documentsPath, normalizePath(rel));
+        if (!isWithin(originalsRoot, filePath) || !fs.existsSync(filePath))
+          throw new Error("원본 빈양식 파일을 찾지 못했습니다.");
+        if (path.extname(filePath).toLowerCase() !== ".docx")
+          throw new Error(
+            "원본 서식 그대로 채우기는 DOCX만 지원합니다(이 파일은 다른 형식입니다)."
+          );
+
+        const { buffer, inserted, total } = await fillDocxTemplateFromPath({
+          originalFilePath: filePath,
+          sections,
+        });
+
+        const title = parsed?.title || "빈양식";
+        response.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="download.docx"; filename*=UTF-8''${encodeURIComponent(`${title}(채움).docx`)}`
+        );
+        response.setHeader("X-Fill-Inserted", String(inserted));
+        response.setHeader("X-Fill-Total", String(total));
+        response.status(200).send(buffer);
+      } catch (e) {
+        console.error(
+          "POST /workspace/:slug/doc-regen/download-filled-template",
+          e
+        );
+        response.status(500).json({
+          error: e.message || "원본 서식 채우기 중 오류가 발생했습니다.",
+        });
       }
     }
   );

@@ -477,6 +477,38 @@ const Workspace = {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     return { success: true };
   },
+  // [auto-docu 빈양식 채우기 2단계] 원본 서식(.docx)에 채워진 절 내용을
+  // 그대로 삽입해 다시 내려받는다 — DOCX만 가능(HWP는 지원 안 함, 서버가
+  // 명확한 에러로 알려준다).
+  downloadFilledTemplate: async function (slug, { docId, sections, title }) {
+    const res = await fetch(
+      `${API_BASE}/workspace/${slug}/doc-regen/download-filled-template`,
+      {
+        method: "POST",
+        body: JSON.stringify({ docId, sections }),
+        headers: baseHeaders(),
+      }
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: body?.error || "원본 서식 채우기에 실패했습니다.",
+      };
+    }
+    const inserted = res.headers.get("X-Fill-Inserted");
+    const total = res.headers.get("X-Fill-Total");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${sanitizeFilename(title) || "빈양식"}(채움).docx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { success: true, inserted: Number(inserted), total: Number(total) };
+  },
   uploadFile: async function (slug, formData) {
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {
       method: "POST",
