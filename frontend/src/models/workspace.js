@@ -324,7 +324,7 @@ const Workspace = {
   // 화면을 나갈 때 스트림을 중단할 수 있다.
   docRegenStream: function (
     slug,
-    { title, baseDocIds, guidanceText },
+    { title, baseDocIds, guidanceText, folderKeys },
     onEvent
   ) {
     const ctrl = new AbortController();
@@ -332,7 +332,7 @@ const Workspace = {
       `${API_BASE}/workspace/${slug}/doc-regen/stream`,
       {
         method: "POST",
-        body: JSON.stringify({ title, baseDocIds, guidanceText }),
+        body: JSON.stringify({ title, baseDocIds, guidanceText, folderKeys }),
         headers: baseHeaders(),
         signal: ctrl.signal,
         openWhenHidden: true,

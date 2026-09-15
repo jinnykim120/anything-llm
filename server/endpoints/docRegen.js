@@ -22,6 +22,7 @@ const { CollectorApi } = require("../utils/collectorApi");
 const { Document } = require("../models/documents");
 const { DocumentClassification } = require("../models/documentClassification");
 const { loadBaseDocuments, regenerateDocument } = require("../utils/docRegen");
+const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
 
 function docRegenEndpoints(app) {
   if (!app) return;
@@ -37,7 +38,12 @@ function docRegenEndpoints(app) {
       response.flushHeaders();
 
       try {
-        const { title = "", baseDocIds, guidanceText = "" } = reqBody(request);
+        const {
+          title = "",
+          baseDocIds,
+          guidanceText = "",
+          folderKeys = null,
+        } = reqBody(request);
         const ids = Array.isArray(baseDocIds) ? baseDocIds : [baseDocIds];
         if (!ids.filter(Boolean).length)
           throw new Error("기준 문서를 선택해 주세요.");
@@ -50,6 +56,13 @@ function docRegenEndpoints(app) {
           provider: workspace?.chatProvider,
           model: workspace?.chatModel,
         });
+        // [auto-docu 전사문서작성tool v2] 사용자가 미리 자료를 모아둔 문서함
+        // 폴더가 있으면 그 안에서만 근거를 찾는다 — 실패해도 전체 검색으로
+        // 안전하게 이어간다(스코프 필터는 항상 선택 사항).
+        const filterDocIds = await resolveFolderDocIds(
+          workspace,
+          folderKeys
+        ).catch(() => null);
 
         for await (const event of regenerateDocument({
           workspace,
@@ -57,6 +70,7 @@ function docRegenEndpoints(app) {
           guidanceText: String(guidanceText).trim(),
           LLMConnector,
           title: String(title).trim() || baseDocs[0].title,
+          filterDocIds,
         })) {
           writeResponseChunk(response, event);
         }

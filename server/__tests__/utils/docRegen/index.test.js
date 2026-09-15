@@ -434,6 +434,52 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     );
   });
 
+  // [auto-docu 전사문서작성tool v2] 사용자가 미리 자료를 모아둔 문서함
+  // 폴더를 고르면, 그 폴더의 doc_id 허용목록(filterDocIds)이 절 검색에
+  // 그대로 전달돼야 한다 — 아카이브 전체가 아니라 그 폴더 안에서만 찾는다.
+  it("filterDocIds가 주어지면 절 검색(performSimilaritySearch)에 그대로 전달된다", async () => {
+    const workspace = { slug: "archive-full" };
+    const baseDoc = {
+      title: "작년 보고서",
+      pageContent: "무시됨",
+      blocks: [{ section_path: "1 > 리스크", text: "작년 리스크 서술" }],
+    };
+    const LLMConnector = fakeConnector();
+    LLMConnector.getChatCompletion
+      .mockResolvedValueOnce({
+        textResponse: JSON.stringify([
+          {
+            title: "리스크",
+            status: "update",
+            guidanceExcerpt: "새 리스크 기준",
+            outlineIndex: 0,
+          },
+        ]),
+      })
+      .mockResolvedValueOnce({ textResponse: "새로 작성된 리스크 절 내용" });
+    mockPerformSimilaritySearch.mockResolvedValue({
+      contextTexts: ["폴더 안 근거"],
+      sources: [],
+    });
+
+    const events = [];
+    for await (const ev of regenerateDocument({
+      workspace,
+      baseDocs: [baseDoc],
+      guidanceText: "올해 신규 기준",
+      LLMConnector,
+      title: "2026 보고서",
+      filterDocIds: ["doc-1", "doc-2"],
+    })) {
+      events.push(ev);
+    }
+
+    expect(events.at(-1).type).toBe("done");
+    expect(mockPerformSimilaritySearch).toHaveBeenCalledWith(
+      expect.objectContaining({ filterDocIds: ["doc-1", "doc-2"] })
+    );
+  });
+
   it("여러 기준 문서를 고르면 문서별 목차를 순서대로 이어붙인다", async () => {
     const workspace = { slug: "archive-full" };
     const baseDocs = [

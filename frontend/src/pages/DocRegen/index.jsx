@@ -8,6 +8,8 @@ import {
   ArrowLeft,
   ArrowRight,
   Buildings,
+  CaretDown,
+  CaretRight,
   CheckCircle,
   CheckSquare,
   CircleNotch,
@@ -15,6 +17,7 @@ import {
   DownloadSimple,
   FileHtml,
   FileText,
+  Folder,
   Square,
   UploadSimple,
   X,
@@ -57,7 +60,7 @@ function docContentHashOf(doc) {
 
 export default function DocRegen() {
   const { slug = "archive-full" } = useParams();
-  const [step, setStep] = useState("name"); // name | baseDoc | guidance | progress | result
+  const [step, setStep] = useState("name"); // name | baseDoc | guidance | folder | progress | result
   const [title, setTitle] = useState("");
   const [documents, setDocuments] = useState([]);
   const [docQuery, setDocQuery] = useState("");
@@ -66,6 +69,11 @@ export default function DocRegen() {
   const [guidanceText, setGuidanceText] = useState("");
   const [guidanceFileName, setGuidanceFileName] = useState(null);
   const [uploadingGuidance, setUploadingGuidance] = useState(false);
+  // [auto-docu 전사문서작성tool v2] 미리 자료를 모아둔 문서함 폴더 — 여러 개
+  // 겹쳐서(work: 상위 폴더 + 다른 workType의 unit: 하위 폴더 등) 고를 수
+  // 있다. 비어 있으면(또는 "전체" 포함) 아카이브 전체에서 검색한다.
+  const [selectedFolders, setSelectedFolders] = useState([]);
+  const [expandedWork, setExpandedWork] = useState(() => new Set());
 
   const [plan, setPlan] = useState([]); // [{title, status}]
   const [sections, setSections] = useState([]); // 채워지는 대로 index별로 들어감
@@ -96,6 +104,50 @@ export default function DocRegen() {
     if (!q) return documents;
     return documents.filter((d) => docTitleOf(d).toLowerCase().includes(q));
   }, [documents, docQuery]);
+
+  // 문서함(DocumentRoom)과 같은 업무분류 → 사업부 트리 — "미리 모아둔 폴더"를
+  // 고를 때 쓴다. 문서함 폴더 자체(=classification 그룹)를 그대로 재사용하는
+  // 것이므로, 여기서 documents/classificationsByHash로 매번 다시 계산한다.
+  const folderTree = useMemo(() => {
+    const workTypes = new Map();
+    for (const doc of documents) {
+      const hash = docContentHashOf(doc);
+      const cls = hash && classificationsByHash[hash];
+      const workType = cls?.workType?.trim() || "미분류";
+      const businessUnit = cls?.businessUnit?.trim() || "미분류";
+      if (!workTypes.has(workType)) workTypes.set(workType, new Map());
+      const units = workTypes.get(workType);
+      units.set(businessUnit, (units.get(businessUnit) || 0) + 1);
+    }
+    return [...workTypes.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "ko"))
+      .map(([workType, units]) => ({
+        workType,
+        key: `work:${workType}`,
+        count: [...units.values()].reduce((n, c) => n + c, 0),
+        units: [...units.entries()]
+          .sort(([a], [b]) => a.localeCompare(b, "ko"))
+          .map(([businessUnit, count]) => ({
+            businessUnit,
+            key: `unit:${workType}:${businessUnit}`,
+            count,
+          })),
+      }));
+  }, [documents, classificationsByHash]);
+
+  function toggleFolder(key) {
+    setSelectedFolders((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }
+
+  function toggleWorkExpanded(key) {
+    setExpandedWork((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
 
   function toggleBaseDoc(doc) {
     const id = doc.id;
@@ -184,6 +236,7 @@ export default function DocRegen() {
     setBaseDocs([]);
     setGuidanceText("");
     setGuidanceFileName(null);
+    setSelectedFolders([]);
     setPlan([]);
     setSections([]);
     setResult(null);
@@ -201,6 +254,7 @@ export default function DocRegen() {
         title: title.trim(),
         baseDocIds: baseDocs.map((d) => d.id),
         guidanceText: guidanceText.trim(),
+        folderKeys: selectedFolders,
       },
       (event) => {
         if (event.type === "plan") {
@@ -218,7 +272,7 @@ export default function DocRegen() {
           setStep("result");
         } else if (event.type === "error") {
           setError(event.error);
-          setStep("guidance");
+          setStep("folder");
         }
       }
     );
@@ -378,6 +432,53 @@ export default function DocRegen() {
                 placeholder="올해 새로 생긴 기준, 가이던스, 양식 요구사항 등을 붙여넣거나, 위에서 파일을 업로드하세요."
                 className="mt-3 w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
               />
+              <NextButton
+                disabled={!guidanceText.trim() || uploadingGuidance}
+                onClick={() => setStep("folder")}
+              />
+            </StepCard>
+          )}
+
+          {step === "folder" && (
+            <StepCard
+              heading="참고할 자료 범위를 좁힐까요?"
+              description="이 작업에 쓸 자료를 미리 모아둔 문서함 폴더가 있다면 골라주세요. 여러 개를 겹쳐서 고를 수 있고, 아무것도 고르지 않으면 아카이브 전체에서 찾습니다."
+              onBack={() => setStep("guidance")}
+            >
+              <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200 dark:border-zinc-800">
+                <FolderRow
+                  label="전체 문서"
+                  checked={selectedFolders.includes("전체")}
+                  onToggle={() => toggleFolder("전체")}
+                />
+                {folderTree.map((work) => {
+                  const expanded = expandedWork.has(work.key);
+                  return (
+                    <div key={work.key}>
+                      <FolderRow
+                        label={work.workType}
+                        count={work.count}
+                        checked={selectedFolders.includes(work.key)}
+                        onToggle={() => toggleFolder(work.key)}
+                        expandable={work.units.length > 1}
+                        expanded={expanded}
+                        onExpand={() => toggleWorkExpanded(work.key)}
+                      />
+                      {expanded &&
+                        work.units.map((unit) => (
+                          <FolderRow
+                            key={unit.key}
+                            label={unit.businessUnit}
+                            count={unit.count}
+                            indent
+                            checked={selectedFolders.includes(unit.key)}
+                            onToggle={() => toggleFolder(unit.key)}
+                          />
+                        ))}
+                    </div>
+                  );
+                })}
+              </div>
               <NextButton
                 disabled={!guidanceText.trim() || uploadingGuidance}
                 label="생성 시작"
@@ -546,6 +647,67 @@ function NextButton({ onClick, disabled, label = "다음" }) {
     >
       {label} <ArrowRight size={15} weight="bold" />
     </button>
+  );
+}
+
+/** 문서함 폴더 선택 행 — 체크(선택, 중복 가능)와 펼치기(하위 폴더 보기)가
+ * 분리된 별도 클릭 영역이다. "전체 문서"처럼 하위가 없으면 펼치기 버튼이 없다. */
+function FolderRow({
+  label,
+  count,
+  indent = false,
+  checked,
+  onToggle,
+  expandable = false,
+  expanded = false,
+  onExpand,
+}) {
+  return (
+    <div
+      className={`flex w-full items-center gap-2 border-b border-slate-100 py-2.5 text-left text-sm last:border-b-0 dark:border-zinc-800 ${
+        indent ? "pl-9 pr-3" : "pl-3 pr-3"
+      } ${checked ? "bg-violet-50 dark:bg-violet-950/20" : ""}`}
+    >
+      {expandable ? (
+        <button
+          type="button"
+          onClick={onExpand}
+          className="shrink-0 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+        >
+          {expanded ? <CaretDown size={13} /> : <CaretRight size={13} />}
+        </button>
+      ) : (
+        <span className="inline-block w-[13px] shrink-0" />
+      )}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex flex-1 items-center gap-2 hover:text-violet-700"
+      >
+        {checked ? (
+          <CheckSquare
+            size={16}
+            weight="fill"
+            className="shrink-0 text-violet-600"
+          />
+        ) : (
+          <Square
+            size={16}
+            className="shrink-0 text-slate-300 dark:text-zinc-700"
+          />
+        )}
+        <Folder
+          size={15}
+          className="shrink-0 text-slate-400 dark:text-zinc-500"
+        />
+        <span className="truncate">{label}</span>
+      </button>
+      {typeof count === "number" && (
+        <span className="shrink-0 text-[11px] text-slate-400 dark:text-zinc-600">
+          {count}건
+        </span>
+      )}
+    </div>
   );
 }
 

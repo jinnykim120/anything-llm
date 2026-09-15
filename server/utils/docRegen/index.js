@@ -344,6 +344,10 @@ async function* regenerateDocument({
   guidanceText,
   LLMConnector,
   title,
+  // [auto-docu 전사문서작성tool v2] 사용자가 미리 모아둔 문서함 폴더로 근거
+  // 검색 범위를 좁힌다 — resolveFolderDocIds(endpoints/docRegen.js)가 만든
+  // doc_id 허용목록. null = 아카이브 전체에서 검색(기존 동작 그대로).
+  filterDocIds = null,
 }) {
   yield { type: "outline_start" };
   // 기준 문서를 여러 개 고른 경우 — 문서별로 목차를 뽑아 이어붙인다. 절
@@ -401,6 +405,7 @@ async function* regenerateDocument({
         input: query,
         LLMConnector,
         topN: 6,
+        filterDocIds,
       }).catch((e) => {
         console.error("[docRegen] section search failed:", e.message);
         return { contextTexts: [], sources: [] };
