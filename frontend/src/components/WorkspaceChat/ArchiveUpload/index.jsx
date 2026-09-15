@@ -20,6 +20,19 @@ function getStoredCategory() {
   return ARCHIVE_CATEGORIES.includes(stored) ? stored : "전체";
 }
 
+// [auto-docu] No login exists in this instance, so there's no "who uploaded
+// this" to fall back on — ask the uploader to type their team name each
+// time instead, and remember the last one typed (per browser) so a repeat
+// upload from the same person doesn't retype it every time.
+function getStoredOrgUnit() {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem("archive-upload-org-unit") || "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizeFiles(files = []) {
   return Array.from(files).filter(Boolean);
 }
@@ -28,6 +41,7 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
   const inputRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
   const [category, setCategory] = useState(getStoredCategory);
+  const [orgUnit, setOrgUnit] = useState(getStoredOrgUnit);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploads, setUploads] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -38,6 +52,7 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
       setSelectedFiles(files);
       setUploads([]);
       setCategory(getStoredCategory());
+      setOrgUnit(getStoredOrgUnit());
       setIsOpen(true);
     }
 
@@ -50,6 +65,7 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
     setUploads([]);
     setSelectedFiles([]);
     setCategory(getStoredCategory());
+    setOrgUnit(getStoredOrgUnit());
     setIsOpen(true);
   }
 
@@ -82,7 +98,20 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
   }
 
   async function uploadFiles() {
-    if (!workspaceSlug || selectedFiles.length === 0 || isUploading) return;
+    const trimmedOrgUnit = orgUnit.trim();
+    if (
+      !workspaceSlug ||
+      selectedFiles.length === 0 ||
+      isUploading ||
+      !trimmedOrgUnit
+    )
+      return;
+
+    try {
+      window.localStorage.setItem("archive-upload-org-unit", trimmedOrgUnit);
+    } catch {
+      /* private window / storage blocked — non-fatal, just won't be remembered */
+    }
 
     setIsUploading(true);
     const queue = selectedFiles.map((file) => ({
@@ -106,6 +135,7 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
         // expose them to the upload-and-embed endpoint.
         if (category !== "전체") formData.append("folderName", category);
         formData.append("metadata", JSON.stringify(metadata));
+        formData.append("orgUnit", trimmedOrgUnit);
         formData.append("file", file, file.name);
 
         try {
@@ -204,6 +234,22 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
             </div>
 
             <label className="mt-5 block text-xs font-medium text-zinc-300 light:text-slate-700">
+              업로드한 팀명 <span className="text-red-400">*</span>
+              <input
+                type="text"
+                value={orgUnit}
+                onChange={(event) => setOrgUnit(event.target.value)}
+                disabled={isUploading}
+                placeholder="예: 정책지원팀"
+                className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-blue-500 light:border-slate-300 light:bg-slate-50 light:text-slate-800"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-zinc-500 light:text-slate-500">
+                로그인이 없어 누가 올렸는지 자동으로 안 남아서, 분류 검수 화면에
+                표시할 업로드자 정보로 대신 씁니다.
+              </span>
+            </label>
+
+            <label className="mt-4 block text-xs font-medium text-zinc-300 light:text-slate-700">
               자료 구분
               <select
                 value={category}
@@ -294,7 +340,9 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
               <button
                 type="button"
                 onClick={uploadFiles}
-                disabled={isUploading || selectedFiles.length === 0}
+                disabled={
+                  isUploading || selectedFiles.length === 0 || !orgUnit.trim()
+                }
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isUploading && (

@@ -97,7 +97,7 @@ const Document = {
     userId = null,
     opts = {}
   ) {
-    const { allowDuplicates = false } = opts;
+    const { allowDuplicates = false, orgUnit = null } = opts;
     const VectorDb = getVectorDbClass();
     if (additions.length === 0) return { failed: [], embedded: [] };
     const { fileData } = require("../utils/files");
@@ -197,9 +197,11 @@ const Document = {
         docpath: storedPath,
         workspaceId: workspace.id,
         uploadedByUserId: userId ? Number(userId) : null,
-        // Filled when the organization directory is connected. Keep the
+        // [auto-docu] No org-directory integration exists (single-user, no
+        // login) — the archive-upload dialog asks the uploader to type their
+        // team name instead, and that's threaded through here. Keep this
         // upload-time snapshot separate from the classification axes.
-        uploadedByOrgUnit: null,
+        uploadedByOrgUnit: orgUnit ? String(orgUnit).trim().slice(0, 100) : null,
         metadata: JSON.stringify(metadata),
       };
 

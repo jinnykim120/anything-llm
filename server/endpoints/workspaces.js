@@ -876,11 +876,16 @@ function workspaceEndpoints(app) {
             document: duplicate,
           });
         }
-        // Archive uploads may provide a single-level classification folder
-        // and lightweight metadata. These fields must be sent before the file
-        // part so multer exposes them on request.body.
-        const { folderName = null, metadata: _metadata = "{}" } =
-          reqBody(request);
+        // Archive uploads may provide a single-level classification folder,
+        // lightweight metadata, and the uploader's team name (orgUnit — no
+        // login exists here, so this is a typed-in stand-in for it). These
+        // fields must be sent before the file part so multer exposes them
+        // on request.body.
+        const {
+          folderName = null,
+          metadata: _metadata = "{}",
+          orgUnit = null,
+        } = reqBody(request);
         const metadata =
           typeof _metadata === "string"
             ? safeJsonParse(_metadata, {})
@@ -932,7 +937,8 @@ function workspaceEndpoints(app) {
         } = await Document.addDocuments(
           currWorkspace,
           locations,
-          response.locals?.user?.id
+          response.locals?.user?.id,
+          { orgUnit }
         );
 
         if (failedToEmbed.length > 0)
