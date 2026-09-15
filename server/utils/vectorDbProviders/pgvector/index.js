@@ -512,6 +512,34 @@ class PGVector extends VectorDatabase {
       );
   }
 
+  /** Fraction (0..1) of `terms` that appear literally in `text`. */
+  static termMatchRatio(terms = [], text = "") {
+    if (!terms.length) return 0;
+    const searchable = String(text || "").toLocaleLowerCase("ko-KR");
+    return (
+      terms.filter((term) => searchable.includes(term)).length / terms.length
+    );
+  }
+
+  /** Fraction (0..1) of `terms` that appear literally among a document's
+   * classification tags. */
+  static termTagOverlap(terms = [], tags = []) {
+    if (!terms.length || !Array.isArray(tags) || !tags.length) return 0;
+    const tagText = tags.join(" ").toLocaleLowerCase("ko-KR");
+    return terms.filter((term) => tagText.includes(term)).length / terms.length;
+  }
+
+  /** [auto-docu v18] How much the hybrid rerank (performSimilaritySearch step
+   * 2b) trusts keyword-overlap and classification-tag matches relative to
+   * raw cosine similarity. Both are expressed as % of a similarity point so
+   * they can be tuned via env without touching the scoring formula. */
+  static hybridWeights() {
+    return {
+      keyword: PGVector.integerSetting("HYBRID_KEYWORD_WEIGHT_PCT", 12, 0, 100) / 100,
+      tag: PGVector.integerSetting("HYBRID_TAG_WEIGHT_PCT", 15, 0, 100) / 100,
+    };
+  }
+
   /**
    * Search indexed text/title fields without requiring an embedding model.
    * This is intentionally a fallback: it protects exact Korean names and
@@ -613,6 +641,52 @@ class PGVector extends VectorDatabase {
       })),
       scores: ranked.map(({ score }) => score),
     };
+  }
+
+  /**
+   * [auto-docu v18] Map chunk-level doc_id -> classification tags, for the
+   * hybrid rerank's tag boost. A chunk's metadata only carries doc_id (not
+   * content_hash), so this joins workspace_documents (docId -> content_hash)
+   * with document_classifications (content_hash -> tags, the same tags a
+   * reviewer confirms during ingestion). Best-effort: any DB hiccup returns
+   * an empty map — the tag boost is an enhancement, never a hard dependency
+   * for retrieval to keep working.
+   */
+  async tagsForDocIds(docIds = []) {
+    const empty = new Map();
+    if (!Array.isArray(docIds) || !docIds.length) return empty;
+
+    try {
+      const prisma = require("../../prisma");
+      const { safeJsonParse } = require("../../http");
+      const documents = await prisma.workspace_documents.findMany({
+        where: { docId: { in: docIds } },
+        select: { docId: true, metadata: true },
+      });
+
+      const hashByDocId = new Map();
+      for (const doc of documents) {
+        const hash = safeJsonParse(doc.metadata, {})?.content_hash;
+        if (hash) hashByDocId.set(doc.docId, hash);
+      }
+      if (!hashByDocId.size) return empty;
+
+      const classifications = await prisma.document_classifications.findMany({
+        where: { contentHash: { in: [...new Set(hashByDocId.values())] } },
+        select: { contentHash: true, tags: true },
+      });
+      const tagsByHash = new Map(
+        classifications.map((c) => [c.contentHash, safeJsonParse(c.tags, [])])
+      );
+
+      const result = new Map();
+      for (const [docId, hash] of hashByDocId)
+        result.set(docId, tagsByHash.get(hash) || []);
+      return result;
+    } catch (err) {
+      this.logger(`tagsForDocIds failed: ${err.message}`);
+      return empty;
+    }
   }
 
   async namespaceCount(namespace = null) {
@@ -1316,13 +1390,55 @@ class PGVector extends VectorDatabase {
             filterDocIds: docIdFilter,
           });
 
+      // 2b. Hybrid rerank — blend a modest keyword-overlap and classification
+      //    -tag boost into the dense candidate order before capping/truncating.
+      //    Keyword overlap rescues chunks (e.g. a contract's item table) that
+      //    embed poorly against the query's literal wording; tag overlap
+      //    rescues them further using the human-confirmed ingestion tags — a
+      //    file tagged "필수품목"/"구입강제" should out-rank generic boilerplate
+      //    for a matching question even when raw cosine similarity ranks it
+      //    far down the candidate list.
+      const hybridTerms = PGVector.lexicalSearchTerms(input);
+      let scored = dense;
+      if (hybridTerms.length && dense.sourceDocuments.length) {
+        const docIds = [
+          ...new Set(
+            dense.sourceDocuments.map((src) => src.doc_id).filter(Boolean)
+          ),
+        ];
+        const tagsByDoc = await this.tagsForDocIds(docIds);
+        const weights = PGVector.hybridWeights();
+        const ranked = dense.sourceDocuments
+          .map((src, i) => {
+            const keywordScore = PGVector.termMatchRatio(
+              hybridTerms,
+              dense.contextTexts[i]
+            );
+            const tagScore = PGVector.termTagOverlap(
+              hybridTerms,
+              tagsByDoc.get(src.doc_id) || []
+            );
+            const hybridScore =
+              (dense.scores[i] ?? 0) +
+              keywordScore * weights.keyword +
+              tagScore * weights.tag;
+            return { i, hybridScore };
+          })
+          .sort((a, b) => b.hybridScore - a.hybridScore);
+        scored = {
+          contextTexts: ranked.map(({ i }) => dense.contextTexts[i]),
+          sourceDocuments: ranked.map(({ i }) => dense.sourceDocuments[i]),
+          scores: ranked.map(({ i }) => dense.scores[i]),
+        };
+      }
+
       // 3. Per-document cap — keep an answer able to synthesize across the
       //    archive instead of drowning in one file's chunks.
       const perDocCap = Math.max(
         1,
         Number(process.env.SEARCH_PER_DOC_CAP) || 3
       );
-      let picked = this.#capPerDocument(dense, perDocCap);
+      let picked = this.#capPerDocument(scored, perDocCap);
 
       // 4. Additive lexical merge — recall safety net for exact names/numbers
       //    that embed poorly. Only appends documents dense did not return.
@@ -1337,11 +1453,46 @@ class PGVector extends VectorDatabase {
       });
       picked = this.#mergeLexicalAdditions(picked, lexical, Number(topN));
 
-      // 5. Truncate to the workspace topN.
+      // 5. Truncate to the workspace topN — but a document that is clearly
+      //    THE answer (the lead document #capPerDocument left uncapped) keeps
+      //    every chunk it was allotted; only the OTHER documents' chunks are
+      //    trimmed to fit the remaining budget. A flat slice(0, topN) here was
+      //    quietly discarding a lead document's own later-ranked-but-still-
+      //    correct chunks (e.g. a contract's item table, or any "이 문서 안에
+      //    서 ~" question naming a specific file) once earlier chunks from
+      //    that SAME document had already filled the topN budget first.
+      const leadKey =
+        picked.sourceDocuments[0]?.doc_id ||
+        picked.sourceDocuments[0]?.title ||
+        null;
+      const leadIdx = [];
+      const otherIdx = [];
+      picked.sourceDocuments.forEach((src, i) => {
+        const key = src?.doc_id || src?.title || null;
+        (leadKey !== null && key === leadKey ? leadIdx : otherIdx).push(i);
+      });
+      // The lead's allowance is generous (it may legitimately need more than
+      // topN chunks — a contract's item table, a whole 지침 section) but is
+      // NOT unlimited: a document that dense-matches nearly everything (an
+      // embedding-model quirk for a particular phrasing, not a real answer —
+      // confirmed to happen for real, not just theoretical) must never be
+      // able to crowd out EVERY other candidate, including the lexical
+      // merge's exact-name rescues.
+      const leadCeiling = Math.max(Number(topN), 30);
+      const leadKeep = leadIdx.slice(0, leadCeiling);
+      const minOtherSlots = Math.min(
+        otherIdx.length,
+        Math.max(3, Math.ceil(Number(topN) * 0.3))
+      );
+      const otherBudget = Math.max(
+        minOtherSlots,
+        Number(topN) - leadKeep.length
+      );
+      const keepIdx = [...leadKeep, ...otherIdx.slice(0, otherBudget)];
       let result = {
-        contextTexts: picked.contextTexts.slice(0, topN),
-        sourceDocuments: picked.sourceDocuments.slice(0, topN),
-        scores: picked.scores.slice(0, topN),
+        contextTexts: keepIdx.map((i) => picked.contextTexts[i]),
+        sourceDocuments: keepIdx.map((i) => picked.sourceDocuments[i]),
+        scores: keepIdx.map((i) => picked.scores[i]),
       };
 
       // 6. Conservative whole-section expansion. Runs on the final set and its

@@ -352,6 +352,7 @@ describe("PGVector lexical fallback", () => {
     jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
     jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
     jest.spyOn(PGVector, "lexicalSearchResponse").mockResolvedValue(lexical);
+    jest.spyOn(PGVector, "tagsForDocIds").mockResolvedValue(new Map());
     jest
       .spyOn(PGVector, "expandSections")
       .mockImplementation(async ({ result }) => result);
@@ -389,6 +390,94 @@ describe("PGVector lexical fallback", () => {
       "B",
       "C",
     ]);
+  });
+
+  // [auto-docu v18] A contract's item table can embed as LESS similar than
+  // the same document's generic boilerplate for a natural-language question
+  // ("구입 필수 품목을 알려줘") — the table chunk ranked ~21st of 25 dense
+  // candidates in a real reproduction even though it is the only chunk that
+  // actually answers the question. The hybrid rerank must pull it back up via
+  // keyword overlap and the document's confirmed classification tags.
+  it("hybrid rerank promotes a keyword/tag-matching chunk over higher-scored boilerplate", async () => {
+    const dense = {
+      contextTexts: [
+        "가맹계약의 목적과 효력에 대한 일반 조항입니다.",
+        "용어의 정의: 가맹사업, 영업지역, PB상표 등을 정의합니다.",
+        "필수 또는 권장 품목을 반드시 가맹본부 지정업체로부터 구입하도록 한다. BGM서비스, 장비유지관리 등.",
+      ],
+      sourceDocuments: [
+        { doc_id: "GS25", title: "GS25 계약서", chunk_index: 0 },
+        { doc_id: "GS25", title: "GS25 계약서", chunk_index: 1 },
+        { doc_id: "GS25", title: "GS25 계약서", chunk_index: 20 },
+      ],
+      scores: [0.91, 0.905, 0.894],
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue({
+      end: jest.fn().mockResolvedValue(),
+    });
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
+    jest
+      .spyOn(PGVector, "lexicalSearchResponse")
+      .mockResolvedValue({ contextTexts: [], sourceDocuments: [], scores: [] });
+    jest
+      .spyOn(PGVector, "tagsForDocIds")
+      .mockResolvedValue(new Map([["GS25", ["필수품목", "구입강제"]]]));
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive",
+      input: "이 계약서 안에 있는 구입 필수 품목을 알려줘",
+      LLMConnector: { embedTextInput: jest.fn().mockResolvedValue([0.1, 0.2]) },
+      similarityThreshold: 0.15,
+      topN: 12,
+    });
+
+    expect(result.contextTexts[0]).toContain("BGM서비스");
+  });
+
+  // [auto-docu v18] Reproduces the exact regression: a document is the clear
+  // "lead" (every dense candidate is one of its chunks), but its own item-
+  // table chunk only makes the WIDE candidate pull at a low rank. A flat
+  // slice(0, topN) after #capPerDocument's uncapped lead allotment discarded
+  // it once earlier same-document chunks filled the topN budget first.
+  it("keeps every lead-document chunk beyond topN instead of slicing it away", async () => {
+    const leadChunks = Array.from({ length: 15 }, (_, i) => ({
+      text: `lead-chunk-${i}`,
+      score: 0.95 - i * 0.001,
+      sourceDoc: { doc_id: "LEAD", title: "리드 문서", chunk_index: i },
+    }));
+    const dense = {
+      contextTexts: leadChunks.map((c) => c.text),
+      sourceDocuments: leadChunks.map((c) => c.sourceDoc),
+      scores: leadChunks.map((c) => c.score),
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue({
+      end: jest.fn().mockResolvedValue(),
+    });
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
+    jest
+      .spyOn(PGVector, "lexicalSearchResponse")
+      .mockResolvedValue({ contextTexts: [], sourceDocuments: [], scores: [] });
+    jest.spyOn(PGVector, "tagsForDocIds").mockResolvedValue(new Map());
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive",
+      input: "이 문서 안의 내용을 전부 알려줘",
+      LLMConnector: { embedTextInput: jest.fn().mockResolvedValue([0.1, 0.2]) },
+      similarityThreshold: 0.15,
+      topN: 12,
+    });
+
+    // All 15 lead-document chunks survive even though topN is 12.
+    expect(result.contextTexts).toHaveLength(15);
+    expect(result.sources.every((s) => s.doc_id === "LEAD")).toBe(true);
   });
 });
 
