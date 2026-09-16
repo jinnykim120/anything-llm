@@ -152,13 +152,48 @@ const WorkspaceThread = {
       thread_id: thread.id,
     });
     if (chatCount !== 1) return { renamed: false, thread };
-    const title = String(prompt).replace(/\s+/g, " ").trim();
+    const fallbackTitle = truncate(
+      String(prompt).replace(/\s+/g, " ").trim(),
+      28
+    );
+    const keywordTitle = await this.keywordTitle(prompt);
     const { thread: updatedThread } = await this.update(thread, {
-      name: truncate(title, 28),
+      name: keywordTitle || fallbackTitle,
     });
 
     onRename?.(updatedThread);
     return true;
+  },
+
+  // Ask the workspace LLM to compress a first-message prompt down to a short
+  // keyword phrase for the thread list (vs. showing the raw question verbatim).
+  // Best-effort — callers fall back to a truncated prompt if this fails.
+  keywordTitle: async function (prompt) {
+    try {
+      const { getLLMProvider } = require("../utils/helpers");
+      const llm = getLLMProvider();
+      const { textResponse } = await llm.getChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "다음 사용자 질문을 대화 목록에 표시할 짧은 제목으로 바꿔라. " +
+              "질문의 핵심 키워드나 키워드 구만 남기고 조사/어미/군더더기는 제거해라. " +
+              "2~6개 단어, 최대 20자. 설명이나 따옴표 없이 제목 텍스트만 답하라.",
+          },
+          { role: "user", content: String(prompt).slice(0, 500) },
+        ],
+        { temperature: 0 }
+      );
+      const title = String(textResponse || "")
+        .replace(/^["'“”]+|["'“”]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return title ? truncate(title, 28) : null;
+    } catch (e) {
+      console.error("WorkspaceThread.keywordTitle failed:", e.message);
+      return null;
+    }
   },
 };
 

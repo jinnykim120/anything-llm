@@ -37,19 +37,28 @@ export function openDraftPanel({ message, sources = [], chatId = null }) {
 const DATA_SCOPES = [
   {
     key: "answer_only",
-    label: "답변 내용만",
+    label: "답변 내용 기반으로",
     desc: "지금 답변에만 근거해서 작성합니다 · 새로운 사실은 추가하지 않음",
   },
   {
     key: "answer_plus_web",
-    label: "외부자료 보강",
+    label: "답변 내용 + 외부 데이터",
     desc: "답변 내용에 최신 웹 검색 자료를 더해 내용을 보강합니다",
   },
 ];
 const DATA_SCOPE_LABEL = {
-  answer_only: "답변 내용만",
-  answer_plus_web: "외부자료 보강",
+  answer_only: "답변 내용 기반으로",
+  answer_plus_web: "답변 내용 + 외부 데이터",
 };
+
+// 드래그로 패널 높이를 조절할 수 있게 — 마지막 높이는 기억해둔다.
+const PANEL_HEIGHT_STORAGE_KEY = "archive-draft-panel-height";
+const MIN_PANEL_HEIGHT = 220;
+
+function clampPanelHeight(height) {
+  const max = Math.round(window.innerHeight * 0.85);
+  return Math.min(Math.max(height, MIN_PANEL_HEIGHT), max);
+}
 
 // 2단계: 어떤 형태의 문서로 만들지 — 1단계 선택에 따라 설명이 달라진다.
 const REPORT_TYPES = {
@@ -88,6 +97,33 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [draft, setDraft] = useState(null); // { markdown, title, designed }
   const [editing, setEditing] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
+  const [panelHeight, setPanelHeight] = useState(() => {
+    const stored = Number(localStorage.getItem(PANEL_HEIGHT_STORAGE_KEY));
+    return clampPanelHeight(
+      stored > 0 ? stored : Math.round(window.innerHeight * 0.5)
+    );
+  });
+
+  function startResize(event) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = panelHeight;
+    function onMove(moveEvent) {
+      setPanelHeight(
+        clampPanelHeight(startHeight - (moveEvent.clientY - startY))
+      );
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setPanelHeight((current) => {
+        localStorage.setItem(PANEL_HEIGHT_STORAGE_KEY, String(current));
+        return current;
+      });
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
 
   const designed = !!draft?.designed;
   const accent = DRAFT_ACCENT[reportType] || DRAFT_ACCENT.basic;
@@ -184,7 +220,18 @@ export default function DraftPanel({ source, workspace, onClose }) {
   }
 
   return (
-    <div className="flex h-[50%] shrink-0 flex-col border-t-2 border-blue-500/40 bg-white light:bg-white dark:bg-zinc-950">
+    <div
+      className="flex shrink-0 flex-col bg-white light:bg-white dark:bg-zinc-950"
+      style={{ height: panelHeight }}
+    >
+      {/* 크기 조절 핸들 */}
+      <div
+        onMouseDown={startResize}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="문서 초안 패널 크기 조절"
+        className="h-1.5 shrink-0 cursor-ns-resize bg-blue-500/40 hover:bg-blue-500/70 active:bg-blue-500"
+      />
       {/* 헤더 */}
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-zinc-800">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-zinc-100">
@@ -301,7 +348,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
               <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
                 추가 요청 사항 (선택)
               </span>
-              <span className="text-[11px] text-slate-400 dark:text-zinc-500">
+              <span className="text-[11px] text-slate-500 dark:text-zinc-500">
                 기본은 텍스트 중심으로 만들어지고, "디자인 요소를 추가해줘"처럼
                 요청하면 색이 들어간 스타일로 만들어 드립니다.
               </span>
@@ -329,7 +376,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
             <CircleNotch size={22} className="animate-spin" />
             <p className="text-xs">{comboLabel} 초안을 작성하고 있습니다…</p>
             {dataScope === "answer_plus_web" && (
-              <p className="text-[11px] text-slate-400 dark:text-zinc-500">
+              <p className="text-[11px] text-slate-500 dark:text-zinc-500">
                 외부 자료를 검색하고 있어 조금 더 걸릴 수 있습니다.
               </p>
             )}
@@ -447,7 +494,7 @@ function DraftCover({ label, title, accent }) {
       </span>
       <h3 className="mt-1.5 text-base font-extrabold leading-snug">{title}</h3>
       <p className="mt-0.5 text-[11px] text-white/80">
-        {new Date().toLocaleString("ko-KR")} · Document Expansion LLM
+        {new Date().toLocaleString("ko-KR")} · Recode
       </p>
     </div>
   );

@@ -24,6 +24,7 @@ import showToast from "@/utils/toast";
 
 const ARCHIVE_SCOPES = ["전체", "실적", "법규", "대외"];
 const PINNED_THREADS_STORAGE_KEY = "archive-pinned-threads";
+const HISTORY_COLLAPSE_LIMIT = 3;
 
 const MANAGEMENT_ITEMS = [
   {
@@ -100,6 +101,7 @@ function WorkspaceArchiveSidebar({ slug }) {
   );
   const [searchMode, setSearchMode] = useState("default");
   const [openThreadMenu, setOpenThreadMenu] = useState(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const [pinnedThreads, setPinnedThreads] = useState(() => {
     try {
       const stored = JSON.parse(
@@ -170,6 +172,15 @@ function WorkspaceArchiveSidebar({ slug }) {
       return bPinned - aPinned || threadDate(b) - threadDate(a);
     });
   }, [query, threads, pinnedThreads]);
+
+  // Searching already narrows the list down, so only collapse the default
+  // (unfiltered) view once it gets long enough to crowd the sidebar.
+  const isHistoryCollapsible =
+    !query.trim() && visibleThreads.length > HISTORY_COLLAPSE_LIMIT;
+  const displayedThreads =
+    isHistoryCollapsible && !historyExpanded
+      ? visibleThreads.slice(0, HISTORY_COLLAPSE_LIMIT)
+      : visibleThreads;
 
   async function createThread() {
     const { thread } = await Workspace.threads.new(slug);
@@ -255,26 +266,17 @@ function WorkspaceArchiveSidebar({ slug }) {
     }
   }
 
-  const workspaceName = "archiving data";
+  const workspaceName = "아카이브";
+  const isDocRegen = location.pathname === paths.workspace.docRegen(slug);
 
   return (
     <aside className="relative z-20 flex h-full w-[276px] shrink-0 flex-col border-r border-slate-200 bg-white text-slate-900 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="flex items-center justify-between px-5 pb-5 pt-6">
-        <Link
-          to={paths.home()}
-          aria-label="Document Expansion LLM 홈"
-          className="block"
-        >
+        <Link to={paths.home()} aria-label="Recode 홈" className="block">
           {logo ? (
-            <img
-              src={logo}
-              alt="Document Expansion LLM"
-              className="h-7 w-auto"
-            />
+            <img src={logo} alt="Recode" className="h-7 w-auto" />
           ) : (
-            <span className="text-sm font-semibold">
-              Document Expansion LLM
-            </span>
+            <span className="text-sm font-semibold">Recode</span>
           )}
         </Link>
       </div>
@@ -282,7 +284,7 @@ function WorkspaceArchiveSidebar({ slug }) {
       {/* 검색 관련 항목 그룹 — 스코프·기록 검색·기록 목록을 음영 박스 하나로 묶는다. */}
       <div className="mx-4 mt-1 flex min-h-0 flex-1 flex-col rounded-lg bg-slate-50 p-4 light:bg-slate-50 dark:bg-zinc-900/40">
         <div>
-          <p className="truncate text-[13px] font-semibold text-slate-900 light:text-slate-900 dark:text-zinc-100">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600 light:text-blue-600 dark:text-blue-400">
             {workspaceName}
           </p>
           <label className="relative mt-3 block" htmlFor="archive-scope">
@@ -313,108 +315,125 @@ function WorkspaceArchiveSidebar({ slug }) {
           </p>
         </div>
 
-        <section className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-200/80 pt-4 light:border-slate-200/80 dark:border-zinc-800/80">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="truncate text-sm font-semibold text-slate-800 light:text-slate-800 dark:text-zinc-200">
-              기록
-            </h2>
-            <div className="relative flex shrink-0 items-center">
-              <button
-                type="button"
-                onClick={createThread}
-                className="inline-flex items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 light:border-blue-200 light:bg-blue-50 light:text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/70"
-                aria-label="새채팅 시작"
-              >
-                <Plus size={14} weight="bold" /> 새채팅
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center rounded border border-slate-200 bg-white px-2.5 py-2 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950">
-            <MagnifyingGlass
-              size={15}
-              className="mr-2 shrink-0 text-slate-400 dark:text-zinc-500"
-            />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="기록 검색"
-              aria-label="기록 검색"
-              className="min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-slate-800 outline-none placeholder:text-slate-400 light:text-slate-800 dark:text-zinc-200 dark:placeholder:text-zinc-600"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="검색어 지우기"
-                className="border-0 bg-transparent p-0 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-
-          <nav
-            className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4"
-            aria-label="기록"
-          >
-            {loading && (
-              <p className="px-3 py-4 text-xs text-slate-400 dark:text-zinc-600">
-                기록을 불러오는 중…
-              </p>
-            )}
-            {!loading && visibleThreads.length === 0 && (
-              <p className="px-3 py-4 text-xs leading-5 text-slate-400 dark:text-zinc-600">
-                아직 저장된 질의가 없습니다.
-              </p>
-            )}
-            {visibleThreads.map((thread) => {
-              const href = paths.workspace.thread(slug, thread.slug);
-              const active = location.pathname === href;
-              return (
-                <div
-                  key={thread.slug}
-                  className={`group relative mb-1 rounded transition ${active ? "bg-blue-50 text-blue-700 light:bg-blue-50 light:text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "text-slate-600 hover:bg-slate-50 light:text-slate-600 light:hover:bg-slate-50 dark:text-zinc-400 dark:hover:bg-zinc-900"}`}
+        {!isDocRegen && (
+          <section className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-200/80 pt-4 light:border-slate-200/80 dark:border-zinc-800/80">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="truncate text-sm font-semibold text-slate-800 light:text-slate-800 dark:text-zinc-200">
+                기록
+              </h2>
+              <div className="relative flex shrink-0 items-center">
+                <button
+                  type="button"
+                  onClick={createThread}
+                  className="inline-flex items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 light:border-blue-200 light:bg-blue-50 light:text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/70"
+                  aria-label="새채팅 시작"
                 >
-                  <Link to={href} className="block rounded px-3 py-2.5 pr-9">
-                    <p className="truncate text-xs font-medium">
-                      {threadTitle(thread)}
-                    </p>
-                    <p className="mt-1 flex items-center gap-1 text-[10px] opacity-60">
-                      {pinnedThreads.includes(thread.slug) && (
-                        <PushPin size={10} weight="fill" />
-                      )}
-                      기록
-                    </p>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setOpenThreadMenu((current) =>
-                        current === thread.slug ? null : thread.slug
-                      );
-                    }}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                    aria-label={`${threadTitle(thread)} 메뉴`}
-                    aria-expanded={openThreadMenu === thread.slug}
+                  <Plus size={14} weight="bold" /> 새채팅
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center rounded border border-slate-200 bg-white px-2.5 py-2 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <MagnifyingGlass
+                size={15}
+                className="mr-2 shrink-0 text-slate-400 dark:text-zinc-500"
+              />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="기록 검색"
+                aria-label="기록 검색"
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-slate-800 outline-none placeholder:text-slate-400 light:text-slate-800 dark:text-zinc-200 dark:placeholder:text-zinc-600"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="검색어 지우기"
+                  className="border-0 bg-transparent p-0 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <nav
+              className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4"
+              aria-label="기록"
+            >
+              {loading && (
+                <p className="px-3 py-4 text-xs text-slate-500 dark:text-zinc-500">
+                  기록을 불러오는 중…
+                </p>
+              )}
+              {!loading && visibleThreads.length === 0 && (
+                <p className="px-3 py-4 text-xs leading-5 text-slate-500 dark:text-zinc-500">
+                  아직 저장된 질의가 없습니다.
+                </p>
+              )}
+              {displayedThreads.map((thread) => {
+                const href = paths.workspace.thread(slug, thread.slug);
+                const active = location.pathname === href;
+                return (
+                  <div
+                    key={thread.slug}
+                    className={`group relative mb-1 rounded transition ${active ? "bg-blue-50 text-blue-700 light:bg-blue-50 light:text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "text-slate-600 hover:bg-slate-50 light:text-slate-600 light:hover:bg-slate-50 dark:text-zinc-400 dark:hover:bg-zinc-900"}`}
                   >
-                    <List size={16} weight="bold" />
-                  </button>
-                  {openThreadMenu === thread.slug && (
-                    <ThreadActionsMenu
-                      pinned={pinnedThreads.includes(thread.slug)}
-                      onPin={() => togglePinnedThread(thread.slug)}
-                      onRename={() => renameThread(thread)}
-                      onDelete={() => deleteThread(thread)}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </nav>
-        </section>
+                    <Link to={href} className="block rounded px-3 py-2.5 pr-9">
+                      <p className="truncate text-xs font-medium">
+                        {threadTitle(thread)}
+                      </p>
+                      <p className="mt-1 flex items-center gap-1 text-[10px] opacity-60">
+                        {pinnedThreads.includes(thread.slug) && (
+                          <PushPin size={10} weight="fill" />
+                        )}
+                        기록
+                      </p>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenThreadMenu((current) =>
+                          current === thread.slug ? null : thread.slug
+                        );
+                      }}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      aria-label={`${threadTitle(thread)} 메뉴`}
+                      aria-expanded={openThreadMenu === thread.slug}
+                    >
+                      <List size={16} weight="bold" />
+                    </button>
+                    {openThreadMenu === thread.slug && (
+                      <ThreadActionsMenu
+                        pinned={pinnedThreads.includes(thread.slug)}
+                        onPin={() => togglePinnedThread(thread.slug)}
+                        onRename={() => renameThread(thread)}
+                        onDelete={() => deleteThread(thread)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              {isHistoryCollapsible && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryExpanded((current) => !current)}
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded px-3 py-2 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 light:text-slate-500 light:hover:bg-slate-100 dark:text-zinc-500 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+                >
+                  <CaretDown
+                    size={12}
+                    className={`transition ${historyExpanded ? "rotate-180" : ""}`}
+                  />
+                  {historyExpanded
+                    ? "접기"
+                    : `펼치기 (${visibleThreads.length - HISTORY_COLLAPSE_LIMIT}개 더보기)`}
+                </button>
+              )}
+            </nav>
+          </section>
+        )}
       </div>
 
       <div className="mx-4 mt-3 shrink-0">
@@ -438,7 +457,7 @@ function WorkspaceArchiveSidebar({ slug }) {
         >
           <Wrench size={15} /> 관리
         </Link>
-        <p className="mt-3 px-3 text-[9px] leading-4 text-slate-400 dark:text-zinc-600">
+        <p className="mt-3 px-3 text-[10px] leading-4 text-slate-500 dark:text-zinc-500">
           정책지원팀이 자료 기반 업무의 효율화를 위해 설계했습니다.
         </p>
       </div>
@@ -452,30 +471,20 @@ function ManagementSidebar({ slug, activeManagement }) {
   return (
     <aside className="relative z-20 flex h-full w-[276px] shrink-0 flex-col border-r border-slate-200 bg-white text-slate-900 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="px-5 pb-5 pt-6">
-        <Link
-          to={paths.home()}
-          aria-label="Document Expansion LLM 홈"
-          className="block"
-        >
+        <Link to={paths.home()} aria-label="Recode 홈" className="block">
           {logo ? (
-            <img
-              src={logo}
-              alt="Document Expansion LLM"
-              className="h-7 w-auto"
-            />
+            <img src={logo} alt="Recode" className="h-7 w-auto" />
           ) : (
-            <span className="text-sm font-semibold">
-              Document Expansion LLM
-            </span>
+            <span className="text-sm font-semibold">Recode</span>
           )}
         </Link>
         <div className="mt-7 border-b border-slate-200 pb-5 dark:border-zinc-800">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-600">
-            Archive controls
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">
+            관리
           </p>
-          <p className="mt-2 text-base font-semibold">관리</p>
+          <p className="mt-2 text-base font-semibold">아카이브 관리</p>
           <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-zinc-500">
-            archiving data 운영 도구
+            Recode 아카이브 운영 도구
           </p>
         </div>
       </div>
@@ -484,7 +493,7 @@ function ManagementSidebar({ slug, activeManagement }) {
         className="min-h-0 flex-1 overflow-y-auto px-4"
         aria-label="관리 메뉴"
       >
-        <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-600">
+        <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">
           관리 메뉴
         </p>
         <div className="space-y-1">

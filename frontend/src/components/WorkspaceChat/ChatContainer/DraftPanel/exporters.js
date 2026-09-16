@@ -230,7 +230,7 @@ export function draftToHtml({
 <style>${PLAIN_CSS}</style>
 </head>
 <body>
-<div class="doc-meta">${escapeHtml(modeLabel)}${modeLabel ? " · " : ""}생성: ${escapeHtml(stamp)} · Document Expansion LLM</div>
+<div class="doc-meta">${escapeHtml(modeLabel)}${modeLabel ? " · " : ""}생성: ${escapeHtml(stamp)} · Recode</div>
 ${body}
 </body>
 </html>`;
@@ -249,12 +249,12 @@ ${body}
 <div class="doc-cover">
   <span class="doc-kicker">${escapeHtml(modeLabel || "문서 초안")}</span>
   <h1>${escapeHtml(resolvedTitle)}</h1>
-  <p class="doc-meta">생성: ${escapeHtml(stamp)} · Document Expansion LLM</p>
+  <p class="doc-meta">생성: ${escapeHtml(stamp)} · Recode</p>
 </div>
 <div class="doc-body">
 ${body}
 </div>
-<div class="doc-footer">Document Expansion LLM · 정책지원팀 문서 초안 도우미</div>
+<div class="doc-footer">Recode · 정책지원팀 문서 초안 도우미</div>
 </body>
 </html>`;
 }

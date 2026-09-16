@@ -115,18 +115,12 @@ export default function LandingPage() {
           type="button"
           onClick={() => navigate(paths.home())}
           className="rounded border-0 bg-transparent p-0"
-          aria-label="Document Expansion LLM 홈"
+          aria-label="Recode 홈"
         >
           {logo ? (
-            <img
-              src={logo}
-              alt="Document Expansion LLM"
-              className="h-8 w-auto"
-            />
+            <img src={logo} alt="Recode" className="h-8 w-auto" />
           ) : (
-            <span className="text-sm font-semibold tracking-wide">
-              Document Expansion LLM
-            </span>
+            <span className="text-sm font-semibold tracking-wide">Recode</span>
           )}
         </button>
       </header>
@@ -138,14 +132,14 @@ export default function LandingPage() {
             자동 분류 적재 · 근거형 질의 · 문서 작성
           </div>
           <h1 className="text-5xl font-semibold leading-[0.98] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-8xl light:text-slate-950 dark:text-white">
-            Document
-            <br />
-            Expansion
-            <br />
+            Re
             <span className="text-blue-600 light:text-blue-600 dark:text-blue-300">
-              LLM
+              code
             </span>
           </h1>
+          <p className="mt-4 text-sm font-medium leading-6 text-slate-500 light:text-slate-500 dark:text-zinc-400">
+            Recode (리코드): Record(기록) + Code/Synthesis(LLM 처리)
+          </p>
           <div className="mt-10 max-w-xl lg:ml-auto lg:text-right">
             <h2 className="text-2xl font-medium leading-[1.25] tracking-[-0.03em] text-slate-900 sm:text-3xl light:text-slate-900 dark:text-white">
               데이터의 흐름을 읽고,
@@ -166,7 +160,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={openArchive}
-                className="inline-flex h-12 items-center gap-2 rounded bg-violet-600 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(124,58,237,0.24)] transition hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 light:bg-violet-600 light:hover:bg-violet-700"
+                className="inline-flex h-12 items-center gap-2 rounded bg-blue-600 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.24)] transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 light:bg-blue-600 light:hover:bg-blue-700"
               >
                 시작하기 <ArrowRight size={18} weight="bold" />
               </button>
@@ -415,7 +409,7 @@ export default function LandingPage() {
             {FLOW_STEPS.map((step) => (
               <article
                 key={step.number}
-                className="border border-slate-200 bg-white p-5 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-900"
+                className="rounded-lg border border-slate-200 bg-white p-5 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-900"
               >
                 <span className="text-xs font-semibold text-blue-600">
                   {step.number}

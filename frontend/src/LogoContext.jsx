@@ -9,7 +9,7 @@ function isLightMode() {
   return document.documentElement.getAttribute("data-theme") === "light";
 }
 
-/** The bundled Document Expansion LLM wordmark for the active theme. */
+/** The bundled Recode wordmark for the active theme. */
 function brandMark() {
   return isLightMode() ? BrandMarkDark : BrandMarkLight;
 }

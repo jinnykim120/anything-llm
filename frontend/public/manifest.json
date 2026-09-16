@@ -1,6 +1,6 @@
 {
-  "name": "Document Expansion LLM",
-  "short_name": "DocExpansion LLM",
+  "name": "Recode",
+  "short_name": "Recode",
   "display": "standalone",
   "orientation": "portrait",
   "start_url": "/",
