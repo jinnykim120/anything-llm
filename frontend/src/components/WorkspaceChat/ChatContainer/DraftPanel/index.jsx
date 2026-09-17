@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
   ArrowLeft,
@@ -11,10 +11,12 @@ import {
   CircleNotch,
   PencilSimple,
   Eye,
+  FolderOpen,
 } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import DOMPurify from "@/utils/chat/purify";
+import Modal, { ModalHeader, ModalBody } from "@/components/lib/Modal";
 import {
   draftBodyHtmlBlocks,
   downloadDraftHtml,
@@ -163,6 +165,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [draft, setDraft] = useState(null); // { markdown, title, designed }
   const [editing, setEditing] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
   const [pptPurpose, setPptPurpose] = useState(null);
   const [slideCount, setSlideCount] = useState(8);
   const [pptInstructions, setPptInstructions] = useState("");
@@ -178,8 +181,13 @@ export default function DraftPanel({ source, workspace, onClose }) {
   // [auto-docu 통계분석] 근거 자료(채팅 답변)에 없는 원자료가 필요하면 파일을
   // 올려서 params 추출 LLM에게 그대로 넘긴다 — "자료 추출하기"가 이미 쓰는
   // 범용 업로드+파싱(collector, PDF·엑셀·워드·HWP 등 지원)을 그대로 재사용.
-  const [statsUploadedData, setStatsUploadedData] = useState(null); // {filename, text}
+  const [statsUploadedData, setStatsUploadedData] = useState([]); // [{filename, text}]
   const [statsUploading, setStatsUploading] = useState(false);
+  // [auto-docu 통계분석] 새 업로드뿐 아니라 이미 아카이브에 있는 문서도
+  // 근거 자료로 고를 수 있게 — PrioritySourcesBar의 아카이브 선택과 같은
+  // 패턴(검색+목록)이지만, 한 번에 여러 개를 고를 수 있는 다중 선택.
+  const [statsArchiveDocs, setStatsArchiveDocs] = useState([]); // [{id, title}]
+  const [showStatsArchivePicker, setShowStatsArchivePicker] = useState(false);
   // [auto-docu 통계분석] 블록별 "통계 분석" 애드혹 요청 — 3a(HTML) 전용,
   // ScopedEditOverlay의 텍스트 입력 옆에 보조 버튼으로 뜬다.
   const [blockStatsMode, setBlockStatsMode] = useState(false);
@@ -353,6 +361,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
       method: statsMethod,
       sourceText: source.message,
       uploadedData: statsUploadedData,
+      archiveDocIds: statsArchiveDocs.map((d) => d.id),
     });
     setGeneratingStats(false);
     if (res?.error || !res?.revised)
@@ -467,6 +476,15 @@ export default function DraftPanel({ source, workspace, onClose }) {
           "info"
         );
     });
+    // [auto-docu 문서 연계성 학습] 이 답변이 여러 문서를 같이 인용했고,
+    // 지금 실제로 결과물 다운로드까지 이어졌다 — "검증된 연계"로 기록한다.
+    const citedDocIds = [
+      ...new Set((source.sources || []).map((s) => s.doc_id).filter(Boolean)),
+    ];
+    if (citedDocIds.length > 1)
+      Workspace.recordValidatedAffinity(workspace.slug, {
+        docIds: citedDocIds,
+      });
   }
 
   function downloadHtml() {
@@ -493,6 +511,20 @@ export default function DraftPanel({ source, workspace, onClose }) {
     if (!res?.success)
       return showToast(res?.error || "DOCX 다운로드에 실패했습니다.", "error");
     showToast("DOCX 파일을 내려받았습니다.", "success");
+    archiveDraftInBackground();
+  }
+
+  async function downloadXlsx() {
+    if (!draft || exportingXlsx) return;
+    setExportingXlsx(true);
+    const res = await Workspace.downloadAsXlsx({
+      title: extractDraftTitle(draft.markdown, draft.title),
+      markdown: draft.markdown,
+    });
+    setExportingXlsx(false);
+    if (!res?.success)
+      return showToast(res?.error || "XLSX 다운로드에 실패했습니다.", "error");
+    showToast("XLSX 파일을 내려받았습니다.", "success");
     archiveDraftInBackground();
   }
 
@@ -777,26 +809,35 @@ export default function DraftPanel({ source, workspace, onClose }) {
               </span>
               <input
                 type="file"
+                multiple
                 disabled={statsUploading}
                 onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
+                  const files = Array.from(e.target.files || []);
+                  if (!files.length) return;
+                  e.target.value = "";
                   setStatsUploading(true);
-                  const res = await Workspace.uploadExtractFile(
-                    workspace.slug,
-                    file
-                  );
-                  setStatsUploading(false);
-                  if (res?.error || !res?.pageContent)
-                    return showToast(
-                      res?.error || "파일을 읽지 못했습니다.",
-                      "error"
+                  for (const file of files) {
+                    const res = await Workspace.uploadExtractFile(
+                      workspace.slug,
+                      file
                     );
-                  setStatsUploadedData({
-                    filename: res.title || file.name,
-                    text: res.pageContent,
-                  });
-                  showToast(`${file.name}을 불러왔습니다.`, "success");
+                    if (res?.error || !res?.pageContent) {
+                      showToast(
+                        `${file.name}: ${res?.error || "파일을 읽지 못했습니다."}`,
+                        "error"
+                      );
+                      continue;
+                    }
+                    setStatsUploadedData((prev) => [
+                      ...prev,
+                      {
+                        filename: res.title || file.name,
+                        text: res.pageContent,
+                      },
+                    ]);
+                    showToast(`${file.name}을 불러왔습니다.`, "success");
+                  }
+                  setStatsUploading(false);
                 }}
                 className="text-[11px] text-slate-500 disabled:opacity-50 dark:text-zinc-400"
               />
@@ -806,19 +847,77 @@ export default function DraftPanel({ source, workspace, onClose }) {
                   파일 읽는 중…
                 </span>
               )}
-              {statsUploadedData && !statsUploading && (
-                <span className="flex items-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400">
-                  {statsUploadedData.filename}
-                  <button
-                    type="button"
-                    onClick={() => setStatsUploadedData(null)}
-                    className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
-                  >
-                    <X size={11} />
-                  </button>
-                </span>
+              {statsUploadedData.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {statsUploadedData.map((f, idx) => (
+                    <span
+                      key={`${f.filename}-${idx}`}
+                      className="flex items-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400"
+                    >
+                      {f.filename}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setStatsUploadedData((prev) =>
+                            prev.filter((_, i) => i !== idx)
+                          )
+                        }
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowStatsArchivePicker(true)}
+                className="flex w-fit items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-400"
+              >
+                <FolderOpen size={12} /> 아카이브에서 선택
+              </button>
+              {statsArchiveDocs.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {statsArchiveDocs.map((d) => (
+                    <span
+                      key={d.id}
+                      className="flex items-center gap-1.5 text-[11px] text-violet-600 dark:text-violet-400"
+                    >
+                      {d.title}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setStatsArchiveDocs((prev) =>
+                            prev.filter((x) => x.id !== d.id)
+                          )
+                        }
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
               )}
             </label>
+            {showStatsArchivePicker && (
+              <StatsArchiveDocPickerModal
+                workspace={workspace}
+                alreadyPicked={statsArchiveDocs}
+                onClose={() => setShowStatsArchivePicker(false)}
+                onConfirm={(docs) => {
+                  setStatsArchiveDocs((prev) => {
+                    const merged = [...prev];
+                    for (const d of docs) {
+                      if (!merged.some((x) => x.id === d.id)) merged.push(d);
+                    }
+                    return merged;
+                  });
+                  setShowStatsArchivePicker(false);
+                }}
+              />
+            )}
             <button
               type="button"
               onClick={generateStatsReport}
@@ -893,7 +992,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
         {/* 결과: 미리보기(디자인 적용) 또는 편집 */}
         {draft && !generating && (
-          <div className="mx-auto max-w-2xl">
+          <div className="mx-auto max-w-7xl">
             <button
               type="button"
               onClick={() => {
@@ -1125,7 +1224,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
         {/* PPT 결과: 슬라이드별 구조화 미리보기 */}
         {pptDraft && !generatingPpt && (
-          <div className="mx-auto flex max-w-2xl flex-col gap-3">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3">
             <button
               type="button"
               onClick={() => setPptDraft(null)}
@@ -1289,7 +1388,19 @@ export default function DraftPanel({ source, workspace, onClose }) {
             )}
             DOCX 다운로드
           </button>
-          <DisabledExport icon={FileXls} label="XLSX" />
+          <button
+            type="button"
+            onClick={downloadXlsx}
+            disabled={exportingXlsx}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+          >
+            {exportingXlsx ? (
+              <CircleNotch size={15} className="animate-spin" />
+            ) : (
+              <FileXls size={15} weight="fill" />
+            )}
+            XLSX 다운로드
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -1348,19 +1459,110 @@ function DraftCover({ label, title, accent }) {
   );
 }
 
-function DisabledExport({ icon: Icon, label }) {
+// [auto-docu 통계분석] 아카이브 문서 다중 선택 — PrioritySourcesBar의
+// 아카이브-선택 화면과 같은 검색+목록 패턴이지만, 체크박스로 여러 개를
+// 한 번에 고르고 "선택 완료"를 눌러야 확정된다(우선 자료는 하나씩 바로
+// 반영되지만, 이건 통계 분석 요청 하나에 여러 문서를 함께 쓰는 경우가
+// 많아 다중 선택이 더 자연스럽다).
+function StatsArchiveDocPickerModal({
+  workspace,
+  alreadyPicked,
+  onClose,
+  onConfirm,
+}) {
+  const [documents, setDocuments] = useState([]);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(() => new Set());
+
+  useEffect(() => {
+    Workspace.bySlug(workspace.slug).then((ws) => {
+      setDocuments(Array.isArray(ws?.documents) ? ws.documents : []);
+    });
+  }, [workspace.slug]);
+
+  function docTitleOf(doc) {
+    try {
+      return JSON.parse(doc?.metadata || "{}").title || doc?.filename || "문서";
+    } catch {
+      return doc?.filename || "문서";
+    }
+  }
+
+  const alreadyPickedIds = useMemo(
+    () => new Set(alreadyPicked.map((d) => d.id)),
+    [alreadyPicked]
+  );
+
+  const filteredDocuments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? documents.filter((d) => docTitleOf(d).toLowerCase().includes(q))
+      : documents;
+    return list.filter((d) => !alreadyPickedIds.has(d.id));
+  }, [documents, query, alreadyPickedIds]);
+
+  function toggle(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleConfirm() {
+    const docs = documents
+      .filter((d) => selected.has(d.id))
+      .map((d) => ({ id: d.id, title: docTitleOf(d) }));
+    onConfirm(docs);
+  }
+
   return (
-    <button
-      type="button"
-      disabled
-      title={`${label} 내보내기는 준비 중입니다`}
-      className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-400 dark:border-zinc-800 dark:text-zinc-600"
-    >
-      <Icon size={15} />
-      <span className="flex flex-col items-start leading-none">
-        {label}
-        <span className="text-[9px] font-normal">준비 중</span>
-      </span>
-    </button>
+    <Modal isOpen={true} onClose={onClose} size="md">
+      <ModalHeader
+        title="아카이브에서 선택"
+        subtitle="이번 분석에만 근거 자료로 쓰입니다(별도로 다시 저장되지 않습니다)."
+        onClose={onClose}
+      />
+      <ModalBody>
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="문서 이름으로 찾기"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-zinc-800">
+            {filteredDocuments.length === 0 && (
+              <p className="p-3 text-xs text-slate-400 dark:text-zinc-600">
+                문서를 찾을 수 없습니다.
+              </p>
+            )}
+            {filteredDocuments.map((doc) => (
+              <label
+                key={doc.id}
+                className="flex w-full cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-blue-50 dark:border-zinc-800 dark:hover:bg-blue-950/20"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(doc.id)}
+                  onChange={() => toggle(doc.id)}
+                />
+                <span className="truncate">{docTitleOf(doc)}</span>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={selected.size === 0}
+            onClick={handleConfirm}
+            className="flex w-fit items-center gap-1.5 self-end rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            선택 완료{selected.size > 0 ? ` (${selected.size})` : ""}
+          </button>
+        </div>
+      </ModalBody>
+    </Modal>
   );
 }

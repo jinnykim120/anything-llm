@@ -14,12 +14,45 @@ import ChatSidebar, { useSourcesSidebar } from "../ChatSidebar";
 // Re-export for backward compat with existing imports
 export { useSourcesSidebar } from "../ChatSidebar";
 
+// [auto-docu 좌우 폭 조절] 출처 목록 폭 — 페이지 목록(p.51, 52, 53...)이
+// 길어지면 truncate로 잘리므로, 사용자가 드래그로 넓혀서 전체를 볼 수 있게 한다.
+const LIST_WIDTH_STORAGE_KEY = "archive-sources-list-width";
+const LIST_WIDTH_MIN = 260;
+const LIST_WIDTH_MAX = 640;
+const VIEWER_WIDTH = 520; // SourceViewer/index.jsx의 w-[520px]와 동일
+function clampListWidth(width) {
+  return Math.min(LIST_WIDTH_MAX, Math.max(LIST_WIDTH_MIN, width));
+}
+
 export default function SourcesSidebar() {
   const { sources, sidebarOpen, focus, closeSidebar } = useSourcesSidebar();
   const { t } = useTranslation();
   const [selectedSource, setSelectedSource] = useState(null);
   const [flashTitle, setFlashTitle] = useState(null);
   const listRef = useRef(null);
+  const [listWidth, setListWidth] = useState(() => {
+    const stored = Number(localStorage.getItem(LIST_WIDTH_STORAGE_KEY));
+    return clampListWidth(stored > 0 ? stored : 350);
+  });
+
+  function startListResize(event) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = listWidth;
+    function onMove(moveEvent) {
+      setListWidth(clampListWidth(startWidth + (moveEvent.clientX - startX)));
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setListWidth((current) => {
+        localStorage.setItem(LIST_WIDTH_STORAGE_KEY, String(current));
+        return current;
+      });
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
 
   const combined = combineLikeSources(sources);
 
@@ -58,11 +91,14 @@ export default function SourcesSidebar() {
 
   return (
     <>
-      <ChatSidebar isOpen={sidebarOpen} width={selectedSource ? 916 : 366}>
+      <ChatSidebar
+        isOpen={sidebarOpen}
+        width={16 + listWidth + (selectedSource ? 16 + VIEWER_WIDTH : 0)}
+      >
         <div className="flex items-start h-full">
           <div
-            className="ml-4 w-[350px] flex-shrink-0 bg-zinc-900 light:bg-white light:border-2 light:border-slate-300 md:rounded-[16px] p-4 flex flex-col gap-4 overflow-hidden mt-[72px]"
-            style={{ maxHeight: "calc(100% - 88px)" }}
+            className="ml-4 flex-shrink-0 bg-zinc-900 light:bg-white light:border-2 light:border-slate-300 md:rounded-[16px] p-4 flex flex-col gap-4 overflow-hidden mt-[72px] relative"
+            style={{ maxHeight: "calc(100% - 88px)", width: listWidth }}
           >
             <div className="flex items-start justify-between">
               <p className="font-medium text-base leading-6 text-white light:text-slate-900">
@@ -102,6 +138,14 @@ export default function SourcesSidebar() {
                 </div>
               ))}
             </div>
+            {/* [auto-docu 좌우 폭 조절] 드래그로 목록 폭 조절 */}
+            <div
+              onMouseDown={startListResize}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="출처 목록 폭 조절"
+              className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize hover:bg-blue-500/40 active:bg-blue-500/70"
+            />
           </div>
           {selectedSource && (
             <SourceViewer

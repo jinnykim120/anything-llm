@@ -36,6 +36,7 @@ const { extractDataEndpoints } = require("./endpoints/extractData");
 const {
   threadPrioritySourcesEndpoints,
 } = require("./endpoints/threadPrioritySources");
+const { documentAffinityEndpoints } = require("./endpoints/documentAffinity");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -110,6 +111,7 @@ pptDraftEndpoints(apiRouter);
 statsAnalysisEndpoints(apiRouter);
 extractDataEndpoints(apiRouter);
 threadPrioritySourcesEndpoints(apiRouter);
+documentAffinityEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);

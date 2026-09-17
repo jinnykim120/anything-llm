@@ -26,6 +26,9 @@ const { parseUploadEphemeral } = require("../utils/files/parseUploadEphemeral");
 const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
 const { loadBaseDocument } = require("../utils/docRegen");
+const {
+  recordExplicitCoSelection,
+} = require("../utils/classification/documentAffinity");
 const prisma = require("../utils/prisma");
 
 const MAX_DOCS = 15;
@@ -54,14 +57,15 @@ function buildExtractMessages({
   chunkIndex,
   chunkTotal,
 }) {
-  const system = [
-    "당신은 문서 전문에서 사용자가 요청한 항목의 실제 수치·사실만 정확히 추출하는 보조자입니다.",
-    "아래 '문서 전문'에 실제로 적혀 있는 내용만 추출하십시오 — 없는 값을 만들어 내지 마십시오.",
-    "요청한 항목이 이 문서(이 부분)에 없으면 그 항목의 값을 null로 남기십시오.",
-    "찾은 값은 어느 문장/구절에서 가져왔는지 evidence에 그대로 인용하십시오.",
-    "반드시 아래 JSON 형식으로만 응답하십시오. 설명, 코드펜스 없이 JSON 객체 하나만:",
-    `{"values": {"항목명": {"value": "...", "evidence": "..."} , "항목명2": null}}`,
-  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
+  const system =
+    [
+      "당신은 문서 전문에서 사용자가 요청한 항목의 실제 수치·사실만 정확히 추출하는 보조자입니다.",
+      "아래 '문서 전문'에 실제로 적혀 있는 내용만 추출하십시오 — 없는 값을 만들어 내지 마십시오.",
+      "요청한 항목이 이 문서(이 부분)에 없으면 그 항목의 값을 null로 남기십시오.",
+      "찾은 값은 어느 문장/구절에서 가져왔는지 evidence에 그대로 인용하십시오.",
+      "반드시 아래 JSON 형식으로만 응답하십시오. 설명, 코드펜스 없이 JSON 객체 하나만:",
+      `{"values": {"항목명": {"value": "...", "evidence": "..."} , "항목명2": null}}`,
+    ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
   const user = [
     `## 추출할 항목\n${fields}`,
     `## 문서 제목\n${title}`,
@@ -121,6 +125,13 @@ async function gatherArchiveDocuments({ workspace, folderKeys }) {
     select: { id: true },
     take: MAX_DOCS,
   });
+  // [auto-docu 문서 연계성 학습] 같은 자료 추출 요청에 여러 문서를 함께
+  // 고른 건 명시적 판단 — fire-and-forget으로 기록한다.
+  if (rows.length > 1)
+    recordExplicitCoSelection({
+      workspaceId: workspace.id,
+      workspaceDocIds: rows.map((r) => r.id),
+    }).catch(() => null);
   const docs = await Promise.all(
     rows.map((r) => loadBaseDocument(r.id).catch(() => null))
   );

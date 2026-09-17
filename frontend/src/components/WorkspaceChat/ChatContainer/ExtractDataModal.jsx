@@ -3,6 +3,7 @@ import {
   CircleNotch,
   FileDoc,
   FileHtml,
+  FileXls,
   UploadSimple,
   X,
 } from "@phosphor-icons/react";
@@ -41,6 +42,7 @@ export default function ExtractDataModal({ workspace, onClose }) {
   const [selectedWorkTypes, setSelectedWorkTypes] = useState([]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null); // { fields, documents: [{title, values}] }
+  const [exportingXlsx, setExportingXlsx] = useState(false);
 
   useEffect(() => {
     if (scope !== "archive" && scope !== "both") return;
@@ -157,6 +159,18 @@ export default function ExtractDataModal({ workspace, onClose }) {
     });
     if (!res?.success)
       showToast(res?.error || "DOCX 다운로드에 실패했습니다.", "error");
+  }
+
+  async function downloadXlsx() {
+    if (exportingXlsx) return;
+    setExportingXlsx(true);
+    const res = await Workspace.downloadAsXlsx({
+      title: "자료 추출 결과",
+      markdown: resultMarkdown(),
+    });
+    setExportingXlsx(false);
+    if (!res?.success)
+      showToast(res?.error || "XLSX 다운로드에 실패했습니다.", "error");
   }
 
   function reset() {
@@ -381,6 +395,19 @@ export default function ExtractDataModal({ workspace, onClose }) {
                 className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-300"
               >
                 <FileDoc size={14} weight="fill" /> DOCX
+              </button>
+              <button
+                type="button"
+                onClick={downloadXlsx}
+                disabled={exportingXlsx}
+                className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+              >
+                {exportingXlsx ? (
+                  <CircleNotch size={14} className="animate-spin" />
+                ) : (
+                  <FileXls size={14} weight="fill" />
+                )}
+                XLSX
               </button>
             </div>
           </>

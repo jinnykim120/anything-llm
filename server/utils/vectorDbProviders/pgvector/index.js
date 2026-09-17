@@ -538,6 +538,11 @@ class PGVector extends VectorDatabase {
       keyword:
         PGVector.integerSetting("HYBRID_KEYWORD_WEIGHT_PCT", 12, 0, 100) / 100,
       tag: PGVector.integerSetting("HYBRID_TAG_WEIGHT_PCT", 15, 0, 100) / 100,
+      // [auto-docu 문서 연계성 학습] affinityBoostFor()가 돌려주는 0~1
+      // 가산점에 곱해지는 가중치 — 기본은 태그 가산점보다 살짝 낮게 잡아,
+      // 아직 이력이 적을 초기 단계에서 과도하게 랭킹을 흔들지 않게 한다.
+      affinity:
+        PGVector.integerSetting("HYBRID_AFFINITY_WEIGHT_PCT", 10, 0, 100) / 100,
     };
   }
 
@@ -1444,6 +1449,53 @@ class PGVector extends VectorDatabase {
           sourceDocuments: ranked.map(({ i }) => dense.sourceDocuments[i]),
           scores: ranked.map(({ i }) => dense.scores[i]),
         };
+      }
+
+      // 2c. 연계성(affinity) 가산점 — 지금 상위권인 문서와 역사적으로
+      //    자주 "같이 쓰인" 다른 문서를 추가로 밀어올린다(§문서 연계성 학습).
+      //    이력이 없으면(occurrences 미달 포함) 0점이라 아무 영향 없음 —
+      //    기존 랭킹을 건드리지 않는 안전한 추가 항목.
+      const affinityWeight = PGVector.hybridWeights().affinity;
+      if (affinityWeight > 0 && scored.sourceDocuments.length > 1) {
+        const scoredDocIds = scored.sourceDocuments.map((src) => src.doc_id);
+        const uniqueDocIds = [...new Set(scoredDocIds.filter(Boolean))];
+        if (uniqueDocIds.length > 1) {
+          const prisma = require("../../prisma");
+          const workspaceRow = await prisma.workspaces
+            .findUnique({ where: { slug: namespace }, select: { id: true } })
+            .catch(() => null);
+          if (workspaceRow?.id) {
+            const {
+              affinityBoostFor,
+            } = require("../../classification/documentAffinity");
+            const anchorDocIds = uniqueDocIds.slice(
+              0,
+              Math.min(3, uniqueDocIds.length)
+            );
+            const boosts = await affinityBoostFor({
+              workspaceId: workspaceRow.id,
+              anchorDocIds,
+              candidateDocIds: uniqueDocIds,
+            }).catch(() => new Map());
+            if (boosts.size) {
+              const reranked = scored.sourceDocuments
+                .map((src, i) => ({
+                  i,
+                  score:
+                    (scored.scores[i] ?? 0) +
+                    (boosts.get(src.doc_id) || 0) * affinityWeight,
+                }))
+                .sort((a, b) => b.score - a.score);
+              scored = {
+                contextTexts: reranked.map(({ i }) => scored.contextTexts[i]),
+                sourceDocuments: reranked.map(
+                  ({ i }) => scored.sourceDocuments[i]
+                ),
+                scores: reranked.map(({ i }) => scored.scores[i]),
+              };
+            }
+          }
+        }
       }
 
       // 3. Per-document cap — keep an answer able to synthesize across the

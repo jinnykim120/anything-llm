@@ -118,7 +118,7 @@ export default function LandingPage() {
           aria-label="Recode 홈"
         >
           {logo ? (
-            <img src={logo} alt="Recode" className="h-8 w-auto" />
+            <img src={logo} alt="Recode" className="h-11 w-auto" />
           ) : (
             <span className="text-sm font-semibold tracking-wide">Recode</span>
           )}

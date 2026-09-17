@@ -361,6 +361,7 @@ const Workspace = {
       sourceText,
       surroundingContext = "",
       uploadedData = null,
+      archiveDocIds = [],
     }
   ) {
     return await fetch(`${API_BASE}/workspace/${slug}/stats/analyze`, {
@@ -372,6 +373,7 @@ const Workspace = {
         sourceText,
         surroundingContext,
         uploadedData,
+        archiveDocIds,
       }),
     })
       .then((res) => res.json())
@@ -546,6 +548,20 @@ const Workspace = {
       return { success: false, error: e.message };
     }
   },
+  // [auto-docu 문서 연계성 학습] 채팅 답변이 여러 문서를 같이 인용했고, 그
+  // 결과물이 실제로 다운로드까지 이어졌을 때만 부른다 — 단순 인용만으로는
+  // 절대 호출하지 않는다(자기강화 편향 방지). 실패해도 조용히 넘어간다.
+  recordValidatedAffinity: async function (slug, { docIds }) {
+    try {
+      await fetch(`${API_BASE}/workspace/${slug}/affinity/record-validated`, {
+        method: "POST",
+        headers: baseHeaders(),
+        body: JSON.stringify({ docIds }),
+      });
+    } catch {
+      // 부가 신호일 뿐 — 실패해도 사용자에게 보여줄 필요 없음.
+    }
+  },
   // [auto-docu 다른 파일 형태 다운로드] 초안/전사문서작성tool 결과를 HTML
   // 대신 실제 .docx 파일로 — 서버가 markdown을 진짜 워드 문서로 변환해
   // 바이너리로 돌려주고, 여기서 HTML 다운로드와 같은 방식(Blob + 임시
@@ -569,6 +585,33 @@ const Workspace = {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${sanitizeFilename(title) || "문서"}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { success: true };
+  },
+  // [auto-docu XLSX 내보내기] downloadAsDocx와 같은 방식 — markdown 속 표를
+  // 실제 엑셀 셀로 변환해 받는다. 자료 추출하기의 "문서 × 필드" 표처럼
+  // 수치를 그대로 엑셀에서 다시 다루고 싶을 때가 핵심 용도.
+  downloadAsXlsx: async function ({ title, markdown }) {
+    const res = await fetch(`${API_BASE}/doc-export/xlsx`, {
+      method: "POST",
+      body: JSON.stringify({ title, markdown }),
+      headers: baseHeaders(),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: body?.error || "XLSX 변환에 실패했습니다.",
+      };
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${sanitizeFilename(title) || "문서"}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

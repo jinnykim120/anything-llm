@@ -301,9 +301,12 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
         </div>
       </div>
 
-      {/* chunk chips — jump between the cited passages */}
+      {/* chunk chips — jump between the cited passages. 인용된 조각이 많은
+          문서(수십 개)는 이 줄이 끝없이 늘어나 아래 페이지 이동·확대 도구와
+          실제 PDF 미리보기를 화면 밖으로 밀어냈다 — 높이를 제한하고 내부
+          스크롤로 바꿔 툴바·본문 위치가 항상 고정되게 한다. */}
       {(source?.chunks?.length || 0) > 1 && (
-        <div className="flex flex-wrap gap-1 px-4 py-2 border-b border-zinc-800 light:border-slate-200">
+        <div className="flex flex-wrap gap-1 px-4 py-2 border-b border-zinc-800 light:border-slate-200 max-h-[104px] overflow-y-auto no-scroll flex-shrink-0">
           {source.chunks.map((c, i) => {
             const leaf = (c.section_path || "").split(">").pop().trim();
             const label = c.page

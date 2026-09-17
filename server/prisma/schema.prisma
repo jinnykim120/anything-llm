@@ -213,6 +213,31 @@ model thread_priority_sources {
   @@index([threadId])
 }
 
+// [auto-docu 문서 연계성 학습] 두 문서가 같은 작업(전사문서작성tool 기준문서
+// 다중선택 · 자료 추출하기/통계분석 아카이브 선택 · 우선 자료 동시 고정 ·
+// 다운로드까지 이어진 채팅 답변의 공동 인용)에 함께 쓰인 이력을 누적한다 —
+// PGVector.performSimilaritySearch의 하이브리드 랭크(키워드·태그 가산점과
+// 같은 자리)에서, 이미 상위인 문서와 역사적으로 자주 같이 쓰인 다른 문서를
+// 추가로 밀어올리는 데 쓴다. docIdA/docIdB는 workspace_documents.docId(문자열
+// UUID, PGVector 청크의 doc_id와 동일한 키 공간) — 항상 docIdA < docIdB로
+// 정규화해 저장해서 A-B/B-A 중복을 막는다. weight는 신호 종류별로 다르게
+// 누적된다(명시적 동시선택 > 다운로드까지 검증된 답변 인용 > 그냥 인용).
+// threadId/workspaceId와 같은 이유로 관계(relation) 없는 단순 필드로 뒀다.
+model document_affinity {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  docIdA      String // workspace_documents.docId, docIdA < docIdB
+  docIdB      String
+  weight      Float    @default(0)
+  occurrences Int      @default(0)
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, docIdA, docIdB])
+  @@index([workspaceId, docIdA])
+  @@index([workspaceId, docIdB])
+}
+
 model workspace_suggested_messages {
   id            Int        @id @default(autoincrement())
   workspaceId   Int

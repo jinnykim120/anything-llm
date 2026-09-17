@@ -39,6 +39,9 @@ const {
   loadBaseDocument,
   regenerateDocument,
 } = require("../utils/docRegen");
+const {
+  recordExplicitCoSelection,
+} = require("../utils/classification/documentAffinity");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
 const prisma = require("../utils/prisma");
 const { PPT_TEMPLATES, generateSlideSpec } = require("./pptDraft");
@@ -110,6 +113,14 @@ function docRegenEndpoints(app) {
           throw new Error("신규 기준/가이던스 내용을 입력해 주세요.");
 
         const workspace = response.locals.workspace;
+        // [auto-docu 문서 연계성 학습] 기준 문서를 여러 개 동시에 고른 건
+        // 명시적 판단이므로, 스트리밍 응답을 막지 않게 fire-and-forget으로
+        // 기록한다(실패해도 본 기능에는 영향 없음).
+        if (ids.length > 1)
+          recordExplicitCoSelection({
+            workspaceId: workspace.id,
+            workspaceDocIds: ids,
+          }).catch(() => null);
         // 빈양식이 있으면 그게 구조의 원천이 되므로, 기준 문서는 선택
         // 사항이다 — 골랐어도 목차 추출에는 안 쓰인다(regenerateDocument).
         const baseDocs = ids.length ? await loadBaseDocuments(ids) : [];

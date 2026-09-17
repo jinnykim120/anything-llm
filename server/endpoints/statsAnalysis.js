@@ -27,6 +27,11 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { runAnalysis, METHOD_LABELS } = require("../utils/stats/runAnalysis");
 const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
+const { loadBaseDocument } = require("../utils/docRegen");
+const prisma = require("../utils/prisma");
+const {
+  recordExplicitCoSelection,
+} = require("../utils/classification/documentAffinity");
 const {
   METHOD_SCHEMAS,
   ALL_METHOD_KEYS,
@@ -45,10 +50,19 @@ function extractJsonObject(text = "") {
 // 재사용하므로, 클라이언트가 CSV를 직접 파싱해 만든 구조화된 rows 대신
 // 파싱된 문서 본문(text)을 그대로 받는다. (구 CSV 전용 rows 형태도 혹시
 // 남아있는 호출부가 있으면 계속 동작하도록 하위 호환으로 지원.)
+// 여러 파일을 올릴 수 있으므로 배열도 받는다 — 각 파일을 별도 절로 구분해
+// 이어붙인다(단일 객체 형태의 옛 호출부도 계속 동작).
+// 파일당 문자 수 제한 — 사업보고서/반기보고서처럼 수백 페이지짜리 문서는
+// 실제 재무 수치(매출액 등)가 문서 뒷부분에 있어, 이 값이 너무 작으면
+// 표지·목차만 남고 정작 필요한 수치가 잘려나간다(실사용 중 발견).
+const MAX_UPLOADED_TEXT_CHARS_PER_FILE = 60000;
 function uploadedDataBlock(uploadedData) {
   if (!uploadedData) return "";
+  if (Array.isArray(uploadedData)) {
+    return uploadedData.map(uploadedDataBlock).filter(Boolean).join("\n\n");
+  }
   if (uploadedData.text) {
-    return `## 업로드된 추가 자료(${uploadedData.filename || "업로드 파일"})\n${String(uploadedData.text).slice(0, 8000)}`;
+    return `## 업로드된 추가 자료(${uploadedData.filename || "업로드 파일"})\n${String(uploadedData.text).slice(0, MAX_UPLOADED_TEXT_CHARS_PER_FILE)}`;
   }
   if (uploadedData.rows?.length) {
     const preview = uploadedData.rows.slice(0, 200);
@@ -73,22 +87,23 @@ function buildExtractMessages({
     )
     .join("\n\n");
 
-  const system = [
-    "당신은 통계 분석 요청에서 실제 계산에 쓸 파라미터를 뽑아내는 보조자입니다.",
-    "아래 '근거 자료'에 실제로 나와 있는 숫자만 사용하십시오 — 근거에 없는",
-    "수치를 지어내지 마십시오. 근거에 필요한 숫자가 부족하면 data/params를",
-    '채우지 말고 대신 최상위에 "missing_data": "어떤 자료가 더 필요한지 설명"을 넣으십시오.',
-    isAuto
-      ? '아래 방법 목록 중 사용자 목적에 가장 적합한 것을 하나 골라 "method" 키에 넣으십시오.'
-      : `분석 방법은 이미 "${method}"(${METHOD_SCHEMAS[method]?.label})로 정해져 있습니다 — "method" 키에 그대로 넣으십시오.`,
-    "반드시 아래 JSON 형식으로만 응답하십시오. 설명, 코드펜스 없이 JSON 객체 하나만:",
-    `{"method": "...", "data": {...}, "params": {...}}`,
-    "또는 자료가 부족하면:",
-    `{"missing_data": "..."}`,
-    "",
-    "방법별 data/params 모양:",
-    schemaList,
-  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
+  const system =
+    [
+      "당신은 통계 분석 요청에서 실제 계산에 쓸 파라미터를 뽑아내는 보조자입니다.",
+      "아래 '근거 자료'에 실제로 나와 있는 숫자만 사용하십시오 — 근거에 없는",
+      "수치를 지어내지 마십시오. 근거에 필요한 숫자가 부족하면 data/params를",
+      '채우지 말고 대신 최상위에 "missing_data": "어떤 자료가 더 필요한지 설명"을 넣으십시오.',
+      isAuto
+        ? '아래 방법 목록 중 사용자 목적에 가장 적합한 것을 하나 골라 "method" 키에 넣으십시오.'
+        : `분석 방법은 이미 "${method}"(${METHOD_SCHEMAS[method]?.label})로 정해져 있습니다 — "method" 키에 그대로 넣으십시오.`,
+      "반드시 아래 JSON 형식으로만 응답하십시오. 설명, 코드펜스 없이 JSON 객체 하나만:",
+      `{"method": "...", "data": {...}, "params": {...}}`,
+      "또는 자료가 부족하면:",
+      `{"missing_data": "..."}`,
+      "",
+      "방법별 data/params 모양:",
+      schemaList,
+    ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 사용자 요청\n${instruction}`,
@@ -111,16 +126,17 @@ function buildNarrativeMessages({
   result,
   surroundingContext,
 }) {
-  const system = [
-    "당신은 통계 분석 결과를 한국어 보고서 문단으로 서술하는 보조자입니다.",
-    "아래 '실제 계산 결과' JSON에 있는 숫자만 인용하십시오 — 새로운 수치를",
-    "만들거나 반올림 외의 방식으로 바꾸지 마십시오. 이 결과는 이미 실제",
-    "통계 계산(scikit-learn/statsmodels/scipy)을 거친 값입니다.",
-    "통계적 유의성(p-value 등)이 있으면 그 의미를 일반 독자가 이해할 수",
-    "있게 짧게 설명하십시오(예: 'p<0.05로 통계적으로 유의미함').",
-    "결과는 마크다운 텍스트만 출력하십시오. 설명, 따옴표, 코드펜스 없이.",
-    "형식은 기존 문서 톤에 맞춰 소제목(###) + 문단 또는 불릿으로 구성하십시오.",
-  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
+  const system =
+    [
+      "당신은 통계 분석 결과를 한국어 보고서 문단으로 서술하는 보조자입니다.",
+      "아래 '실제 계산 결과' JSON에 있는 숫자만 인용하십시오 — 새로운 수치를",
+      "만들거나 반올림 외의 방식으로 바꾸지 마십시오. 이 결과는 이미 실제",
+      "통계 계산(scikit-learn/statsmodels/scipy)을 거친 값입니다.",
+      "통계적 유의성(p-value 등)이 있으면 그 의미를 일반 독자가 이해할 수",
+      "있게 짧게 설명하십시오(예: 'p<0.05로 통계적으로 유의미함').",
+      "결과는 마크다운 텍스트만 출력하십시오. 설명, 따옴표, 코드펜스 없이.",
+      "형식은 기존 문서 톤에 맞춰 소제목(###) + 문단 또는 불릿으로 구성하십시오.",
+    ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     surroundingContext ? `## 문서 맥락(참고용)\n${surroundingContext}` : "",
@@ -232,6 +248,7 @@ function statsAnalysisEndpoints(app) {
           sourceText = "",
           surroundingContext = "",
           uploadedData = null,
+          archiveDocIds = [],
         } = reqBody(request);
 
         const LLMConnector = getLLMProvider({
@@ -239,12 +256,52 @@ function statsAnalysisEndpoints(app) {
           model: workspace?.chatModel,
         });
 
+        // [auto-docu 통계분석] 새로 올린 파일뿐 아니라, 이미 아카이브에 있는
+        // 문서도 근거 자료로 고를 수 있다 — 같은 {filename, text} 모양으로
+        // 만들어 업로드 데이터와 한 배열로 합친다. 이 워크스페이스 소속
+        // 문서인지 먼저 확인한다(thread_priority_sources의 add()와 같은
+        // 원칙 — 클라이언트가 준 id를 그대로 믿지 않는다).
+        let archiveDocs = [];
+        if (archiveDocIds.length) {
+          const owned = await prisma.workspace_documents.findMany({
+            where: {
+              id: { in: archiveDocIds.map(Number) },
+              workspaceId: Number(workspace.id),
+            },
+            select: { id: true },
+          });
+          const ownedIds = new Set(owned.map((r) => r.id));
+          const validIds = archiveDocIds
+            .map(Number)
+            .filter((id) => ownedIds.has(id));
+          // [auto-docu 문서 연계성 학습] 통계분석에 아카이브 문서를 여러 개
+          // 함께 고른 것도 명시적 판단 — fire-and-forget으로 기록한다.
+          if (validIds.length > 1)
+            recordExplicitCoSelection({
+              workspaceId: Number(workspace.id),
+              workspaceDocIds: validIds,
+            }).catch(() => null);
+          archiveDocs = await Promise.all(
+            validIds.map((id) => loadBaseDocument(id).catch(() => null))
+          );
+        }
+        const mergedUploadedData = [
+          ...(Array.isArray(uploadedData)
+            ? uploadedData
+            : uploadedData
+              ? [uploadedData]
+              : []),
+          ...archiveDocs
+            .filter(Boolean)
+            .map((d) => ({ filename: d.title, text: d.pageContent })),
+        ];
+
         const out = await runStatsPipeline({
           instruction,
           method,
           sourceText,
           surroundingContext,
-          uploadedData,
+          uploadedData: mergedUploadedData.length ? mergedUploadedData : null,
           LLMConnector,
           temperature: workspace?.openAiTemp,
         });

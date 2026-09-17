@@ -17,6 +17,10 @@ const ThreadPrioritySources = {
       });
       if (!doc) throw new Error("이 워크스페이스의 문서가 아닙니다.");
 
+      const existing = await prisma.thread_priority_sources.findMany({
+        where: { threadId: Number(threadId) },
+        select: { docId: true },
+      });
       const row = await prisma.thread_priority_sources.upsert({
         where: {
           threadId_docId: { threadId: Number(threadId), docId: Number(docId) },
@@ -28,6 +32,21 @@ const ThreadPrioritySources = {
           docId: Number(docId),
         },
       });
+      // [auto-docu 문서 연계성 학습] 한 스레드에 여러 문서를 동시에 고정한
+      // 건 명시적 판단 — 이미 고정돼 있던 문서들과 이번 문서를 짝지어
+      // fire-and-forget으로 기록한다.
+      const otherIds = existing
+        .map((r) => r.docId)
+        .filter((id) => id !== Number(docId));
+      if (otherIds.length) {
+        const {
+          recordExplicitCoSelection,
+        } = require("../utils/classification/documentAffinity");
+        recordExplicitCoSelection({
+          workspaceId: Number(workspaceId),
+          workspaceDocIds: [Number(docId), ...otherIds],
+        }).catch(() => null);
+      }
       return { row, error: null };
     } catch (error) {
       console.error("ThreadPrioritySources.add failed:", error.message);

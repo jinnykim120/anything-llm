@@ -51,7 +51,10 @@ async function fetchModelName(slug, setModelName, t) {
   }
 }
 
-export default function WorkspaceModelPicker({ workspaceSlug = null }) {
+export default function WorkspaceModelPicker({
+  workspaceSlug = null,
+  topOffsetClass = "top-2",
+}) {
   const { t } = useTranslation();
   const { slug: urlSlug } = useParams();
   const slug = urlSlug ?? workspaceSlug;
@@ -118,7 +121,7 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
         />
       )}
       <div
-        className={`hidden md:block absolute top-2 z-30 transition-all duration-500 ${
+        className={`hidden md:block absolute ${topOffsetClass} z-30 transition-all duration-500 ${
           sidebarOpen ? "left-3" : "left-11"
         }`}
       >

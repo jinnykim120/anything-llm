@@ -17,6 +17,7 @@ import {
   DownloadSimple,
   FileDoc,
   FileHtml,
+  FileXls,
   FileText,
   FilePpt,
   Folder,
@@ -135,6 +136,7 @@ export default function DocRegen() {
   const [error, setError] = useState(null);
   const [detailNeed, setDetailNeed] = useState(null); // {description, section}
   const [exportingDocx, setExportingDocx] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
   const [exportingTemplate, setExportingTemplate] = useState(false);
   // [auto-docu PPT 생성 Phase 2] 문서 채우기와 별개의 산출물 — 폴더 지정 →
   // PPT 생성. selectedFolders/folderTree는 위 문서함 폴더 흐름과 공유한다.
@@ -519,6 +521,20 @@ export default function DocRegen() {
     archiveResultInBackground();
   }
 
+  async function downloadXlsx() {
+    if (!result || exportingXlsx) return;
+    setExportingXlsx(true);
+    const res = await Workspace.downloadAsXlsx({
+      title: result.title,
+      markdown: result.markdown,
+    });
+    setExportingXlsx(false);
+    if (!res?.success)
+      return showToast(res?.error || "XLSX 다운로드에 실패했습니다.", "error");
+    showToast("XLSX 파일을 내려받았습니다.", "success");
+    archiveResultInBackground();
+  }
+
   async function downloadFilledTemplate() {
     if (!result || !blankForm?.docId || exportingTemplate) return;
     setExportingTemplate(true);
@@ -554,7 +570,7 @@ export default function DocRegen() {
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
       <ArchiveSidebar slug={slug} />
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10 lg:px-10">
+        <div className="mx-auto flex w-full max-w-7xl flex-col px-6 py-10 lg:px-10">
           <Link
             to={paths.workspace.chat(slug)}
             className="mb-3 flex w-fit items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-violet-600 dark:text-zinc-400 dark:hover:text-violet-400"
@@ -1197,6 +1213,19 @@ export default function DocRegen() {
                       <FileDoc size={13} weight="fill" />
                     )}
                     DOCX 다운로드
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadXlsx}
+                    disabled={exportingXlsx}
+                    className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+                  >
+                    {exportingXlsx ? (
+                      <CircleNotch size={13} className="animate-spin" />
+                    ) : (
+                      <FileXls size={13} weight="fill" />
+                    )}
+                    XLSX 다운로드
                   </button>
                   {blankForm?.docId && blankForm?.isDocx && (
                     <button

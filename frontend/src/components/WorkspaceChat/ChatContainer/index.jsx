@@ -665,7 +665,10 @@ export default function ChatContainer({
           className={`relative h-full min-w-0 flex-1 overflow-hidden border-none text-white light:border-solid light:border light:border-theme-modal-border light:text-slate-900 md:rounded-[16px] ${isArchive ? "bg-zinc-900/90 light:bg-white/90" : "bg-zinc-900 light:bg-white"}`}
         >
           {isMobile && <SidebarMobileHeader />}
-          <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+          <WorkspaceModelPicker
+            workspaceSlug={workspace.slug}
+            topOffsetClass={isArchive && activeThreadSlug ? "top-12" : "top-2"}
+          />
           <div className="flex h-full w-full flex-col">
             <div
               className={
