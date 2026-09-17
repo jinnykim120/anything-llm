@@ -204,6 +204,65 @@ export function draftBodyHtml(markdown = "") {
   return md.render(markdown || "");
 }
 
+// [auto-docu 화면 편집 Phase 3a] 미리보기의 각 블록(문단/소제목/목록/표 등)에
+// data-block-id를 매겨, 클릭한 블록만 스코프로 잡아 대화로 수정할 수 있게
+// 한다. 두 단계 granularity: level-0(최상위) 블록은 항상 하나의 단위이고,
+// 그 블록이 목록(bullet/ordered list)이면 각 항목(list_item)에도 별도
+// id("b3.item0" 형태)를 매겨 "항목 하나만" 선택할 수도 있게 한다 — 표는
+// td/th 토큰에 markdown-it이 소스 line map을 안 주기 때문에(행은 준다)
+// level-0(표 전체) 단위로만 남겨둔다. 문단/소제목은 원래 하위 항목이 없어
+// 단일 단계 그대로.
+export function draftBodyHtmlBlocks(markdown = "") {
+  const src = markdown || "";
+  const tokens = md.parse(src, {});
+  const lines = src.split("\n");
+  const blocks = [];
+  let blockIndex = 0;
+  let currentListBlockId = null;
+  let itemIndex = 0;
+
+  for (const token of tokens) {
+    if (token.level === 0) {
+      if (token.type.endsWith("_open") || token.type === "hr") {
+        const id = `b${blockIndex++}`;
+        token.attrSet("data-block-id", id);
+        if (token.map) {
+          const [start, end] = token.map;
+          blocks.push({
+            id,
+            source: lines.slice(start, end).join("\n"),
+            startLine: start,
+            endLine: end,
+          });
+        }
+        currentListBlockId =
+          token.type === "bullet_list_open" ||
+          token.type === "ordered_list_open"
+            ? id
+            : null;
+        itemIndex = 0;
+      } else if (token.type.endsWith("_close")) {
+        currentListBlockId = null;
+      }
+      continue;
+    }
+    if (currentListBlockId && token.type === "list_item_open" && token.map) {
+      const itemId = `${currentListBlockId}.item${itemIndex++}`;
+      token.attrSet("data-block-id", itemId);
+      const [start, end] = token.map;
+      blocks.push({
+        id: itemId,
+        source: lines.slice(start, end).join("\n"),
+        startLine: start,
+        endLine: end,
+      });
+    }
+  }
+
+  const html = md.renderer.render(tokens, md.options, {});
+  return { html, blocks };
+}
+
 /**
  * Build a standalone, self-contained HTML document string from the draft
  * markdown. `designed: true` switches to the colored cover+theme variant —

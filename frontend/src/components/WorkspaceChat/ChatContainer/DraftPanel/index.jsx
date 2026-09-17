@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   X,
   ArrowLeft,
@@ -6,6 +6,8 @@ import {
   FileHtml,
   FileDoc,
   FileXls,
+  FilePpt,
+  Presentation,
   CircleNotch,
   PencilSimple,
   Eye,
@@ -14,12 +16,15 @@ import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import DOMPurify from "@/utils/chat/purify";
 import {
-  draftBodyHtml,
+  draftBodyHtmlBlocks,
   downloadDraftHtml,
   extractDraftTitle,
   detectDesignRequest,
   DRAFT_ACCENT,
 } from "./exporters";
+import ScopedEditOverlay, { computeRelativeRect } from "./ScopedEditOverlay";
+import { patchSlideSpec, blockTextFor } from "./pptSlideSpecPatch";
+import StatsMethodPicker from "./StatsMethodPicker";
 
 // [auto-docu 목표 3] 검색 답변 아래에서 열리는 하단 분할 패널.
 // 답변 액션줄의 "문서 작성" 버튼이 아래 이벤트를 쏘면 ChatContainer 가 이 패널을 띄운다.
@@ -55,12 +60,53 @@ const DATA_SCOPE_LABEL = {
 const PANEL_HEIGHT_STORAGE_KEY = "archive-draft-panel-height";
 const MIN_PANEL_HEIGHT = 220;
 
+// PPT 미리보기는 실제 슬라이드를 시각적으로 흉내내지 않는 구조화된 목록이므로
+// (기존 표 미리보기와 같은 원칙), 차트도 실제 그래프를 그리는 대신 라벨이
+// 붙은 자리표시자로만 보여준다.
+const CHART_TYPE_LABEL = {
+  bar: "막대 그래프",
+  line: "선 그래프",
+  pie: "원형 그래프",
+};
+
+// [auto-docu 통계분석] 아주 단순한 CSV 파서 — 쉼표 구분, 첫 줄은 헤더.
+// 셀 안에 쉼표가 들어간 값(따옴표로 감싼 필드)은 지원하지 않는다(엑셀
+// 라이브러리 없이 클라이언트에서 바로 처리할 수 있는 범위로 의도적으로
+// 좁힌 것 — 복잡한 CSV는 추후 xlsx/csv 파서 라이브러리 도입 시 확장).
+function parseCsvText(text) {
+  const lines = String(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const headers = lines[0].split(",").map((h) => h.trim());
+  return lines.slice(1).map((line) => {
+    const cells = line.split(",").map((c) => c.trim());
+    const row = {};
+    headers.forEach((h, i) => {
+      const raw = cells[i];
+      const num = Number(raw);
+      row[h] =
+        raw !== undefined && raw !== "" && !Number.isNaN(num) ? num : raw;
+    });
+    return row;
+  });
+}
+
 function clampPanelHeight(height) {
   const max = Math.round(window.innerHeight * 0.85);
   return Math.min(Math.max(height, MIN_PANEL_HEIGHT), max);
 }
 
 // 2단계: 어떤 형태의 문서로 만들지 — 1단계 선택에 따라 설명이 달라진다.
+// [auto-docu 통계분석] 통계분석 보고서 유형 — 실제 scikit-learn/statsmodels
+// 계산을 거친 서술을 만든다(기본/분석보고서처럼 LLM이 통째로 지어내지 않음).
+// PPT 쪽에는 의도적으로 없음(사용자 결정 — PPT에서는 이 기능의 가치가 낮음).
+const STATS_REPORT_TYPE = {
+  key: "stats",
+  label: "통계분석",
+  desc: "회귀·군집분석 등 실제 통계 계산을 거쳐 수치를 분석합니다.",
+};
 const REPORT_TYPES = {
   answer_only: [
     {
@@ -73,6 +119,7 @@ const REPORT_TYPES = {
       label: "분석보고서",
       desc: "위 내용에 시사점 · 검토의견 · 향후조치(건의)를 덧붙입니다.",
     },
+    STATS_REPORT_TYPE,
   ],
   answer_plus_web: [
     {
@@ -85,11 +132,54 @@ const REPORT_TYPES = {
       label: "분석보고서",
       desc: "위 내용에 관련 동향 · 문제점 및 리스크 파악을 덧붙입니다.",
     },
+    STATS_REPORT_TYPE,
   ],
 };
-const REPORT_TYPE_LABEL = { basic: "기본보고서", analysis: "분석보고서" };
+const REPORT_TYPE_LABEL = {
+  basic: "기본보고서",
+  analysis: "분석보고서",
+  stats: "통계분석",
+};
+
+// PPT 목적별 템플릿 — server/endpoints/pptDraft.js의 PPT_TEMPLATES와 라벨을
+// 맞춘 프론트엔드 전용 목록(서버 설정을 그대로 불러오지 않고 문구만 맞춤).
+const PPT_TEMPLATES = [
+  {
+    key: "analysis",
+    label: "내용 분석",
+    desc: "자료를 구조적으로 분석해 핵심 내용을 정리합니다.",
+  },
+  {
+    key: "proposal",
+    label: "제안",
+    desc: "문제 제기부터 제안 내용, 기대효과까지 구성합니다.",
+  },
+  {
+    key: "performance",
+    label: "성과보고",
+    desc: "주요 성과와 지표를 중심으로 보고합니다.",
+  },
+  {
+    key: "status",
+    label: "현황보고",
+    desc: "현재 상태와 진행 상황을 정리해 보고합니다.",
+  },
+  {
+    key: "data",
+    label: "데이터 분석",
+    desc: "수치·통계 자료를 표와 함께 분석적으로 제시합니다.",
+  },
+];
+const PPT_TEMPLATE_LABEL = Object.fromEntries(
+  PPT_TEMPLATES.map((t) => [t.key, t.label])
+);
+const MIN_SLIDE_COUNT = 4;
+const MAX_SLIDE_COUNT = 20;
 
 export default function DraftPanel({ source, workspace, onClose }) {
+  // [auto-docu PPT 생성 Phase 1] 무엇을 만들지부터 고른다 — "doc"(기존 문서
+  // 초안 흐름) | "ppt"(새 PPT 흐름). null이면 아직 선택 전(0단계).
+  const [outputFormat, setOutputFormat] = useState(null);
   const [dataScope, setDataScope] = useState(null);
   const [reportType, setReportType] = useState(null);
   const [instructions, setInstructions] = useState("");
@@ -97,6 +187,30 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [draft, setDraft] = useState(null); // { markdown, title, designed }
   const [editing, setEditing] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
+  const [pptPurpose, setPptPurpose] = useState(null);
+  const [slideCount, setSlideCount] = useState(8);
+  const [pptInstructions, setPptInstructions] = useState("");
+  const [generatingPpt, setGeneratingPpt] = useState(false);
+  const [pptDraft, setPptDraft] = useState(null); // { slideSpec, title, purpose, slideCount }
+  const [exportingPptx, setExportingPptx] = useState(false);
+  // [auto-docu 통계분석] 마법사 단계에서 "통계분석" 보고서를 고른 경우의
+  // 방법 선택 + 요청사항 — 생성되면 draft.markdown에 서술이 들어가고, 그
+  // 뒤로는 기본/분석보고서와 완전히 같은 미리보기·클릭편집·내보내기를 탄다.
+  const [statsMethod, setStatsMethod] = useState(null);
+  const [statsInstruction, setStatsInstruction] = useState("");
+  const [generatingStats, setGeneratingStats] = useState(false);
+  // [auto-docu 통계분석] 근거 자료(채팅 답변)에 없는 원자료가 필요하면
+  // CSV를 올려서 params 추출 LLM에게 그대로 넘긴다 — 엑셀은 범위를 좁혀
+  // CSV만 지원(파싱 라이브러리 추가 없이 클라이언트에서 바로 처리 가능).
+  const [statsUploadedData, setStatsUploadedData] = useState(null); // {filename, rows}
+  // [auto-docu 통계분석] 블록별 "통계 분석" 애드혹 요청 — 3a(HTML) 전용,
+  // ScopedEditOverlay의 텍스트 입력 옆에 보조 버튼으로 뜬다.
+  const [blockStatsMode, setBlockStatsMode] = useState(false);
+  const [blockStatsMethod, setBlockStatsMethod] = useState(null);
+  // [auto-docu HTML→PPT 연결] "이 내용으로 PPT 만들기" — 원본 채팅 답변
+  // 대신, 지금 화면에 있는(통계분석 결과가 반영됐을 수도, 손으로 고쳤을
+  // 수도 있는) draft.markdown을 PPT 생성의 근거로 쓴다.
+  const [pptSourceOverride, setPptSourceOverride] = useState(null);
   const [panelHeight, setPanelHeight] = useState(() => {
     const stored = Number(localStorage.getItem(PANEL_HEIGHT_STORAGE_KEY));
     return clampPanelHeight(
@@ -132,14 +246,31 @@ export default function DraftPanel({ source, workspace, onClose }) {
       ? `${DATA_SCOPE_LABEL[dataScope]} · ${REPORT_TYPE_LABEL[reportType]}`
       : null;
   const headerLabel =
-    comboLabel || (dataScope ? DATA_SCOPE_LABEL[dataScope] : null);
+    comboLabel ||
+    (dataScope ? DATA_SCOPE_LABEL[dataScope] : null) ||
+    (pptPurpose ? `PPT · ${PPT_TEMPLATE_LABEL[pptPurpose]}` : null);
   const displayTitle = draft
     ? extractDraftTitle(draft.markdown, draft.title)
     : "";
-  const previewHtml = useMemo(
-    () => (draft ? DOMPurify.sanitize(draftBodyHtml(draft.markdown)) : ""),
-    [draft]
-  );
+  // [auto-docu 화면 편집 Phase 3a] 블록별 data-block-id + 원본 마크다운 위치
+  // — 클릭한 블록만 스코프 잡아 대화로 수정하는 데 쓴다.
+  const previewData = useMemo(() => {
+    if (!draft) return { html: "", blocks: [] };
+    const { html, blocks } = draftBodyHtmlBlocks(draft.markdown);
+    return { html: DOMPurify.sanitize(html), blocks };
+  }, [draft]);
+  const previewHtml = previewData.html;
+  const previewWrapperRef = useRef(null);
+  const [activeBlock, setActiveBlock] = useState(null); // {id, source, startLine, endLine, rect}
+  const [blockInstruction, setBlockInstruction] = useState("");
+  const [revisingBlock, setRevisingBlock] = useState(false);
+  const [blockUndoStack, setBlockUndoStack] = useState([]); // markdown 스냅샷 배열
+  // [auto-docu PPT 화면 편집 Phase 3b] PPT 목록 미리보기 쪽의 같은 흐름 —
+  // 스타일은 기존 목록 미리보기 그대로 두고, 요소별 클릭 편집만 추가한다.
+  const pptPreviewWrapperRef = useRef(null);
+  const [pptActiveBlock, setPptActiveBlock] = useState(null); // {id, text, rect}
+  const [pptBlockInstruction, setPptBlockInstruction] = useState("");
+  const [pptRevisingBlock, setPptRevisingBlock] = useState(false);
 
   async function generate() {
     if (!dataScope || !reportType) return;
@@ -174,6 +305,175 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
   function updateDraftMarkdown(value) {
     setDraft((prev) => (prev ? { ...prev, markdown: value } : prev));
+  }
+
+  // [auto-docu 화면 편집 Phase 3a] — 직접 클릭이든 호버 라벨의 "이
+  // 부분만"/"전체 블록" 선택이든 이 하나로 처리한다(id+el만 있으면 됨).
+  function selectBlock(id, el) {
+    if (!el || !previewWrapperRef.current) return;
+    const block = previewData.blocks.find((b) => b.id === id);
+    if (!block) return;
+    const rect = computeRelativeRect(el, previewWrapperRef.current);
+    setActiveBlock({ ...block, rect });
+    setBlockInstruction("");
+    setBlockStatsMode(false);
+    setBlockStatsMethod(null);
+  }
+
+  function patchMarkdownBlock(markdown, block, revisedText) {
+    const lines = markdown.split("\n");
+    return [
+      ...lines.slice(0, block.startLine),
+      revisedText,
+      ...lines.slice(block.endLine),
+    ].join("\n");
+  }
+
+  async function reviseActiveBlock() {
+    if (!activeBlock || !blockInstruction.trim() || revisingBlock) return;
+    setRevisingBlock(true);
+    const res = await Workspace.reviseDraftBlock(workspace.slug, {
+      blockMarkdown: activeBlock.source,
+      instruction: blockInstruction.trim(),
+      surroundingContext: draft.markdown.slice(0, 1500),
+    });
+    setRevisingBlock(false);
+    if (res?.error || !res?.revised) {
+      showToast(
+        res?.error || "수정에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+      return;
+    }
+    setBlockUndoStack((prev) => [...prev, draft.markdown].slice(-10));
+    updateDraftMarkdown(
+      patchMarkdownBlock(draft.markdown, activeBlock, res.revised)
+    );
+    setActiveBlock(null);
+    setBlockInstruction("");
+    showToast("선택한 부분을 수정했습니다.", "success");
+  }
+
+  function undoBlockEdit() {
+    setBlockUndoStack((prev) => {
+      if (!prev.length) return prev;
+      updateDraftMarkdown(prev[prev.length - 1]);
+      return prev.slice(0, -1);
+    });
+  }
+
+  // [auto-docu 통계분석] "통계분석" 보고서 유형 — draft.js 대신
+  // stats/analyze를 호출한다. 결과(revised 마크다운)를 그대로 draft.markdown
+  // 으로 써서, 이후 미리보기/클릭편집/내보내기는 기본/분석보고서와 동일하게
+  // 재사용한다(별도 렌더러를 새로 만들지 않음).
+  async function generateStatsReport() {
+    if (!statsMethod || !statsInstruction.trim()) return;
+    setGeneratingStats(true);
+    setDraft(null);
+    setEditing(false);
+    const res = await Workspace.runStatsAnalysis(workspace.slug, {
+      instruction: statsInstruction.trim(),
+      method: statsMethod,
+      sourceText: source.message,
+      uploadedData: statsUploadedData,
+    });
+    setGeneratingStats(false);
+    if (res?.error || !res?.revised)
+      return showToast(
+        res?.error || "통계 분석에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+    setDraft({
+      markdown: res.revised,
+      title: `${res.methodLabel || "통계분석"} 결과`,
+      designed: false,
+    });
+    showToast(
+      `${res.methodLabel} 분석이 완료되었습니다(실제 계산 기반). 필요하면 내용을 직접 수정할 수 있습니다.`,
+      "success"
+    );
+  }
+
+  // 블록별 애드혹 "통계 분석" — 선택한 블록 자리에 통계 서술을 끼워 넣는다.
+  // patchMarkdownBlock으로 같은 라인 스플라이스 패치를 재사용한다.
+  async function runBlockStatsAnalysis() {
+    if (
+      !activeBlock ||
+      !blockStatsMethod ||
+      !blockInstruction.trim() ||
+      revisingBlock
+    )
+      return;
+    setRevisingBlock(true);
+    const res = await Workspace.runStatsAnalysis(workspace.slug, {
+      instruction: blockInstruction.trim(),
+      method: blockStatsMethod,
+      sourceText: source.message,
+      surroundingContext: draft.markdown.slice(0, 1500),
+    });
+    setRevisingBlock(false);
+    if (res?.error || !res?.revised) {
+      showToast(
+        res?.error || "통계 분석에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+      return;
+    }
+    setBlockUndoStack((prev) => [...prev, draft.markdown].slice(-10));
+    updateDraftMarkdown(
+      patchMarkdownBlock(draft.markdown, activeBlock, res.revised)
+    );
+    setActiveBlock(null);
+    setBlockInstruction("");
+    setBlockStatsMode(false);
+    setBlockStatsMethod(null);
+    showToast(`${res.methodLabel} 분석 결과를 반영했습니다.`, "success");
+  }
+
+  // [auto-docu PPT 화면 편집 Phase 3b] 기존 PPT 목록 미리보기의 요소(제목/
+  // 불릿/표 셀 — 항목 단위)와 그걸 감싸는 블록 전체(불릿 목록 전체, 표
+  // 전체 — 블록 단위)를 둘 다 선택할 수 있다. data-block-text는 항목 단위
+  // 요소엔 그 항목 텍스트, 블록 단위 요소(ul/table)엔 blockTextFor로 만든
+  // 직렬화 텍스트가 미리 박혀 있다.
+  function selectPptBlock(id, el) {
+    if (!el || !pptPreviewWrapperRef.current) return;
+    const text = el.getAttribute("data-block-text") || "";
+    const rect = computeRelativeRect(el, pptPreviewWrapperRef.current);
+    setPptActiveBlock({ id, text, rect });
+    setPptBlockInstruction("");
+  }
+
+  async function revisePptActiveBlock() {
+    if (!pptActiveBlock || !pptBlockInstruction.trim() || pptRevisingBlock)
+      return;
+    setPptRevisingBlock(true);
+    const res = await Workspace.reviseDraftBlock(workspace.slug, {
+      blockMarkdown: pptActiveBlock.text,
+      instruction: pptBlockInstruction.trim(),
+    });
+    setPptRevisingBlock(false);
+    if (res?.error || !res?.revised) {
+      showToast(
+        res?.error || "수정에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+      return;
+    }
+    setPptDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            slideSpec: patchSlideSpec(
+              prev.slideSpec,
+              pptActiveBlock.id,
+              res.revised
+            ),
+          }
+        : prev
+    );
+    setPptActiveBlock(null);
+    setPptBlockInstruction("");
+    showToast("선택한 부분을 수정했습니다.", "success");
   }
 
   function archiveDraftInBackground() {
@@ -219,6 +519,76 @@ export default function DraftPanel({ source, workspace, onClose }) {
     archiveDraftInBackground();
   }
 
+  // [auto-docu PPT 생성 Phase 1] pptSourceOverride가 있으면(HTML→PPT 연결로
+  // 넘어온 경우) 원본 채팅 답변 대신 그 문서 초안 내용을 근거로 쓴다.
+  async function generatePpt() {
+    if (!pptPurpose) return;
+    setGeneratingPpt(true);
+    setPptDraft(null);
+    const res = await Workspace.generatePptDraft(workspace.slug, {
+      sourceText: pptSourceOverride || source.message,
+      citations: pptSourceOverride ? [] : source.sources || [],
+      purpose: pptPurpose,
+      slideCount,
+      instructions: pptInstructions.trim(),
+    });
+    setGeneratingPpt(false);
+    if (res?.error || !res?.slideSpec)
+      return showToast(
+        res?.error || "PPT 생성에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+    setPptDraft(res);
+    showToast(
+      "PPT 초안이 생성되었습니다. 아래에서 슬라이드를 확인하세요.",
+      "success"
+    );
+    if (res.warning) showToast(res.warning, "warning");
+  }
+
+  function archivePptInBackground() {
+    if (!pptDraft?.slideSpec) return;
+    // [auto-docu 내부생성자료] 문서 초안과 같은 게이트 — "제안" 상태로만
+    // 넣고 검수 전에는 검색에 노출되지 않는다. 마크다운 본문은 슬라이드
+    // 내용을 간단히 개요화한 텍스트(실제 파일은 pptx이지만 아카이브
+    // 색인은 markdown 텍스트만 받으므로).
+    const outline = pptDraft.slideSpec.slides
+      .map((s, i) => {
+        const body = s.table
+          ? [
+              s.table.headers.join(" | "),
+              ...s.table.rows.map((r) => r.join(" | ")),
+            ].join("\n")
+          : (s.content || []).map((c) => `- ${c}`).join("\n");
+        return `## ${i + 1}. ${s.title || ""}\n${body}`;
+      })
+      .join("\n\n");
+    Workspace.archiveGenerated(workspace.slug, {
+      title: pptDraft.title,
+      markdown: `# ${pptDraft.title}\n\n${outline}`,
+      kind: "ppt_draft",
+    }).then((res) => {
+      if (res?.success)
+        showToast(
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
+          "info"
+        );
+    });
+  }
+
+  async function downloadPptx() {
+    if (!pptDraft?.slideSpec || exportingPptx) return;
+    setExportingPptx(true);
+    const res = await Workspace.downloadAsPptx({
+      slideSpec: pptDraft.slideSpec,
+    });
+    setExportingPptx(false);
+    if (!res?.success)
+      return showToast(res?.error || "PPTX 다운로드에 실패했습니다.", "error");
+    showToast("PPTX 파일을 내려받았습니다.", "success");
+    archivePptInBackground();
+  }
+
   return (
     <div
       className="flex shrink-0 flex-col bg-white light:bg-white dark:bg-zinc-950"
@@ -236,11 +606,14 @@ export default function DraftPanel({ source, workspace, onClose }) {
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-zinc-800">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-zinc-100">
           <Sparkle size={16} weight="fill" className="text-blue-500" />
-          문서 초안 작성
+          Reporting
           {headerLabel && (
             <span
-              className="rounded-full px-2 py-0.5 text-[11px] font-medium"
-              style={{ background: `${accent.accent}1a`, color: accent.accent }}
+              className="rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.04em]"
+              style={{
+                borderColor: `${accent.accent}40`,
+                color: accent.accent,
+              }}
             >
               {headerLabel}
             </span>
@@ -277,9 +650,60 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
       {/* 본문 */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {/* 1단계: 자료 범위 선택 */}
-        {!dataScope && (
+        {/* 0단계: 무엇을 만들지 선택 */}
+        {!outputFormat && (
           <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+            <p className="text-xs text-slate-500 dark:text-zinc-400">
+              위 답변을 바탕으로 무엇을 만들까요?
+            </p>
+            <button
+              type="button"
+              onClick={() => setOutputFormat("doc")}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+            >
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-zinc-100">
+                <FileDoc size={15} weight="fill" className="text-blue-600" />
+                문서 (보고서)
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+                목적/배경/현황 구조의 텍스트 보고서를 만듭니다. HTML·DOCX로
+                내려받습니다.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPptSourceOverride(null);
+                setOutputFormat("ppt");
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+            >
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-zinc-100">
+                <Presentation
+                  size={15}
+                  weight="fill"
+                  className="text-blue-600"
+                />
+                PPT (프레젠테이션)
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+                목적에 맞는 슬라이드 흐름으로 PPT 초안을 만듭니다. PPTX로
+                내려받습니다.
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* 1단계: 자료 범위 선택 */}
+        {outputFormat === "doc" && !dataScope && (
+          <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+            <button
+              type="button"
+              onClick={() => setOutputFormat(null)}
+              className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+            >
+              <ArrowLeft size={12} /> 다른 형식 선택
+            </button>
             <p className="text-xs text-slate-500 dark:text-zinc-400">
               위 답변을 바탕으로 문서를 만듭니다. 먼저 어떤 자료를 근거로 쓸지
               골라주세요.
@@ -334,9 +758,9 @@ export default function DraftPanel({ source, workspace, onClose }) {
           </div>
         )}
 
-        {/* 3단계: 추가 요청 + 생성 */}
-        {dataScope && reportType && !draft && !generating && (
-          <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+        {/* 3단계(통계분석): 방법 선택 + 분석 요청 */}
+        {dataScope && reportType === "stats" && !draft && !generatingStats && (
+          <div className="mx-auto flex max-w-2xl flex-col gap-3 py-2">
             <button
               type="button"
               onClick={() => setReportType(null)}
@@ -344,29 +768,129 @@ export default function DraftPanel({ source, workspace, onClose }) {
             >
               <ArrowLeft size={12} /> 문서 유형 다시 선택
             </button>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">
+              통계 방법을 고르세요. 실제 계산(scikit-learn/statsmodels)을 거친
+              결과만 서술로 옮깁니다 — 방법을 모르면 "미정"을 고르면 목적에 맞춰
+              자동으로 골라 줍니다.
+            </p>
+            <StatsMethodPicker
+              selected={statsMethod}
+              onSelect={setStatsMethod}
+            />
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                추가 요청 사항 (선택)
-              </span>
-              <span className="text-[11px] text-slate-500 dark:text-zinc-500">
-                기본은 텍스트 중심으로 만들어지고, "디자인 요소를 추가해줘"처럼
-                요청하면 색이 들어간 스타일로 만들어 드립니다.
+                분석 요청 사항
               </span>
               <textarea
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                rows={4}
-                placeholder="예: 색상 강조 같은 디자인 요소를 추가해줘 / A4 1장 분량으로 / 핵심만 간결하게 / 수신처는 OO부"
+                value={statsInstruction}
+                onChange={(e) => setStatsInstruction(e.target.value)}
+                rows={3}
+                placeholder="예: 월별 매출과 광고비 데이터로 광고비가 매출에 미치는 영향을 분석해줘"
                 className="resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
               />
             </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                추가 자료 업로드 (선택, CSV)
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-zinc-500">
+                답변 내용에 분석에 필요한 원자료가 부족하면 CSV로 올려주세요. 첫
+                줄은 열 이름입니다.
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const rows = parseCsvText(String(reader.result || ""));
+                    if (!rows.length)
+                      return showToast(
+                        "CSV에서 데이터를 읽지 못했습니다.",
+                        "error"
+                      );
+                    setStatsUploadedData({ filename: file.name, rows });
+                    showToast(
+                      `${file.name} (${rows.length}행)을 불러왔습니다.`,
+                      "success"
+                    );
+                  };
+                  reader.readAsText(file, "utf-8");
+                }}
+                className="text-[11px] text-slate-500 dark:text-zinc-400"
+              />
+              {statsUploadedData && (
+                <span className="flex items-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400">
+                  {statsUploadedData.filename} ({statsUploadedData.rows.length}
+                  행)
+                  <button
+                    type="button"
+                    onClick={() => setStatsUploadedData(null)}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
+            </label>
             <button
               type="button"
-              onClick={generate}
-              className="flex w-fit items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              onClick={generateStatsReport}
+              disabled={!statsMethod || !statsInstruction.trim()}
+              className="flex w-fit items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Sparkle size={14} weight="fill" /> 초안 생성
+              <Sparkle size={14} weight="fill" /> 분석 시작
             </button>
+          </div>
+        )}
+
+        {/* 3단계: 추가 요청 + 생성 */}
+        {dataScope &&
+          reportType &&
+          reportType !== "stats" &&
+          !draft &&
+          !generating && (
+            <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+              <button
+                type="button"
+                onClick={() => setReportType(null)}
+                className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+              >
+                <ArrowLeft size={12} /> 문서 유형 다시 선택
+              </button>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                  추가 요청 사항 (선택)
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-zinc-500">
+                  기본은 텍스트 중심으로 만들어지고, "디자인 요소를
+                  추가해줘"처럼 요청하면 색이 들어간 스타일로 만들어 드립니다.
+                </span>
+                <textarea
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  rows={4}
+                  placeholder="예: 색상 강조 같은 디자인 요소를 추가해줘 / A4 1장 분량으로 / 핵심만 간결하게 / 수신처는 OO부"
+                  className="resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={generate}
+                className="flex w-fit items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                <Sparkle size={14} weight="fill" /> 초안 생성
+              </button>
+            </div>
+          )}
+
+        {/* 통계 분석 중 */}
+        {generatingStats && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-zinc-400">
+            <CircleNotch size={22} className="animate-spin" />
+            <p className="text-xs">실제 통계 계산 중입니다...</p>
           </div>
         )}
 
@@ -426,23 +950,331 @@ export default function DraftPanel({ source, workspace, onClose }) {
                     accent={accent}
                   />
                 )}
-                <div
-                  className={`draft-preview rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm leading-7 text-slate-800 ${
-                    designed ? "designed rounded-t-none border-t-0" : ""
-                  }`}
-                  style={
-                    designed
-                      ? {
-                          "--accent": accent.accent,
-                          "--accent-soft": accent.accentSoft,
-                          "--accent-dark": accent.accentDark,
-                        }
-                      : undefined
+                <style>{`
+                  .draft-preview [data-block-id] { cursor: pointer; }
+                `}</style>
+                <p className="mb-1.5 text-[11px] text-slate-500 dark:text-zinc-500">
+                  원하는 부분에 마우스를 올리면 수정할 수 있는 범위가 보입니다.
+                  목록 항목처럼 더 큰 블록에 속한 부분은 항목만 또는 전체 블록을
+                  골라 수정할 수 있습니다.
+                </p>
+                <ScopedEditOverlay
+                  containerRef={previewWrapperRef}
+                  onSelect={selectBlock}
+                  activeId={activeBlock?.id || null}
+                  activeRect={activeBlock?.rect || null}
+                  previewText={activeBlock?.source || ""}
+                  value={blockInstruction}
+                  onChange={setBlockInstruction}
+                  onSubmit={
+                    blockStatsMode ? runBlockStatsAnalysis : reviseActiveBlock
                   }
-                  dangerouslySetInnerHTML={{ __html: previewHtml }}
-                />
+                  submitting={revisingBlock}
+                  onClose={() => {
+                    setActiveBlock(null);
+                    setBlockStatsMode(false);
+                    setBlockStatsMethod(null);
+                  }}
+                  submitLabel={blockStatsMode ? "분석 실행" : "수정"}
+                  submitDisabled={blockStatsMode && !blockStatsMethod}
+                  placeholder={
+                    blockStatsMode
+                      ? "예: 월별 매출 추세를 분석해줘"
+                      : "예: 더 간결하게"
+                  }
+                  extraButton={{
+                    label: blockStatsMode ? "일반 수정으로" : "통계 분석",
+                    onClick: () => setBlockStatsMode((v) => !v),
+                    active: blockStatsMode,
+                  }}
+                  extraContent={
+                    blockStatsMode && (
+                      <StatsMethodPicker
+                        selected={blockStatsMethod}
+                        onSelect={setBlockStatsMethod}
+                      />
+                    )
+                  }
+                >
+                  <div
+                    className={`draft-preview rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm leading-7 text-slate-800 ${
+                      designed ? "designed rounded-t-none border-t-0" : ""
+                    }`}
+                    style={
+                      designed
+                        ? {
+                            "--accent": accent.accent,
+                            "--accent-soft": accent.accentSoft,
+                            "--accent-dark": accent.accentDark,
+                          }
+                        : undefined
+                    }
+                    dangerouslySetInnerHTML={{ __html: previewHtml }}
+                  />
+                </ScopedEditOverlay>
+                {blockUndoStack.length > 0 && !activeBlock && (
+                  <button
+                    type="button"
+                    onClick={undoBlockEdit}
+                    className="mt-2 flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+                  >
+                    <ArrowLeft size={11} /> 방금 수정 취소
+                  </button>
+                )}
               </>
             )}
+          </div>
+        )}
+
+        {/* PPT 1단계: 목적 선택 */}
+        {outputFormat === "ppt" && !pptPurpose && (
+          <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+            <button
+              type="button"
+              onClick={() => setOutputFormat(null)}
+              className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+            >
+              <ArrowLeft size={12} /> 다른 형식 선택
+            </button>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">
+              어떤 목적의 PPT인가요? 목적에 맞는 슬라이드 흐름으로 초안을
+              만듭니다.
+            </p>
+            {pptSourceOverride && (
+              <p className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+                방금 만든 문서 초안 내용을 근거로 사용합니다(원본 채팅 답변
+                대신).
+              </p>
+            )}
+            {PPT_TEMPLATES.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setPptPurpose(t.key)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+              >
+                <span className="block text-sm font-semibold text-slate-800 dark:text-zinc-100">
+                  {t.label}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+                  {t.desc}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* PPT 2단계: 페이지 수 + 추가 요청 + 생성 */}
+        {outputFormat === "ppt" &&
+          pptPurpose &&
+          !pptDraft &&
+          !generatingPpt && (
+            <div className="mx-auto flex max-w-xl flex-col gap-3 py-2">
+              <button
+                type="button"
+                onClick={() => setPptPurpose(null)}
+                className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+              >
+                <ArrowLeft size={12} /> 목적 다시 선택
+              </button>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                  페이지 수 (표지 제외)
+                </span>
+                <input
+                  type="number"
+                  min={MIN_SLIDE_COUNT}
+                  max={MAX_SLIDE_COUNT}
+                  value={slideCount}
+                  onChange={(e) =>
+                    setSlideCount(
+                      Math.min(
+                        MAX_SLIDE_COUNT,
+                        Math.max(
+                          MIN_SLIDE_COUNT,
+                          Number(e.target.value) || MIN_SLIDE_COUNT
+                        )
+                      )
+                    )
+                  }
+                  className="w-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+                <span className="text-[11px] text-slate-500 dark:text-zinc-500">
+                  {MIN_SLIDE_COUNT}~{MAX_SLIDE_COUNT}장 사이로 조절할 수
+                  있습니다.
+                </span>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                  추가 요청 사항 (선택)
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-zinc-500">
+                  페이지별로 꼭 들어갔으면 하는 내용이나 흐름을 적어주세요.
+                </span>
+                <textarea
+                  value={pptInstructions}
+                  onChange={(e) => setPptInstructions(e.target.value)}
+                  rows={4}
+                  placeholder="예: 표지 다음에 배경 슬라이드를 먼저 넣어줘 / 3번째 슬라이드는 표로 정리해줘"
+                  className="resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={generatePpt}
+                className="flex w-fit items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                <Sparkle size={14} weight="fill" /> PPT 초안 생성
+              </button>
+            </div>
+          )}
+
+        {/* PPT 생성 중 */}
+        {generatingPpt && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-zinc-400">
+            <CircleNotch size={22} className="animate-spin" />
+            <p className="text-xs">
+              {PPT_TEMPLATE_LABEL[pptPurpose]} PPT 초안을 작성하고 있습니다…
+            </p>
+          </div>
+        )}
+
+        {/* PPT 결과: 슬라이드별 구조화 미리보기 */}
+        {pptDraft && !generatingPpt && (
+          <div className="mx-auto flex max-w-2xl flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => setPptDraft(null)}
+              className="flex w-fit items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+            >
+              <ArrowLeft size={12} /> 요청 수정 / 다시 생성
+            </button>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+              {pptDraft.title}
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-zinc-500">
+              원하는 부분에 마우스를 올리면 수정할 수 있는 범위가 보입니다. 불릿
+              하나/표 칸 하나만, 또는 불릿 목록 전체/표 전체를 골라 수정할 수
+              있습니다.
+            </p>
+            <style>{`
+              .ppt-list-preview [data-block-id] { cursor: pointer; }
+            `}</style>
+            <ScopedEditOverlay
+              containerRef={pptPreviewWrapperRef}
+              className="ppt-list-preview flex flex-col gap-3"
+              onSelect={selectPptBlock}
+              activeId={pptActiveBlock?.id || null}
+              activeRect={pptActiveBlock?.rect || null}
+              previewText={pptActiveBlock?.text || ""}
+              value={pptBlockInstruction}
+              onChange={setPptBlockInstruction}
+              onSubmit={revisePptActiveBlock}
+              submitting={pptRevisingBlock}
+              onClose={() => setPptActiveBlock(null)}
+            >
+              {pptDraft.slideSpec.slides.map((slide, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md border border-blue-200 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-blue-600 dark:border-blue-900 dark:text-blue-400">
+                      {i + 1} / {slide.layout === "section" ? "구분" : "내용"}
+                    </span>
+                    <span
+                      data-block-id={`${i}.title`}
+                      data-block-text={slide.title || ""}
+                      className="text-sm font-semibold text-slate-800 dark:text-zinc-100"
+                    >
+                      {slide.title}
+                    </span>
+                  </div>
+                  {slide.subtitle && (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                      {slide.subtitle}
+                    </p>
+                  )}
+                  {Array.isArray(slide.content) && slide.content.length > 0 && (
+                    <ul
+                      data-block-id={`${i}.content`}
+                      data-block-text={blockTextFor(slide, "content")}
+                      className="mt-2 list-disc space-y-1 rounded px-5 py-1 text-xs leading-5 text-slate-700 dark:text-zinc-300"
+                    >
+                      {slide.content.map((c, ci) => (
+                        <li
+                          key={ci}
+                          data-block-id={`${i}.bullet.${ci}`}
+                          data-block-text={c}
+                        >
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {slide.table && (
+                    <div
+                      data-block-id={`${i}.table`}
+                      data-block-text={blockTextFor(slide, "table")}
+                      className="mt-2 overflow-x-auto rounded p-1"
+                    >
+                      <table className="w-full border-collapse text-xs">
+                        <thead>
+                          <tr>
+                            {slide.table.headers.map((h, hi) => (
+                              <th
+                                key={hi}
+                                data-block-id={`${i}.header.${hi}`}
+                                data-block-text={h}
+                                className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-semibold text-slate-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {slide.table.rows.map((row, ri) => (
+                            <tr key={ri}>
+                              {row.map((cell, ci) => (
+                                <td
+                                  key={ci}
+                                  data-block-id={`${i}.cell.${ri}.${ci}`}
+                                  data-block-text={cell}
+                                  className="border border-slate-200 px-2 py-1 text-slate-600 dark:border-zinc-800 dark:text-zinc-400"
+                                >
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {slide.chart && (
+                    <div
+                      data-block-id={`${i}.chart`}
+                      data-block-text={blockTextFor(slide, "chart")}
+                      className="mt-2 rounded border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-xs text-slate-600 dark:border-blue-900 dark:bg-blue-950/20 dark:text-zinc-300"
+                    >
+                      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-blue-600 dark:text-blue-400">
+                        {CHART_TYPE_LABEL[slide.chart.type] || "차트"}
+                      </span>
+                      <span className="ml-1.5">
+                        {(slide.chart.categories || []).join(", ")}
+                        {slide.chart.series?.length
+                          ? ` · ${slide.chart.series
+                              .map((s) => s.name)
+                              .filter(Boolean)
+                              .join(", ")}`
+                          : ""}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </ScopedEditOverlay>
           </div>
         )}
       </div>
@@ -474,6 +1306,38 @@ export default function DraftPanel({ source, workspace, onClose }) {
             DOCX 다운로드
           </button>
           <DisabledExport icon={FileXls} label="XLSX" />
+          <button
+            type="button"
+            onClick={() => {
+              setPptSourceOverride(draft.markdown);
+              setPptDraft(null);
+              setPptPurpose(null);
+              setOutputFormat("ppt");
+            }}
+            className="ml-auto flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-300"
+          >
+            <Presentation size={15} weight="fill" /> 이 내용으로 PPT 만들기
+          </button>
+        </div>
+      )}
+      {pptDraft && !generatingPpt && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-2.5 dark:border-zinc-800">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
+            내보내기
+          </span>
+          <button
+            type="button"
+            onClick={downloadPptx}
+            disabled={exportingPptx}
+            className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportingPptx ? (
+              <CircleNotch size={15} className="animate-spin" />
+            ) : (
+              <FilePpt size={15} weight="fill" />
+            )}
+            PPTX 다운로드
+          </button>
         </div>
       )}
     </div>

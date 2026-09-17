@@ -102,7 +102,13 @@ function addSlideFooter(slide, pptx, theme, slideNumber, totalSlides) {
   });
 }
 
-function renderTitleSlide(slide, pptx, { title, author }, theme) {
+function renderTitleSlide(
+  slide,
+  pptx,
+  { title, author },
+  theme,
+  { branding = true } = {}
+) {
   slide.background = { color: theme.titleSlideBackground };
 
   slide.addText(title || "Untitled", {
@@ -144,7 +150,7 @@ function renderTitleSlide(slide, pptx, { title, author }, theme) {
     line: { color: theme.titleSlideAccentColor },
   });
 
-  addBranding(slide, theme.titleSlideBackground);
+  if (branding) addBranding(slide, theme.titleSlideBackground);
 }
 
 function renderSectionSlide(
@@ -153,7 +159,8 @@ function renderSectionSlide(
   slideData,
   theme,
   slideNumber,
-  totalSlides
+  totalSlides,
+  { branding = true } = {}
 ) {
   slide.background = { color: theme.titleSlideBackground };
 
@@ -200,7 +207,7 @@ function renderSectionSlide(
     align: "left",
   });
 
-  addBranding(slide, theme.titleSlideBackground);
+  if (branding) addBranding(slide, theme.titleSlideBackground);
 
   if (slideData.notes) slide.addNotes(slideData.notes);
 }
@@ -211,7 +218,8 @@ function renderContentSlide(
   slideData,
   theme,
   slideNumber,
-  totalSlides
+  totalSlides,
+  { branding = true } = {}
 ) {
   slide.background = { color: theme.background };
 
@@ -259,7 +267,16 @@ function renderContentSlide(
   const footerY = 5.0;
   const contentHeight = footerY - contentStartY - 0.15;
 
-  if (slideData.table) {
+  if (slideData.chart) {
+    addChartContent(
+      slide,
+      pptx,
+      slideData.chart,
+      theme,
+      contentStartY,
+      contentHeight
+    );
+  } else if (slideData.table) {
     addTableContent(slide, pptx, slideData.table, theme, contentStartY);
   } else {
     addBulletContent(
@@ -272,15 +289,22 @@ function renderContentSlide(
   }
 
   addSlideFooter(slide, pptx, theme, slideNumber, totalSlides);
-  addBranding(slide, theme.background);
+  if (branding) addBranding(slide, theme.background);
 
   if (slideData.notes) slide.addNotes(slideData.notes);
 }
 
-function renderBlankSlide(slide, pptx, theme, slideNumber, totalSlides) {
+function renderBlankSlide(
+  slide,
+  pptx,
+  theme,
+  slideNumber,
+  totalSlides,
+  { branding = true } = {}
+) {
   slide.background = { color: theme.background };
   addSlideFooter(slide, pptx, theme, slideNumber, totalSlides);
-  addBranding(slide, theme.background);
+  if (branding) addBranding(slide, theme.background);
 }
 
 function addBulletContent(slide, content, theme, startY, maxHeight) {
@@ -363,6 +387,99 @@ function addTableContent(slide, pptx, tableData, theme, startY) {
   });
 }
 
+function lightenHex(hex, amount) {
+  const h = (hex || "000000").replace("#", "");
+  const r = parseInt(h.substr(0, 2), 16);
+  const g = parseInt(h.substr(2, 2), 16);
+  const b = parseInt(h.substr(4, 2), 16);
+  const blend = (c) => Math.round(c + (255 - c) * amount);
+  return [blend(r), blend(g), blend(b)]
+    .map((c) => c.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+// 테마별로 별도의 차트 팔레트를 추가하지 않고, 이미 있는 테마 토큰(강조색 ·
+// 불릿색 · 표 헤더색 · 타이틀 슬라이드 강조색)을 그대로 계열 색상으로 재사용한다
+// — 그래야 차트가 나머지 슬라이드와 같은 색으로 보이고, 테마 파일을 건드릴
+// 필요도 없다. 다만 테마 중에는(예: corporate) 이 네 토큰이 실제로는 색 2개
+// (금색·남색)뿐인 경우가 있어, 계열이 3개 이상인 차트(특히 파이)에서 인접
+// 조각이 구분되지 않는다 — 그럴 땐 밝기를 섞은 변형색을 채워 넣어 계열마다
+// 눈에 띄게 다른 색이 되도록 한다.
+function chartColorsForTheme(theme, seriesCount = 4) {
+  const base = [
+    ...new Set(
+      [
+        theme.accentColor,
+        theme.tableHeaderBg,
+        theme.bulletColor,
+        theme.titleSlideAccentColor,
+      ].filter(Boolean)
+    ),
+  ];
+  const palette = [...base];
+  let i = 0;
+  while (palette.length < Math.max(seriesCount, base.length)) {
+    const src = base[i % base.length];
+    const amount = 0.3 * (Math.floor(i / base.length) + 1);
+    palette.push(lightenHex(src, Math.min(amount, 0.75)));
+    i++;
+  }
+  return palette;
+}
+
+function addChartContent(slide, pptx, chartData, theme, startY, maxHeight) {
+  if (
+    !chartData ||
+    !Array.isArray(chartData.series) ||
+    !chartData.series.length
+  )
+    return;
+
+  const chartTypeMap = {
+    bar: pptx.ChartType.bar,
+    line: pptx.ChartType.line,
+    pie: pptx.ChartType.pie,
+  };
+  const chartType = chartTypeMap[chartData.type] || pptx.ChartType.bar;
+  const categories = Array.isArray(chartData.categories)
+    ? chartData.categories
+    : [];
+  const isPie = chartData.type === "pie";
+
+  // pie는 계열 하나만 의미가 있다 — 여러 계열을 주면 첫 계열만 쓴다.
+  const seriesForChart = isPie
+    ? [
+        {
+          name: chartData.series[0]?.name || "",
+          labels: categories,
+          values: chartData.series[0]?.values || [],
+        },
+      ]
+    : chartData.series.map((s) => ({
+        name: s.name || "",
+        labels: categories,
+        values: Array.isArray(s.values) ? s.values : [],
+      }));
+
+  const seriesCount = isPie ? categories.length : seriesForChart.length;
+  slide.addChart(chartType, seriesForChart, {
+    x: MARGIN_X,
+    y: startY,
+    w: CONTENT_W,
+    h: maxHeight,
+    chartColors: chartColorsForTheme(theme, seriesCount),
+    showLegend: isPie || seriesForChart.length > 1,
+    legendPos: "b",
+    legendColor: theme.bodyColor,
+    showTitle: false,
+    catAxisLabelColor: theme.bodyColor,
+    valAxisLabelColor: theme.bodyColor,
+    dataLabelColor: isPie ? "FFFFFF" : theme.bodyColor,
+    ...(isPie ? { showPercent: true, showValue: false } : {}),
+  });
+}
+
 module.exports = {
   isDarkColor,
   addBranding,
@@ -375,4 +492,6 @@ module.exports = {
   renderBlankSlide,
   addBulletContent,
   addTableContent,
+  addChartContent,
+  chartColorsForTheme,
 };

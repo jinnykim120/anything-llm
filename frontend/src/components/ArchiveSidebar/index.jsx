@@ -266,7 +266,7 @@ function WorkspaceArchiveSidebar({ slug }) {
     }
   }
 
-  const workspaceName = "아카이브";
+  const workspaceName = "추출 아카이브 범위";
   const isDocRegen = location.pathname === paths.workspace.docRegen(slug);
 
   return (
@@ -281,10 +281,10 @@ function WorkspaceArchiveSidebar({ slug }) {
         </Link>
       </div>
 
-      {/* 검색 관련 항목 그룹 — 스코프·기록 검색·기록 목록을 음영 박스 하나로 묶는다. */}
-      <div className="mx-4 mt-1 flex min-h-0 flex-1 flex-col rounded-lg bg-slate-50 p-4 light:bg-slate-50 dark:bg-zinc-900/40">
+      {/* 검색 관련 항목 그룹 — 채워진 박스 대신 상단 hairline으로만 구분 (design.md § Component voice) */}
+      <div className="mx-4 mt-1 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4 light:border-slate-200 dark:border-zinc-800">
         <div>
-          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600 light:text-blue-600 dark:text-blue-400">
+          <p className="truncate font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600 light:text-blue-600 dark:text-blue-400">
             {workspaceName}
           </p>
           <label className="relative mt-3 block" htmlFor="archive-scope">
@@ -293,7 +293,7 @@ function WorkspaceArchiveSidebar({ slug }) {
               id="archive-scope"
               value={archiveScope}
               onChange={changeArchiveScope}
-              className="w-full appearance-none rounded border border-slate-200 bg-white px-3 py-2 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 light:border-slate-200 light:bg-white light:text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
+              className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 light:border-slate-200 light:bg-white light:text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
             >
               {ARCHIVE_SCOPES.map((scope) => (
                 <option key={scope} value={scope}>
@@ -325,7 +325,7 @@ function WorkspaceArchiveSidebar({ slug }) {
                 <button
                   type="button"
                   onClick={createThread}
-                  className="inline-flex items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 light:border-blue-200 light:bg-blue-50 light:text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/70"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 light:border-blue-200 light:bg-blue-50 light:text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/70"
                   aria-label="새채팅 시작"
                 >
                   <Plus size={14} weight="bold" /> 새채팅
@@ -333,7 +333,7 @@ function WorkspaceArchiveSidebar({ slug }) {
               </div>
             </div>
 
-            <div className="mt-4 flex items-center rounded border border-slate-200 bg-white px-2.5 py-2 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="mt-4 flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-2 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <MagnifyingGlass
                 size={15}
                 className="mr-2 shrink-0 text-slate-400 dark:text-zinc-500"
@@ -479,7 +479,7 @@ function ManagementSidebar({ slug, activeManagement }) {
           )}
         </Link>
         <div className="mt-7 border-b border-slate-200 pb-5 dark:border-zinc-800">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600">
             관리
           </p>
           <p className="mt-2 text-base font-semibold">아카이브 관리</p>
@@ -493,7 +493,7 @@ function ManagementSidebar({ slug, activeManagement }) {
         className="min-h-0 flex-1 overflow-y-auto px-4"
         aria-label="관리 메뉴"
       >
-        <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">
+        <p className="px-2 pb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600 dark:text-blue-400">
           관리 메뉴
         </p>
         <div className="space-y-1">

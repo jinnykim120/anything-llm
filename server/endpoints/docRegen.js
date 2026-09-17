@@ -34,8 +34,50 @@ const {
 const {
   parseAndArchiveUpload,
 } = require("../utils/files/parseAndArchiveUpload");
-const { loadBaseDocuments, regenerateDocument } = require("../utils/docRegen");
+const {
+  loadBaseDocuments,
+  loadBaseDocument,
+  regenerateDocument,
+} = require("../utils/docRegen");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
+const prisma = require("../utils/prisma");
+const { PPT_TEMPLATES, generateSlideSpec } = require("./pptDraft");
+
+// [auto-docu PPT 생성 Phase 2] 지정한 문서함 폴더 안의 문서들에서 PPT 근거로
+// 쓸 텍스트를 모은다 — 폴더 전체를 그대로 프롬프트에 넣으면 너무 커지므로
+// 문서 수·문서당 글자 수를 둘 다 제한한다(간단한 대표 발췌, 정밀 검색 아님).
+const PPT_FOLDER_MAX_DOCS = 10;
+const PPT_FOLDER_PER_DOC_CHARS = 2500;
+
+async function gatherFolderSourceText({ workspace, folderKeys }) {
+  const docIds = await resolveFolderDocIds(workspace, folderKeys);
+  if (!Array.isArray(docIds) || !docIds.length)
+    throw new Error(
+      "PPT 근거로 쓸 문서함 폴더를 지정해 주세요(전체 폴더는 지원하지 않습니다)."
+    );
+
+  const rows = await prisma.workspace_documents.findMany({
+    where: { workspaceId: workspace.id, docId: { in: docIds } },
+    select: { id: true, docId: true },
+    take: PPT_FOLDER_MAX_DOCS,
+  });
+  if (!rows.length) throw new Error("지정한 폴더에서 문서를 찾지 못했습니다.");
+
+  const docs = await Promise.all(
+    rows.map((r) => loadBaseDocument(r.id).catch(() => null))
+  );
+  const usable = docs.filter(Boolean);
+  if (!usable.length) throw new Error("지정한 폴더의 문서를 읽지 못했습니다.");
+
+  const sourceText = usable
+    .map(
+      (d, i) =>
+        `### 문서 ${i + 1}: ${d.title}\n${d.pageContent.slice(0, PPT_FOLDER_PER_DOC_CHARS)}`
+    )
+    .join("\n\n");
+  const citations = usable.map((d) => ({ title: d.title }));
+  return { sourceText, citations, docCount: usable.length };
+}
 
 function docRegenEndpoints(app) {
   if (!app) return;
@@ -99,6 +141,65 @@ function docRegenEndpoints(app) {
         writeResponseChunk(response, { type: "error", error: e.message });
       }
       response.end();
+    }
+  );
+
+  // [auto-docu PPT 생성 Phase 2] 지정한 문서함 폴더 안의 자료를 근거로 PPT
+  // 슬라이드 스펙을 생성한다 — draft.js의 /ppt-draft와 같은 생성 로직
+  // (pptDraft.js의 generateSlideSpec)을 재사용하되, 근거 출처만 "채팅 답변"
+  // 대신 "지정 폴더의 문서들"로 바꾼다.
+  app.post(
+    "/workspace/:slug/doc-regen/ppt-draft",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const {
+          folderKeys = null,
+          purpose = "analysis",
+          slideCount = 8,
+          instructions = "",
+          title = "",
+        } = reqBody(request);
+
+        if (!PPT_TEMPLATES[purpose])
+          return response
+            .status(400)
+            .json({ error: `알 수 없는 문서 목적입니다: ${purpose}` });
+
+        const { sourceText, citations, docCount } =
+          await gatherFolderSourceText({ workspace, folderKeys });
+
+        const LLMConnector = getLLMProvider({
+          provider: workspace?.chatProvider,
+          model: workspace?.chatModel,
+        });
+
+        const slideSpec = await generateSlideSpec({
+          sourceText,
+          citations,
+          purpose,
+          slideCount,
+          instructions,
+          LLMConnector,
+          temperature: workspace?.openAiTemp,
+          titleOverride: String(title || "").trim() || undefined,
+        });
+
+        return response.status(200).json({
+          slideSpec,
+          title: slideSpec.title,
+          purpose,
+          slideCount: slideSpec.slides.length,
+          docCount,
+          warning: slideSpec.warning,
+        });
+      } catch (e) {
+        console.error("POST /workspace/:slug/doc-regen/ppt-draft", e);
+        return response
+          .status(e.code === "RATE_LIMITED" ? 429 : 500)
+          .json({ error: e.message || "PPT 생성 중 오류가 발생했습니다." });
+      }
     }
   );
 

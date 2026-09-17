@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
+const { ThreadPrioritySources } = require("../../models/threadPrioritySources");
 const { getVectorDbClass, resolveProviderConnector } = require("../helpers");
 const { addChatCostToMetrics } = require("../helpers/modelPricing");
 const { writeResponseChunk } = require("../helpers/chat/responses");
@@ -185,6 +186,24 @@ async function streamChatWithWorkspace(
   parsedFiles.forEach((doc) => {
     const { pageContent, ...metadata } = doc;
     contextTexts.push(doc.pageContent);
+    sources.push({
+      text:
+        pageContent.slice(0, 1_000) + "...continued on in source document...",
+      ...metadata,
+    });
+  });
+
+  // [auto-docu 우선 자료] 이 스레드에 고정한 기존 아카이브 문서 — 검색
+  // 순위와 무관하게 매 답변에 강제로 포함한다(위 parsedFiles와 같은 원리,
+  // 이미 아카이브에 있는 문서를 고정하는 경우를 담당). 인용도 같은 방식으로
+  // sources에 넣어 일반 근거처럼 출처가 뜨게 한다.
+  const priorityDocs = await ThreadPrioritySources.getContextDocuments(
+    workspace,
+    thread || null
+  );
+  priorityDocs.forEach((doc) => {
+    const { pageContent, ...metadata } = doc;
+    contextTexts.push(pageContent);
     sources.push({
       text:
         pageContent.slice(0, 1_000) + "...continued on in source document...",

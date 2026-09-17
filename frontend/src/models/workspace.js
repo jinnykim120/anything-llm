@@ -335,6 +335,104 @@ const Workspace = {
       .then((res) => res.json())
       .catch((e) => ({ error: e.message }));
   },
+  // [auto-docu 화면 편집 Phase 3a] 미리보기에서 클릭한 블록 하나만 대화로
+  // 스코프 잡아 다시 쓴다 — 문서 전체를 재생성하지 않는다.
+  reviseDraftBlock: async function (
+    slug,
+    { blockMarkdown, instruction, surroundingContext = "" }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/draft/revise-block`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ blockMarkdown, instruction, surroundingContext }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu 통계분석] HTML/문서 초안 전용 — 실제 scikit-learn/statsmodels
+  // 계산을 거친 서술을 받는다. method가 없거나 "auto"면 서버가 목적에 맞는
+  // 방법을 골라 result.method로 알려준다. reviseDraftBlock과 같은 모양
+  // ({revised})으로 와서 같은 블록 패치 흐름을 그대로 재사용할 수 있다.
+  runStatsAnalysis: async function (
+    slug,
+    {
+      instruction,
+      method = null,
+      sourceText,
+      surroundingContext = "",
+      uploadedData = null,
+    }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/stats/analyze`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({
+        instruction,
+        method,
+        sourceText,
+        surroundingContext,
+        uploadedData,
+      }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu 우선 자료] 이미 아카이브에 있는 문서를 이 스레드에 고정 —
+  // 새로 올리는 파일은 기존 parseFile({threadSlug})로 이미 스레드에
+  // 고정되므로(그 결과가 매 답변마다 강제 포함됨), 이 3개는 "이미 아카이브에
+  // 있는 문서를 고정"하는 절반만 담당한다.
+  listPrioritySources: async function (slug, threadSlug) {
+    const url = new URL(`${fullApiUrl()}/workspace/${slug}/priority-sources`);
+    if (threadSlug) url.searchParams.set("threadSlug", threadSlug);
+    return await fetch(url, { method: "GET", headers: baseHeaders() })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  addPrioritySource: async function (slug, { threadSlug, docId }) {
+    return await fetch(`${API_BASE}/workspace/${slug}/priority-sources`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ threadSlug, docId }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  removePrioritySource: async function (slug, { threadSlug, id }) {
+    return await fetch(`${API_BASE}/workspace/${slug}/priority-sources/${id}`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+      body: JSON.stringify({ threadSlug }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu 자료 추출하기] 파일 하나를 그 자리에서 파싱만 하고(아카이브에
+  // 저장하지 않음) 본문을 돌려준다 — 이번 추출 1회용 임시 자료.
+  uploadExtractFile: async function (slug, file) {
+    const fd = new FormData();
+    fd.append("file", file);
+    return await fetch(`${API_BASE}/workspace/${slug}/extract-data/upload`, {
+      method: "POST",
+      body: fd,
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu 자료 추출하기] 업로드된 자료/아카이브에서 고른 폴더를
+  // RAG 없이 전부(exhaustive) 훑어 요청한 항목을 뽑는다.
+  runExtractData: async function (
+    slug,
+    { fields, uploadedDocs = [], folderKeys = [] }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/extract-data/run`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ fields, uploadedDocs, folderKeys }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
   // [auto-docu 전사문서작성tool] 정기 문서 갱신 작성 — 작년(기준) 문서 +
   // 신규 기준/가이던스로 절별 재작성을 스트리밍한다. onEvent(evt)는
   // {type: "outline_start"|"outline"|"plan"|"section_start"|"section_done"|"done"|"error", ...}
@@ -471,6 +569,73 @@ const Workspace = {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${sanitizeFilename(title) || "문서"}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { success: true };
+  },
+  // [auto-docu PPT 생성 Phase 1] 답변 내용을 근거로 PPT 슬라이드 스펙(JSON)을
+  // 생성한다. purpose: "analysis"|"proposal"|"performance"|"status"|"data".
+  generatePptDraft: async function (
+    slug,
+    { sourceText, citations = [], purpose, slideCount = 8, instructions = "" }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/ppt-draft`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({
+        sourceText,
+        citations,
+        purpose,
+        slideCount,
+        instructions,
+      }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu PPT 생성 Phase 2] 지정한 문서함 폴더의 자료를 근거로 PPT
+  // 슬라이드 스펙을 생성한다 — generatePptDraft와 같은 반환 모양이지만
+  // 근거는 채팅 답변 대신 folderKeys로 지정한 문서함 폴더에서 가져온다.
+  generateFolderPptDraft: async function (
+    slug,
+    { folderKeys = [], purpose, slideCount = 8, instructions = "", title = "" }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/doc-regen/ppt-draft`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({
+        folderKeys,
+        purpose,
+        slideCount,
+        instructions,
+        title,
+      }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  // [auto-docu PPT 생성 Phase 1] 슬라이드 스펙을 실제 .pptx 파일로 내려받는다
+  // — downloadAsDocx와 같은 방식(Blob + 임시 <a download>).
+  downloadAsPptx: async function ({ slideSpec }) {
+    const res = await fetch(`${API_BASE}/doc-export/pptx`, {
+      method: "POST",
+      body: JSON.stringify({ slideSpec }),
+      headers: baseHeaders(),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: body?.error || "PPTX 변환에 실패했습니다.",
+      };
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${sanitizeFilename(slideSpec?.title) || "프레젠테이션"}.pptx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -30,6 +30,12 @@ const { draftEndpoints } = require("./endpoints/draft");
 const { docRegenEndpoints } = require("./endpoints/docRegen");
 const { generatedArchiveEndpoints } = require("./endpoints/generatedArchive");
 const { exportDocEndpoints } = require("./endpoints/exportDoc");
+const { pptDraftEndpoints } = require("./endpoints/pptDraft");
+const { statsAnalysisEndpoints } = require("./endpoints/statsAnalysis");
+const { extractDataEndpoints } = require("./endpoints/extractData");
+const {
+  threadPrioritySourcesEndpoints,
+} = require("./endpoints/threadPrioritySources");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -100,6 +106,10 @@ draftEndpoints(apiRouter);
 docRegenEndpoints(apiRouter);
 generatedArchiveEndpoints(apiRouter);
 exportDocEndpoints(apiRouter);
+pptDraftEndpoints(apiRouter);
+statsAnalysisEndpoints(apiRouter);
+extractDataEndpoints(apiRouter);
+threadPrioritySourcesEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);

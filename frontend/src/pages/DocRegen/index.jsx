@@ -3,7 +3,7 @@
 // 찾아 절별로 다시 채워 넣는다. 근거가 부족한 절은 "[자료 필요: ...]"로
 // 표시되고, 클릭하면 근거(신규 기준)와 과거 참고자료를 보여준다.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -18,16 +18,27 @@ import {
   FileDoc,
   FileHtml,
   FileText,
+  FilePpt,
   Folder,
+  Presentation,
+  Sparkle,
   Square,
   UploadSimple,
   X,
 } from "@phosphor-icons/react";
 import ArchiveSidebar from "@/components/ArchiveSidebar";
+import paths from "@/utils/paths";
 import Workspace from "@/models/workspace";
 import Classification from "@/models/classification";
 import DOMPurify from "@/utils/chat/purify";
 import showToast from "@/utils/toast";
+import ScopedEditOverlay, {
+  computeRelativeRect,
+} from "@/components/WorkspaceChat/ChatContainer/DraftPanel/ScopedEditOverlay";
+import {
+  patchSlideSpec,
+  blockTextFor,
+} from "@/components/WorkspaceChat/ChatContainer/DraftPanel/pptSlideSpecPatch";
 import {
   resultBodyHtml,
   linkifyNeedsMarkers,
@@ -36,12 +47,49 @@ import {
 } from "./exporters";
 
 const STATUS_LABEL = { keep: "유지", update: "갱신", new: "신규" };
+const CHART_TYPE_LABEL = {
+  bar: "막대 그래프",
+  line: "선 그래프",
+  pie: "원형 그래프",
+};
 const STATUS_STYLE = {
   keep: "bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400",
   update:
     "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
   new: "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
 };
+
+// [auto-docu PPT 생성 Phase 2] server/endpoints/pptDraft.js의 PPT_TEMPLATES와
+// 라벨을 맞춘 프론트엔드 전용 목록.
+const PPT_TEMPLATES = [
+  {
+    key: "analysis",
+    label: "내용 분석",
+    desc: "자료를 구조적으로 분석해 핵심 내용을 정리합니다.",
+  },
+  {
+    key: "proposal",
+    label: "제안",
+    desc: "문제 제기부터 제안 내용, 기대효과까지 구성합니다.",
+  },
+  {
+    key: "performance",
+    label: "성과보고",
+    desc: "주요 성과와 지표를 중심으로 보고합니다.",
+  },
+  {
+    key: "status",
+    label: "현황보고",
+    desc: "현재 상태와 진행 상황을 정리해 보고합니다.",
+  },
+  {
+    key: "data",
+    label: "데이터 분석",
+    desc: "수치·통계 자료를 표와 함께 분석적으로 제시합니다.",
+  },
+];
+const PPT_MIN_SLIDES = 4;
+const PPT_MAX_SLIDES = 20;
 
 function docTitleOf(doc) {
   try {
@@ -61,7 +109,7 @@ function docContentHashOf(doc) {
 
 export default function DocRegen() {
   const { slug = "archive-full" } = useParams();
-  const [step, setStep] = useState("name"); // name | template | baseDoc | guidance | folder | progress | result
+  const [step, setStep] = useState("name"); // name | template | baseDoc | guidance | folder | progress | result | ppt
   const [title, setTitle] = useState("");
   const [documents, setDocuments] = useState([]);
   const [docQuery, setDocQuery] = useState("");
@@ -88,6 +136,20 @@ export default function DocRegen() {
   const [detailNeed, setDetailNeed] = useState(null); // {description, section}
   const [exportingDocx, setExportingDocx] = useState(false);
   const [exportingTemplate, setExportingTemplate] = useState(false);
+  // [auto-docu PPT 생성 Phase 2] 문서 채우기와 별개의 산출물 — 폴더 지정 →
+  // PPT 생성. selectedFolders/folderTree는 위 문서함 폴더 흐름과 공유한다.
+  const [pptPurpose, setPptPurpose] = useState(null);
+  const [pptSlideCount, setPptSlideCount] = useState(8);
+  const [pptInstructions, setPptInstructions] = useState("");
+  const [generatingPpt, setGeneratingPpt] = useState(false);
+  const [pptDraft, setPptDraft] = useState(null); // { slideSpec, title, purpose, slideCount, docCount }
+  const [exportingPptx, setExportingPptx] = useState(false);
+  // [auto-docu PPT 화면 편집 Phase 3b] 기존 PPT 목록 미리보기 요소별 클릭
+  // 편집 — DraftPanel과 같은 ScopedEditOverlay/patchSlideSpec 재사용.
+  const pptPreviewWrapperRef = useRef(null);
+  const [pptActiveBlock, setPptActiveBlock] = useState(null); // {id, text, rect}
+  const [pptBlockInstruction, setPptBlockInstruction] = useState("");
+  const [pptRevisingBlock, setPptRevisingBlock] = useState(false);
   const streamRef = useRef(null);
 
   useEffect(() => {
@@ -274,6 +336,9 @@ export default function DocRegen() {
     setSections([]);
     setResult(null);
     setError(null);
+    setPptPurpose(null);
+    setPptDraft(null);
+    setPptInstructions("");
   }
 
   function startGeneration() {
@@ -311,6 +376,117 @@ export default function DocRegen() {
       }
     );
     streamRef.current = stream;
+  }
+
+  // [auto-docu PPT 생성 Phase 2]
+  async function startPptGeneration() {
+    if (!pptPurpose || !selectedFolders.filter((k) => k !== "전체").length) {
+      showToast("PPT 근거로 쓸 문서함 폴더를 하나 이상 골라주세요.", "error");
+      return;
+    }
+    setGeneratingPpt(true);
+    setPptDraft(null);
+    const res = await Workspace.generateFolderPptDraft(slug, {
+      folderKeys: selectedFolders,
+      purpose: pptPurpose,
+      slideCount: pptSlideCount,
+      instructions: pptInstructions.trim(),
+      title: title.trim(),
+    });
+    setGeneratingPpt(false);
+    if (res?.error || !res?.slideSpec)
+      return showToast(
+        res?.error || "PPT 생성에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+    setPptDraft(res);
+    showToast(
+      `PPT 초안이 생성되었습니다 (참고 문서 ${res.docCount || 0}건).`,
+      "success"
+    );
+    if (res.warning) showToast(res.warning, "warning");
+  }
+
+  function archivePptInBackground() {
+    if (!pptDraft?.slideSpec) return;
+    const outline = pptDraft.slideSpec.slides
+      .map((s, i) => {
+        const body = s.table
+          ? [
+              s.table.headers.join(" | "),
+              ...s.table.rows.map((r) => r.join(" | ")),
+            ].join("\n")
+          : (s.content || []).map((c) => `- ${c}`).join("\n");
+        return `## ${i + 1}. ${s.title || ""}\n${body}`;
+      })
+      .join("\n\n");
+    Workspace.archiveGenerated(slug, {
+      title: pptDraft.title,
+      markdown: `# ${pptDraft.title}\n\n${outline}`,
+      kind: "ppt_draft",
+    }).then((res) => {
+      if (res?.success)
+        showToast(
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
+          "info"
+        );
+    });
+  }
+
+  async function downloadPptDraft() {
+    if (!pptDraft?.slideSpec || exportingPptx) return;
+    setExportingPptx(true);
+    const res = await Workspace.downloadAsPptx({
+      slideSpec: pptDraft.slideSpec,
+    });
+    setExportingPptx(false);
+    if (!res?.success)
+      return showToast(res?.error || "PPTX 다운로드에 실패했습니다.", "error");
+    showToast("PPTX 파일을 내려받았습니다.", "success");
+    archivePptInBackground();
+  }
+
+  // [auto-docu PPT 화면 편집 Phase 3b] — 직접 클릭이든 호버 라벨의 "이
+  // 부분만"/"전체 블록" 선택이든 이 하나로 처리한다.
+  function selectPptBlock(id, el) {
+    if (!el || !pptPreviewWrapperRef.current) return;
+    const text = el.getAttribute("data-block-text") || "";
+    const rect = computeRelativeRect(el, pptPreviewWrapperRef.current);
+    setPptActiveBlock({ id, text, rect });
+    setPptBlockInstruction("");
+  }
+
+  async function revisePptActiveBlock() {
+    if (!pptActiveBlock || !pptBlockInstruction.trim() || pptRevisingBlock)
+      return;
+    setPptRevisingBlock(true);
+    const res = await Workspace.reviseDraftBlock(slug, {
+      blockMarkdown: pptActiveBlock.text,
+      instruction: pptBlockInstruction.trim(),
+    });
+    setPptRevisingBlock(false);
+    if (res?.error || !res?.revised) {
+      showToast(
+        res?.error || "수정에 실패했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+      return;
+    }
+    setPptDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            slideSpec: patchSlideSpec(
+              prev.slideSpec,
+              pptActiveBlock.id,
+              res.revised
+            ),
+          }
+        : prev
+    );
+    setPptActiveBlock(null);
+    setPptBlockInstruction("");
+    showToast("선택한 부분을 수정했습니다.", "success");
   }
 
   function archiveResultInBackground() {
@@ -379,6 +555,12 @@ export default function DocRegen() {
       <ArchiveSidebar slug={slug} />
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10 lg:px-10">
+          <Link
+            to={paths.workspace.chat(slug)}
+            className="mb-3 flex w-fit items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-violet-600 dark:text-zinc-400 dark:hover:text-violet-400"
+          >
+            <ArrowLeft size={12} /> 질문창으로 돌아가기
+          </Link>
           <div className="mb-7 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">
             <Buildings size={15} weight="bold" /> 전사문서작성tool
           </div>
@@ -408,6 +590,278 @@ export default function DocRegen() {
                 disabled={!title.trim()}
                 onClick={() => setStep("template")}
               />
+              <button
+                type="button"
+                onClick={() => setStep("ppt")}
+                className="mt-3 flex w-fit items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-violet-600 dark:text-zinc-400 dark:hover:text-violet-400"
+              >
+                <Presentation size={13} weight="fill" />
+                문서 대신 PPT를 만들까요? — 폴더 지정으로 바로 만들기
+              </button>
+            </StepCard>
+          )}
+
+          {step === "ppt" && (
+            <StepCard
+              heading="PPT로 만들까요?"
+              description="원하는 자료가 모인 문서함 폴더를 지정하면, 그 폴더 안 자료만 근거로 PPT 초안을 만듭니다."
+              onBack={() => setStep("name")}
+            >
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-zinc-300">
+                    근거로 쓸 문서함 폴더 (필수)
+                  </p>
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-zinc-800">
+                    {folderTree.map((work) => {
+                      const expanded = expandedWork.has(work.key);
+                      return (
+                        <div key={work.key}>
+                          <FolderRow
+                            label={work.workType}
+                            count={work.count}
+                            checked={selectedFolders.includes(work.key)}
+                            onToggle={() => toggleFolder(work.key)}
+                            expandable={work.units.length > 1}
+                            expanded={expanded}
+                            onExpand={() => toggleWorkExpanded(work.key)}
+                          />
+                          {expanded &&
+                            work.units.map((unit) => (
+                              <FolderRow
+                                key={unit.key}
+                                label={unit.businessUnit}
+                                count={unit.count}
+                                indent
+                                checked={selectedFolders.includes(unit.key)}
+                                onToggle={() => toggleFolder(unit.key)}
+                              />
+                            ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-zinc-300">
+                    목적
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PPT_TEMPLATES.map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setPptPurpose(t.key)}
+                        className={`rounded-lg border px-3 py-2 text-left transition ${
+                          pptPurpose === t.key
+                            ? "border-violet-400 bg-violet-50 dark:border-violet-700 dark:bg-violet-950/30"
+                            : "border-slate-200 bg-white hover:border-violet-300 dark:border-zinc-800 dark:bg-zinc-900"
+                        }`}
+                      >
+                        <span className="block text-xs font-semibold text-slate-800 dark:text-zinc-100">
+                          {t.label}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] leading-4 text-slate-500 dark:text-zinc-400">
+                          {t.desc}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                    페이지 수 (표지 제외)
+                  </span>
+                  <input
+                    type="number"
+                    min={PPT_MIN_SLIDES}
+                    max={PPT_MAX_SLIDES}
+                    value={pptSlideCount}
+                    onChange={(e) =>
+                      setPptSlideCount(
+                        Math.min(
+                          PPT_MAX_SLIDES,
+                          Math.max(
+                            PPT_MIN_SLIDES,
+                            Number(e.target.value) || PPT_MIN_SLIDES
+                          )
+                        )
+                      )
+                    }
+                    className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                    추가 요청 사항 (선택)
+                  </span>
+                  <textarea
+                    value={pptInstructions}
+                    onChange={(e) => setPptInstructions(e.target.value)}
+                    rows={3}
+                    placeholder="예: 표지 다음에 배경 슬라이드를 먼저 넣어줘"
+                    className="resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-violet-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={startPptGeneration}
+                  disabled={generatingPpt}
+                  className="flex w-fit items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {generatingPpt ? (
+                    <CircleNotch size={15} className="animate-spin" />
+                  ) : (
+                    <Sparkle size={15} weight="fill" />
+                  )}
+                  {generatingPpt ? "PPT 생성 중…" : "PPT 초안 생성"}
+                </button>
+
+                {pptDraft && !generatingPpt && (
+                  <div className="mt-2 flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-zinc-800">
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                      {pptDraft.title}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-zinc-500">
+                      원하는 부분에 마우스를 올리면 수정할 수 있는 범위가
+                      보입니다. 불릿/표 칸 하나만, 또는 불릿 목록 전체/표 전체를
+                      골라 수정할 수 있습니다.
+                    </p>
+                    <style>{`
+                      .ppt-list-preview [data-block-id] { cursor: pointer; }
+                    `}</style>
+                    <ScopedEditOverlay
+                      containerRef={pptPreviewWrapperRef}
+                      className="ppt-list-preview flex flex-col gap-3"
+                      onSelect={selectPptBlock}
+                      activeId={pptActiveBlock?.id || null}
+                      activeRect={pptActiveBlock?.rect || null}
+                      previewText={pptActiveBlock?.text || ""}
+                      value={pptBlockInstruction}
+                      onChange={setPptBlockInstruction}
+                      onSubmit={revisePptActiveBlock}
+                      submitting={pptRevisingBlock}
+                      onClose={() => setPptActiveBlock(null)}
+                    >
+                      {pptDraft.slideSpec.slides.map((slide, i) => (
+                        <div
+                          key={i}
+                          className="rounded-lg border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-md border border-violet-200 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-violet-600 dark:border-violet-900 dark:text-violet-400">
+                              {i + 1} /{" "}
+                              {slide.layout === "section" ? "구분" : "내용"}
+                            </span>
+                            <span
+                              data-block-id={`${i}.title`}
+                              data-block-text={slide.title || ""}
+                              className="text-sm font-semibold text-slate-800 dark:text-zinc-100"
+                            >
+                              {slide.title}
+                            </span>
+                          </div>
+                          {Array.isArray(slide.content) &&
+                            slide.content.length > 0 && (
+                              <ul
+                                data-block-id={`${i}.content`}
+                                data-block-text={blockTextFor(slide, "content")}
+                                className="mt-2 list-disc space-y-1 rounded px-5 py-1 text-xs leading-5 text-slate-700 dark:text-zinc-300"
+                              >
+                                {slide.content.map((c, ci) => (
+                                  <li
+                                    key={ci}
+                                    data-block-id={`${i}.bullet.${ci}`}
+                                    data-block-text={c}
+                                  >
+                                    {c}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          {slide.table && (
+                            <div
+                              data-block-id={`${i}.table`}
+                              data-block-text={blockTextFor(slide, "table")}
+                              className="mt-2 overflow-x-auto rounded p-1"
+                            >
+                              <table className="w-full border-collapse text-xs">
+                                <thead>
+                                  <tr>
+                                    {slide.table.headers.map((h, hi) => (
+                                      <th
+                                        key={hi}
+                                        data-block-id={`${i}.header.${hi}`}
+                                        data-block-text={h}
+                                        className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-semibold text-slate-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                                      >
+                                        {h}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {slide.table.rows.map((row, ri) => (
+                                    <tr key={ri}>
+                                      {row.map((cell, ci) => (
+                                        <td
+                                          key={ci}
+                                          data-block-id={`${i}.cell.${ri}.${ci}`}
+                                          data-block-text={cell}
+                                          className="border border-slate-200 px-2 py-1 text-slate-600 dark:border-zinc-800 dark:text-zinc-400"
+                                        >
+                                          {cell}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                          {slide.chart && (
+                            <div
+                              data-block-id={`${i}.chart`}
+                              data-block-text={blockTextFor(slide, "chart")}
+                              className="mt-2 rounded border border-dashed border-violet-300 bg-violet-50/50 px-3 py-2 text-xs text-slate-600 dark:border-violet-900 dark:bg-violet-950/20 dark:text-zinc-300"
+                            >
+                              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-violet-600 dark:text-violet-400">
+                                {CHART_TYPE_LABEL[slide.chart.type] || "차트"}
+                              </span>
+                              <span className="ml-1.5">
+                                {(slide.chart.categories || []).join(", ")}
+                                {slide.chart.series?.length
+                                  ? ` · ${slide.chart.series
+                                      .map((s) => s.name)
+                                      .filter(Boolean)
+                                      .join(", ")}`
+                                  : ""}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </ScopedEditOverlay>
+                    <button
+                      type="button"
+                      onClick={downloadPptDraft}
+                      disabled={exportingPptx}
+                      className="flex w-fit items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {exportingPptx ? (
+                        <CircleNotch size={15} className="animate-spin" />
+                      ) : (
+                        <FilePpt size={15} weight="fill" />
+                      )}
+                      PPTX 다운로드
+                    </button>
+                  </div>
+                )}
+              </div>
             </StepCard>
           )}
 

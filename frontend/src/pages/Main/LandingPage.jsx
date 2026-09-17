@@ -127,8 +127,8 @@ export default function LandingPage() {
 
       <section className="relative z-10 mx-auto grid w-full max-w-7xl gap-14 px-6 pb-20 pt-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:px-10 lg:pb-28 lg:pt-20">
         <div className="relative z-10 max-w-2xl">
-          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm backdrop-blur light:border-blue-200 light:bg-white/70 dark:border-blue-900 dark:bg-zinc-900/70 dark:text-blue-300">
-            <Sparkle size={14} weight="fill" />
+          <div className="mb-7 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-blue-600 light:border-slate-200 light:bg-white light:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-blue-400">
+            <Sparkle size={13} weight="fill" />
             자동 분류 적재 · 근거형 질의 · 문서 작성
           </div>
           <h1 className="text-5xl font-semibold leading-[0.98] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-8xl light:text-slate-950 dark:text-white">
@@ -152,7 +152,8 @@ export default function LandingPage() {
               문서의 맥락을 읽어 저장하고, 답변은 원본 근거 위에서만 작성합니다.
             </p>
             <p className="mt-1 text-sm leading-8 text-slate-600 light:text-slate-600 dark:text-zinc-300 xl:whitespace-nowrap">
-              필요하면 외부 최신 자료로 보강하고, 보고서 초안까지 바로 만듭니다.
+              필요한 자료는 정확히 추출하고, 보고서·PPT·통계분석까지 바로
+              만듭니다.
             </p>
           </div>
           <div className="mt-9 flex flex-wrap items-end gap-5 lg:justify-end">
@@ -160,7 +161,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={openArchive}
-                className="inline-flex h-12 items-center gap-2 rounded bg-blue-600 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.24)] transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 light:bg-blue-600 light:hover:bg-blue-700"
+                className="inline-flex h-12 items-center gap-2 rounded-md bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 light:bg-blue-600 light:hover:bg-blue-700"
               >
                 시작하기 <ArrowRight size={18} weight="bold" />
               </button>
@@ -383,7 +384,7 @@ export default function LandingPage() {
       >
         <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-14 lg:grid-cols-[0.95fr_1.05fr] lg:px-10 lg:py-20">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600">
               How it works
             </p>
             <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950 light:text-slate-950 dark:text-white">
@@ -411,7 +412,7 @@ export default function LandingPage() {
                 key={step.number}
                 className="rounded-lg border border-slate-200 bg-white p-5 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <span className="text-xs font-semibold text-blue-600">
+                <span className="font-mono text-xs font-semibold text-blue-600">
                   {step.number}
                 </span>
                 <h3 className="mt-8 text-lg font-semibold text-slate-900 light:text-slate-900 dark:text-white">

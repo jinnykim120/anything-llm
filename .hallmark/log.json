@@ -1,0 +1,11 @@
+[
+  {
+    "date": "2026-09-16",
+    "scope": "app",
+    "genre": "modern-minimal",
+    "theme": "Cobalt (adapted — system mono stack instead of JetBrains Mono/Space Grotesk webfonts; citation card stands in for the code-hero)",
+    "macrostructure": "Marquee-lite (landing) + Workbench (app shell)",
+    "enrichment": "existing hand-built SVG data-flow illustration (landing only)",
+    "brief": "Recode — internal B2B document-archive/RAG tool, redesign per user request after 'design feels unprofessional' feedback"
+  }
+]

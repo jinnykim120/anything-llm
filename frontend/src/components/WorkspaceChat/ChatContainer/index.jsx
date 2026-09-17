@@ -40,6 +40,8 @@ import SourcesSidebar from "./SourcesSidebar";
 import MemoriesSidebar from "./MemoriesSidebar";
 import ActiveGenerationGuard from "./ActiveGenerationGuard";
 import DraftPanel, { ARCHIVE_DRAFT_EVENT } from "./DraftPanel";
+import ExtractDataModal from "./ExtractDataModal";
+import PrioritySourcesBar from "./PrioritySourcesBar";
 
 function archiveScopeLabel(scope) {
   return scope === "전체" ? "전체 문서" : `${scope} 아카이브`;
@@ -69,6 +71,9 @@ export default function ChatContainer({
   );
   // [auto-docu 목표 3] 답변을 근거로 문서 초안을 작성하는 하단 분할 패널.
   const [draftSource, setDraftSource] = useState(null);
+  // [auto-docu 자료 추출하기] 채팅 답변과 무관한 독립 기능이라 draftSource
+  // 같은 이벤트 패턴 없이 그냥 불/끄기 상태로 관리한다.
+  const [showExtractData, setShowExtractData] = useState(false);
   // [auto-docu 외부검색] "내부 자료만" / "내부 + 외부 자료" — 다음 보낼
   // 메시지 하나에 대한 선택. 기본은 내부만(지금까지의 동작과 동일).
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -595,7 +600,10 @@ export default function ChatContainer({
                     }
                   />
                   {isArchive ? (
-                    <ArchiveActions workspace={workspace} />
+                    <ArchiveActions
+                      workspace={workspace}
+                      onExtractData={() => setShowExtractData(true)}
+                    />
                   ) : (
                     <QuickActions
                       hasAvailableWorkspace={!!workspace}
@@ -625,6 +633,12 @@ export default function ChatContainer({
                 )}
               </div>
             </DnDFileUploaderWrapper>
+            {isArchive && showExtractData && (
+              <ExtractDataModal
+                workspace={workspace}
+                onClose={() => setShowExtractData(false)}
+              />
+            )}
             <ChatTooltips />
           </div>
           <MemoriesSidebar workspace={workspace} />
@@ -662,6 +676,12 @@ export default function ChatContainer({
             >
               <DnDFileUploaderWrapper archiveMode={isArchive}>
                 <div className="flex flex-col h-full w-full pb-20 md:pb-0">
+                  {isArchive && activeThreadSlug && (
+                    <PrioritySourcesBar
+                      workspace={workspace}
+                      threadSlug={activeThreadSlug}
+                    />
+                  )}
                   <div className="contents">
                     <MetricsProvider>
                       <ChatHistory
@@ -699,6 +719,12 @@ export default function ChatContainer({
                 onClose={() => setDraftSource(null)}
               />
             )}
+            {isArchive && showExtractData && (
+              <ExtractDataModal
+                workspace={workspace}
+                onClose={() => setShowExtractData(false)}
+              />
+            )}
           </div>
           <ChatTooltips />
         </div>
@@ -709,8 +735,10 @@ export default function ChatContainer({
   );
 }
 
-function ArchiveActions({ workspace }) {
+function ArchiveActions({ workspace, onExtractData }) {
   const navigate = useNavigate();
+  // 자료 업로드는 채팅 입력창의 "+ 자료 업로드" 버튼과 기능이 완전히 같아서
+  // (둘 다 open-archive-upload 이벤트를 쏨) 여기 카드는 중복이라 제거했다.
   const actions = [
     {
       title: "문서함 열기",
@@ -718,9 +746,9 @@ function ArchiveActions({ workspace }) {
       onClick: () => navigate(paths.workspace.library(workspace.slug)),
     },
     {
-      title: "자료 업로드",
-      description: "분류를 선택해 아카이브에 바로 저장합니다.",
-      onClick: () => window.dispatchEvent(new Event("open-archive-upload")),
+      title: "자료 추출하기",
+      description: "원하는 자료에서 필요한 수치 등을 추출합니다.",
+      onClick: onExtractData,
     },
   ];
 

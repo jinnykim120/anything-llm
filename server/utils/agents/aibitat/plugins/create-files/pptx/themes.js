@@ -50,8 +50,11 @@ const THEMES = {
     titleColor: "0C1929",
     subtitleColor: "5A6D82",
     bodyColor: "2C3E50",
-    accentColor: "1A5276",
-    bulletColor: "1A5276",
+    // Reuse the two colors already anchored on the title slide (navy + gold)
+    // instead of a third, unrelated blue — keeps accents/table visually tied
+    // back to the cover.
+    accentColor: "C9943E",
+    bulletColor: "C9943E",
 
     tableHeaderBg: "0C1929",
     tableHeaderColor: "FFFFFF",

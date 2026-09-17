@@ -201,7 +201,9 @@ const Document = {
         // login) — the archive-upload dialog asks the uploader to type their
         // team name instead, and that's threaded through here. Keep this
         // upload-time snapshot separate from the classification axes.
-        uploadedByOrgUnit: orgUnit ? String(orgUnit).trim().slice(0, 100) : null,
+        uploadedByOrgUnit: orgUnit
+          ? String(orgUnit).trim().slice(0, 100)
+          : null,
         metadata: JSON.stringify(metadata),
       };
 

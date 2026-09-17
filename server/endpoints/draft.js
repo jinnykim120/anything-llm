@@ -282,8 +282,101 @@ function extractTitle(markdown = "", fallback = "문서 초안") {
   return line.replace(/^#\s+/, "").trim() || fallback;
 }
 
+// [auto-docu 화면 편집 Phase 3a] 미리보기에서 블록 하나를 클릭해 "이 부분만
+// 이렇게 고쳐줘"라고 요청하면, 그 블록의 마크다운만 다시 써서 돌려준다 —
+// 문서 전체를 다시 생성하지 않는다.
+function buildBlockReviseMessages({
+  blockMarkdown,
+  instruction,
+  surroundingContext,
+}) {
+  const system = [
+    "당신은 한국어 보고서 문서의 한 부분(블록)만 다듬는 편집 보조자입니다.",
+    "아래 '수정할 부분'의 마크다운만 사용자 요청에 맞게 다시 쓰십시오.",
+    "그 앞뒤에 있는 문서의 다른 부분은 절대 언급하거나 새로 만들지 않습니다.",
+    "형식(제목 레벨 '#'/'##' 개수, 목록/표 여부)은 원래 블록과 같게 유지하십시오.",
+    "사실 근거 없는 새로운 수치·날짜·기관명·인용을 만들어 내지 마십시오.",
+    "결과는 수정된 마크다운 텍스트만 출력하십시오. 설명, 따옴표, 코드펜스 없이.",
+  ].join("\n");
+  const user = [
+    surroundingContext
+      ? `## 문서 맥락(참고용, 수정 대상 아님)\n${surroundingContext}`
+      : "",
+    `## 수정할 부분\n${blockMarkdown}`,
+    `## 사용자 요청\n${instruction}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
+function cleanRevisedBlock(text = "") {
+  return String(text)
+    .replace(/^```(?:markdown|md)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+}
+
 function draftEndpoints(app) {
   if (!app) return;
+
+  app.post(
+    "/workspace/:slug/draft/revise-block",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const {
+          blockMarkdown = "",
+          instruction = "",
+          surroundingContext = "",
+        } = reqBody(request);
+
+        if (!String(blockMarkdown).trim())
+          return response
+            .status(400)
+            .json({ error: "수정할 블록 내용이 없습니다." });
+        if (!String(instruction).trim())
+          return response
+            .status(400)
+            .json({ error: "어떻게 고칠지 요청 내용을 입력해 주세요." });
+
+        const LLMConnector = getLLMProvider({
+          provider: workspace?.chatProvider,
+          model: workspace?.chatModel,
+        });
+
+        const messages = buildBlockReviseMessages({
+          blockMarkdown: String(blockMarkdown).trim(),
+          instruction: String(instruction).trim(),
+          surroundingContext: String(surroundingContext || "").slice(0, 2000),
+        });
+
+        const { textResponse } = await LLMConnector.getChatCompletion(
+          messages,
+          { temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp }
+        );
+
+        const revised = cleanRevisedBlock(
+          stripThinkingFromText(String(textResponse || ""))
+        );
+        if (!revised)
+          return response
+            .status(500)
+            .json({ error: "수정 결과가 비어 있습니다. 다시 시도해 주세요." });
+
+        return response.status(200).json({ revised });
+      } catch (e) {
+        console.error("POST /workspace/:slug/draft/revise-block", e);
+        return response
+          .status(e.code === "RATE_LIMITED" ? 429 : 500)
+          .json({ error: e.message || "수정 중 오류가 발생했습니다." });
+      }
+    }
+  );
 
   app.post(
     "/workspace/:slug/draft",
@@ -386,4 +479,6 @@ module.exports = {
   gatherWebSources,
   buildMessages,
   extractTitle,
+  buildBlockReviseMessages,
+  cleanRevisedBlock,
 };
