@@ -26,6 +26,7 @@ const {
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { runAnalysis, METHOD_LABELS } = require("../utils/stats/runAnalysis");
+const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 const {
   METHOD_SCHEMAS,
   ALL_METHOD_KEYS,
@@ -77,7 +78,7 @@ function buildExtractMessages({
     "",
     "방법별 data/params 모양:",
     schemaList,
-  ].join("\n");
+  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 사용자 요청\n${instruction}`,
@@ -109,7 +110,7 @@ function buildNarrativeMessages({
     "있게 짧게 설명하십시오(예: 'p<0.05로 통계적으로 유의미함').",
     "결과는 마크다운 텍스트만 출력하십시오. 설명, 따옴표, 코드펜스 없이.",
     "형식은 기존 문서 톤에 맞춰 소제목(###) + 문단 또는 불릿으로 구성하십시오.",
-  ].join("\n");
+  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     surroundingContext ? `## 문서 맥락(참고용)\n${surroundingContext}` : "",

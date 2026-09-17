@@ -23,6 +23,7 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { handleFileUpload } = require("../utils/files/multer");
 const { parseUploadEphemeral } = require("../utils/files/parseUploadEphemeral");
+const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
 const { loadBaseDocument } = require("../utils/docRegen");
 const prisma = require("../utils/prisma");
@@ -60,7 +61,7 @@ function buildExtractMessages({
     "찾은 값은 어느 문장/구절에서 가져왔는지 evidence에 그대로 인용하십시오.",
     "반드시 아래 JSON 형식으로만 응답하십시오. 설명, 코드펜스 없이 JSON 객체 하나만:",
     `{"values": {"항목명": {"value": "...", "evidence": "..."} , "항목명2": null}}`,
-  ].join("\n");
+  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
   const user = [
     `## 추출할 항목\n${fields}`,
     `## 문서 제목\n${title}`,

@@ -18,6 +18,7 @@ const {
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { renderPptx } = require("../utils/exporters/pptxRenderer");
+const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 
 // 목적별 슬라이드 흐름 — DraftPanel의 REPORT_TYPES와 같은 역할. "반복"이라고
 // 표시된 항목은 slideCount에 맞춰 LLM이 필요한 만큼 늘리거나 줄인다.
@@ -229,7 +230,7 @@ function buildMessages({
     `- 불릿은 최대 ${MAX_BULLETS_PER_SLIDE}개까지만 씁니다. 한 불릿은 ${MAX_BULLET_CHARS}자 이내로 간결하게 써서 슬라이드에서 한 줄에 들어가도록 하십시오(더 많은 내용은 슬라이드를 나눠 담으십시오).`,
     "- 불릿 문장은 개조식('~함', '~임')으로 간결하게 씁니다.",
     `- 전체 슬라이드 수는 ${slideCount}장에 최대한 맞춥니다(표지 제외).`,
-  ].join("\n");
+  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 문서 목적\n${template.label} — ${template.desc}`,

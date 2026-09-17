@@ -3,6 +3,7 @@ const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
 const { ThreadPrioritySources } = require("../../models/threadPrioritySources");
+const { COMPANY_GLOSSARY } = require("../prompts/companyGlossary");
 const { getVectorDbClass, resolveProviderConnector } = require("../helpers");
 const { addChatCostToMetrics } = require("../helpers/modelPricing");
 const { writeResponseChunk } = require("../helpers/chat/responses");
@@ -384,7 +385,9 @@ async function streamChatWithWorkspace(
       (await chatPrompt(workspace, user, {
         prompt: updatedMessage,
         rawHistory,
-      }))) + webSearchResultsBlock;
+      }))) +
+    `\n\n${COMPANY_GLOSSARY}` +
+    webSearchResultsBlock;
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,

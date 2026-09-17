@@ -22,6 +22,7 @@ const {
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { webSearch } = require("../utils/webSearch");
+const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 
 const DATA_SCOPES = {
   answer_only: { label: "답변 내용만" },
@@ -242,7 +243,7 @@ function buildMessages({
     "작성 지침에 나열된 절 제목은 반드시 '##' 마크다운 헤딩으로 표시하십시오.",
     "'□', '▶' 같은 기호나 굵은 글씨로 절 제목을 대신하지 마십시오 — 렌더러가",
     "'##' 헤딩만 서식을 입히므로, 다른 표기는 문서에서 밋밋하게 보입니다.",
-  ].join("\n");
+  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 작성 유형\n${label}`,
@@ -297,7 +298,7 @@ function buildBlockReviseMessages({
     "형식(제목 레벨 '#'/'##' 개수, 목록/표 여부)은 원래 블록과 같게 유지하십시오.",
     "사실 근거 없는 새로운 수치·날짜·기관명·인용을 만들어 내지 마십시오.",
     "결과는 수정된 마크다운 텍스트만 출력하십시오. 설명, 따옴표, 코드펜스 없이.",
-  ].join("\n");
+  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
   const user = [
     surroundingContext
       ? `## 문서 맥락(참고용, 수정 대상 아님)\n${surroundingContext}`
