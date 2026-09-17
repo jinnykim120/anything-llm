@@ -205,7 +205,7 @@ function Row({ entry, selected, onClick, boxLabel }) {
       }`}
     >
       <span
-        className={`flex w-32 flex-none flex-col items-center justify-center rounded-md border px-2 py-1.5 text-center font-mono text-[11px] font-semibold leading-tight ${
+        className={`flex w-32 flex-none flex-col items-center justify-center rounded-md border px-2 py-1.5 text-center text-xs font-semibold leading-tight ${
           selected
             ? "border-blue-500 bg-blue-600 text-white"
             : "border-slate-200 bg-slate-50 text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
@@ -261,7 +261,7 @@ export default function StatsMethodPicker({ selected, onSelect }) {
         }`}
       >
         <div
-          className={`flex w-32 flex-none flex-col items-center justify-center gap-1 rounded-md border px-1.5 py-1.5 text-center font-mono text-[10px] font-semibold leading-tight ${
+          className={`flex w-32 flex-none flex-col items-center justify-center gap-1 rounded-md border px-1.5 py-1.5 text-center text-[11px] font-semibold leading-tight ${
             selectedDropdownEntry
               ? "border-blue-500 bg-blue-600 text-white"
               : "border-slate-200 bg-slate-50 text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"

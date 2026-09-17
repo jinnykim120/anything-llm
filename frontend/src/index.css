@@ -242,6 +242,7 @@ body {
   padding: 0;
   margin: 0;
   font-family:
+    "Pretendard Variable",
     "plus-jakarta-sans",
     -apple-system,
     BlinkMacSystemFont,
@@ -285,6 +286,17 @@ a {
 @font-face {
   font-family: "plus-jakarta-sans";
   src: url("../public/fonts/PlusJakartaSans.ttf");
+  font-display: swap;
+}
+
+/* [auto-docu 한글 폰트] 라틴 전용인 Plus Jakarta Sans는 한글 글리프가 없어서
+   한글 텍스트(UI 대부분)가 지금까지 OS 기본 글꼴로만 떨어져 렌더링되고
+   있었다 — Pretendard(가변 폰트 1개 파일, 두께 전부 포함)를 자체 호스팅해
+   라틴+한글을 한 폰트로 통일한다. */
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("../public/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
   font-display: swap;
 }
 
@@ -1343,6 +1355,7 @@ input,
 select,
 textarea {
   font-family:
+    "Pretendard Variable",
     "plus-jakarta-sans",
     Inter,
     ui-sans-serif,

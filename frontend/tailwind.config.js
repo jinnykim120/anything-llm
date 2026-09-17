@@ -178,6 +178,7 @@ export default {
       },
       fontFamily: {
         sans: [
+          "Pretendard Variable",
           "plus-jakarta-sans",
           "ui-sans-serif",
           "system-ui",

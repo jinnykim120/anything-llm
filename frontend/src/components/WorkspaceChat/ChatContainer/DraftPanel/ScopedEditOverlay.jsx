@@ -145,7 +145,7 @@ export default function ScopedEditOverlay({
             }}
           />
           <div
-            className="absolute z-20 flex items-center gap-1.5 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2 py-1 font-mono text-[10px] font-medium text-blue-600 shadow-sm dark:border-blue-900 dark:bg-zinc-900 dark:text-blue-400"
+            className="absolute z-20 flex items-center gap-1.5 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-600 shadow-sm dark:border-blue-900 dark:bg-zinc-900 dark:text-blue-400"
             style={{
               top: hover.labelBelow
                 ? hover.rect.top + hover.rect.height + 4
@@ -208,7 +208,7 @@ export default function ScopedEditOverlay({
           style={{ top: activeRect.top, right: 0, width: GUTTER_WIDTH }}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-blue-600 dark:text-blue-400">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
               선택한 부분 수정
             </span>
             <button

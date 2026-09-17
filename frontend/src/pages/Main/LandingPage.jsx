@@ -127,7 +127,7 @@ export default function LandingPage() {
 
       <section className="relative z-10 mx-auto grid w-full max-w-7xl gap-14 px-6 pb-20 pt-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:px-10 lg:pb-28 lg:pt-20">
         <div className="relative z-10 max-w-2xl">
-          <div className="mb-7 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-blue-600 light:border-slate-200 light:bg-white light:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-blue-400">
+          <div className="mb-7 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-blue-600 light:border-slate-200 light:bg-white light:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-blue-500">
             <Sparkle size={13} weight="fill" />
             자동 분류 적재 · 근거형 질의 · 문서 작성
           </div>
@@ -384,7 +384,7 @@ export default function LandingPage() {
       >
         <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-14 lg:grid-cols-[0.95fr_1.05fr] lg:px-10 lg:py-20">
           <div>
-            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600">
+            <p className="text-sm font-semibold text-blue-600 dark:text-blue-500">
               How it works
             </p>
             <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950 light:text-slate-950 dark:text-white">
@@ -412,10 +412,10 @@ export default function LandingPage() {
                 key={step.number}
                 className="rounded-lg border border-slate-200 bg-white p-5 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <span className="font-mono text-xs font-semibold text-blue-600">
+                <span className="text-sm font-semibold text-blue-600">
                   {step.number}
                 </span>
-                <h3 className="mt-8 text-lg font-semibold text-slate-900 light:text-slate-900 dark:text-white">
+                <h3 className="mt-2 text-lg font-semibold text-slate-900 light:text-slate-900 dark:text-white">
                   {step.title}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600 light:text-slate-600 dark:text-zinc-400">

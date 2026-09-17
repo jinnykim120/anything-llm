@@ -284,7 +284,7 @@ function WorkspaceArchiveSidebar({ slug }) {
       {/* 검색 관련 항목 그룹 — 채워진 박스 대신 상단 hairline으로만 구분 (design.md § Component voice) */}
       <div className="mx-4 mt-1 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4 light:border-slate-200 dark:border-zinc-800">
         <div>
-          <p className="truncate font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600 light:text-blue-600 dark:text-blue-400">
+          <p className="truncate text-xs font-semibold text-blue-600 light:text-blue-600 dark:text-blue-500">
             {workspaceName}
           </p>
           <label className="relative mt-3 block" htmlFor="archive-scope">
@@ -479,7 +479,7 @@ function ManagementSidebar({ slug, activeManagement }) {
           )}
         </Link>
         <div className="mt-7 border-b border-slate-200 pb-5 dark:border-zinc-800">
-          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600">
+          <p className="text-xs font-semibold text-blue-600 dark:text-blue-500">
             관리
           </p>
           <p className="mt-2 text-base font-semibold">아카이브 관리</p>
@@ -493,7 +493,7 @@ function ManagementSidebar({ slug, activeManagement }) {
         className="min-h-0 flex-1 overflow-y-auto px-4"
         aria-label="관리 메뉴"
       >
-        <p className="px-2 pb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-600 dark:text-blue-400">
+        <p className="px-2 pb-2 text-xs font-semibold text-blue-600 dark:text-blue-500">
           관리 메뉴
         </p>
         <div className="space-y-1">

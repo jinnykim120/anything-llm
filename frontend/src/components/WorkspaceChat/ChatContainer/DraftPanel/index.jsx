@@ -69,30 +69,6 @@ const CHART_TYPE_LABEL = {
   pie: "원형 그래프",
 };
 
-// [auto-docu 통계분석] 아주 단순한 CSV 파서 — 쉼표 구분, 첫 줄은 헤더.
-// 셀 안에 쉼표가 들어간 값(따옴표로 감싼 필드)은 지원하지 않는다(엑셀
-// 라이브러리 없이 클라이언트에서 바로 처리할 수 있는 범위로 의도적으로
-// 좁힌 것 — 복잡한 CSV는 추후 xlsx/csv 파서 라이브러리 도입 시 확장).
-function parseCsvText(text) {
-  const lines = String(text)
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (!lines.length) return [];
-  const headers = lines[0].split(",").map((h) => h.trim());
-  return lines.slice(1).map((line) => {
-    const cells = line.split(",").map((c) => c.trim());
-    const row = {};
-    headers.forEach((h, i) => {
-      const raw = cells[i];
-      const num = Number(raw);
-      row[h] =
-        raw !== undefined && raw !== "" && !Number.isNaN(num) ? num : raw;
-    });
-    return row;
-  });
-}
-
 function clampPanelHeight(height) {
   const max = Math.round(window.innerHeight * 0.85);
   return Math.min(Math.max(height, MIN_PANEL_HEIGHT), max);
@@ -199,10 +175,11 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [statsMethod, setStatsMethod] = useState(null);
   const [statsInstruction, setStatsInstruction] = useState("");
   const [generatingStats, setGeneratingStats] = useState(false);
-  // [auto-docu 통계분석] 근거 자료(채팅 답변)에 없는 원자료가 필요하면
-  // CSV를 올려서 params 추출 LLM에게 그대로 넘긴다 — 엑셀은 범위를 좁혀
-  // CSV만 지원(파싱 라이브러리 추가 없이 클라이언트에서 바로 처리 가능).
-  const [statsUploadedData, setStatsUploadedData] = useState(null); // {filename, rows}
+  // [auto-docu 통계분석] 근거 자료(채팅 답변)에 없는 원자료가 필요하면 파일을
+  // 올려서 params 추출 LLM에게 그대로 넘긴다 — "자료 추출하기"가 이미 쓰는
+  // 범용 업로드+파싱(collector, PDF·엑셀·워드·HWP 등 지원)을 그대로 재사용.
+  const [statsUploadedData, setStatsUploadedData] = useState(null); // {filename, text}
+  const [statsUploading, setStatsUploading] = useState(false);
   // [auto-docu 통계분석] 블록별 "통계 분석" 애드혹 요청 — 3a(HTML) 전용,
   // ScopedEditOverlay의 텍스트 입력 옆에 보조 버튼으로 뜬다.
   const [blockStatsMode, setBlockStatsMode] = useState(false);
@@ -609,7 +586,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
           Reporting
           {headerLabel && (
             <span
-              className="rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.04em]"
+              className="rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
               style={{
                 borderColor: `${accent.accent}40`,
                 color: accent.accent,
@@ -760,7 +737,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
         {/* 3단계(통계분석): 방법 선택 + 분석 요청 */}
         {dataScope && reportType === "stats" && !draft && !generatingStats && (
-          <div className="mx-auto flex max-w-2xl flex-col gap-3 py-2">
+          <div className="mx-auto flex max-w-5xl flex-col gap-3 py-2">
             <button
               type="button"
               onClick={() => setReportType(null)}
@@ -791,40 +768,47 @@ export default function DraftPanel({ source, workspace, onClose }) {
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                추가 자료 업로드 (선택, CSV)
+                추가 자료 업로드 (선택)
               </span>
               <span className="text-[11px] text-slate-500 dark:text-zinc-500">
-                답변 내용에 분석에 필요한 원자료가 부족하면 CSV로 올려주세요. 첫
-                줄은 열 이름입니다.
+                답변 내용에 분석에 필요한 원자료가 부족하면 파일을 올려주세요
+                (PDF·엑셀·워드·HWP 등 — 이번 분석에만 쓰고 아카이브에는 저장되지
+                않습니다).
               </span>
               <input
                 type="file"
-                accept=".csv,text/csv"
-                onChange={(e) => {
+                disabled={statsUploading}
+                onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const rows = parseCsvText(String(reader.result || ""));
-                    if (!rows.length)
-                      return showToast(
-                        "CSV에서 데이터를 읽지 못했습니다.",
-                        "error"
-                      );
-                    setStatsUploadedData({ filename: file.name, rows });
-                    showToast(
-                      `${file.name} (${rows.length}행)을 불러왔습니다.`,
-                      "success"
+                  setStatsUploading(true);
+                  const res = await Workspace.uploadExtractFile(
+                    workspace.slug,
+                    file
+                  );
+                  setStatsUploading(false);
+                  if (res?.error || !res?.pageContent)
+                    return showToast(
+                      res?.error || "파일을 읽지 못했습니다.",
+                      "error"
                     );
-                  };
-                  reader.readAsText(file, "utf-8");
+                  setStatsUploadedData({
+                    filename: res.title || file.name,
+                    text: res.pageContent,
+                  });
+                  showToast(`${file.name}을 불러왔습니다.`, "success");
                 }}
-                className="text-[11px] text-slate-500 dark:text-zinc-400"
+                className="text-[11px] text-slate-500 disabled:opacity-50 dark:text-zinc-400"
               />
-              {statsUploadedData && (
+              {statsUploading && (
+                <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400">
+                  <CircleNotch size={12} className="animate-spin" />
+                  파일 읽는 중…
+                </span>
+              )}
+              {statsUploadedData && !statsUploading && (
                 <span className="flex items-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400">
-                  {statsUploadedData.filename} ({statsUploadedData.rows.length}
-                  행)
+                  {statsUploadedData.filename}
                   <button
                     type="button"
                     onClick={() => setStatsUploadedData(null)}
@@ -1179,7 +1163,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
                   className="rounded-lg border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="rounded-md border border-blue-200 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-blue-600 dark:border-blue-900 dark:text-blue-400">
+                    <span className="rounded-md border border-blue-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:border-blue-900 dark:text-blue-400">
                       {i + 1} / {slide.layout === "section" ? "구분" : "내용"}
                     </span>
                     <span
@@ -1258,7 +1242,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
                       data-block-text={blockTextFor(slide, "chart")}
                       className="mt-2 rounded border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-xs text-slate-600 dark:border-blue-900 dark:bg-blue-950/20 dark:text-zinc-300"
                     >
-                      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-blue-600 dark:text-blue-400">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
                         {CHART_TYPE_LABEL[slide.chart.type] || "차트"}
                       </span>
                       <span className="ml-1.5">

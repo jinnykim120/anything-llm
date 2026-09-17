@@ -41,10 +41,20 @@ function extractJsonObject(text = "") {
   return match ? match[0] : cleaned;
 }
 
+// 자료 추출하기의 범용 업로드+파싱(collector, PDF·엑셀·워드·HWP 등)을 그대로
+// 재사용하므로, 클라이언트가 CSV를 직접 파싱해 만든 구조화된 rows 대신
+// 파싱된 문서 본문(text)을 그대로 받는다. (구 CSV 전용 rows 형태도 혹시
+// 남아있는 호출부가 있으면 계속 동작하도록 하위 호환으로 지원.)
 function uploadedDataBlock(uploadedData) {
-  if (!uploadedData?.rows?.length) return "";
-  const preview = uploadedData.rows.slice(0, 200);
-  return `## 업로드된 추가 자료(${uploadedData.filename || "업로드 파일"}, ${uploadedData.rows.length}행 중 ${preview.length}행 표시)\n${JSON.stringify(preview)}`;
+  if (!uploadedData) return "";
+  if (uploadedData.text) {
+    return `## 업로드된 추가 자료(${uploadedData.filename || "업로드 파일"})\n${String(uploadedData.text).slice(0, 8000)}`;
+  }
+  if (uploadedData.rows?.length) {
+    const preview = uploadedData.rows.slice(0, 200);
+    return `## 업로드된 추가 자료(${uploadedData.filename || "업로드 파일"}, ${uploadedData.rows.length}행 중 ${preview.length}행 표시)\n${JSON.stringify(preview)}`;
+  }
+  return "";
 }
 
 // 1단계: 방법(선택 안 했으면 후보 중 골라야 함) + 근거 텍스트/데이터에서
