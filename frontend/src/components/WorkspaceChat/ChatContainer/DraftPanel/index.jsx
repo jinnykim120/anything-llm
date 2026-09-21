@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   X,
   ArrowLeft,
@@ -18,7 +18,6 @@ import {
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import DOMPurify from "@/utils/chat/purify";
-import Modal, { ModalHeader, ModalBody } from "@/components/lib/Modal";
 import {
   draftBodyHtmlBlocks,
   downloadDraftHtml,
@@ -28,23 +27,25 @@ import {
   slideSpecToMarkdown,
 } from "./exporters";
 import ScopedEditOverlay, { computeRelativeRect } from "./ScopedEditOverlay";
-import { patchSlideSpec, blockTextFor } from "./pptSlideSpecPatch";
+import { patchSlideSpec } from "./pptSlideSpecPatch";
 import StatsMethodPicker from "./StatsMethodPicker";
+import {
+  DATA_SCOPES,
+  DATA_SCOPE_LABEL,
+  REPORT_TYPES,
+  REPORT_TYPE_LABEL,
+  PPT_TEMPLATES,
+  PPT_TEMPLATE_LABEL,
+  MIN_SLIDE_COUNT,
+  MAX_SLIDE_COUNT,
+} from "./panelConstants";
+import PptSlideCard from "./PptSlideCard";
+import DraftCover from "./DraftCover";
+import { ExtraArchiveDocsRow, ArchiveDocPickerModal } from "./ExtraArchiveDocs";
 
 // [auto-docu 목표 3] 검색 답변 아래에서 열리는 하단 분할 패널.
 // 답변 액션줄의 "문서 작성" 버튼이 아래 이벤트를 쏘면 ChatContainer 가 이 패널을 띄운다.
 export const ARCHIVE_DRAFT_EVENT = "archive-open-draft";
-
-const SLIDE_LAYOUT_LABEL = {
-  section: "구분",
-  content: "내용",
-  content2: "내용(2단)",
-  stat: "핵심 수치",
-  compare: "비교",
-  timeline: "타임라인",
-  quote: "인용",
-  agenda: "목차",
-};
 
 export function openDraftPanel({ message, sources = [], chatId = null }) {
   window.dispatchEvent(
@@ -54,119 +55,14 @@ export function openDraftPanel({ message, sources = [], chatId = null }) {
   );
 }
 
-// 1단계: 어떤 자료를 근거로 쓸지.
-const DATA_SCOPES = [
-  {
-    key: "answer_only",
-    label: "답변 내용 기반으로",
-    desc: "지금 답변에만 근거해서 작성합니다 · 새로운 사실은 추가하지 않음",
-  },
-  {
-    key: "answer_plus_web",
-    label: "답변 내용 + 외부 데이터",
-    desc: "답변 내용에 최신 웹 검색 자료를 더해 내용을 보강합니다",
-  },
-];
-const DATA_SCOPE_LABEL = {
-  answer_only: "답변 내용 기반으로",
-  answer_plus_web: "답변 내용 + 외부 데이터",
-};
-
 // 드래그로 패널 높이를 조절할 수 있게 — 마지막 높이는 기억해둔다.
 const PANEL_HEIGHT_STORAGE_KEY = "archive-draft-panel-height";
 const MIN_PANEL_HEIGHT = 220;
-
-// PPT 미리보기는 실제 슬라이드를 시각적으로 흉내내지 않는 구조화된 목록이므로
-// (기존 표 미리보기와 같은 원칙), 차트도 실제 그래프를 그리는 대신 라벨이
-// 붙은 자리표시자로만 보여준다.
-const CHART_TYPE_LABEL = {
-  bar: "막대 그래프",
-  line: "선 그래프",
-  pie: "원형 그래프",
-};
 
 function clampPanelHeight(height) {
   const max = Math.round(window.innerHeight * 0.85);
   return Math.min(Math.max(height, MIN_PANEL_HEIGHT), max);
 }
-
-// 2단계: 어떤 형태의 문서로 만들지 — 1단계 선택에 따라 설명이 달라진다.
-// [auto-docu 통계분석] 통계분석 보고서 유형 — 실제 scikit-learn/statsmodels
-// 계산을 거친 서술을 만든다(기본/분석보고서처럼 LLM이 통째로 지어내지 않음).
-// PPT 쪽에는 의도적으로 없음(사용자 결정 — PPT에서는 이 기능의 가치가 낮음).
-const STATS_REPORT_TYPE = {
-  key: "stats",
-  label: "통계분석",
-  desc: "회귀·군집분석 등 실제 통계 계산을 거쳐 수치를 분석합니다.",
-};
-const REPORT_TYPES = {
-  answer_only: [
-    {
-      key: "basic",
-      label: "기본보고서",
-      desc: "답변 내용을 목적 / 배경 / 현황 구조로 정리합니다.",
-    },
-    {
-      key: "analysis",
-      label: "분석보고서",
-      desc: "위 내용에 시사점 · 검토의견 · 향후조치(건의)를 덧붙입니다.",
-    },
-    STATS_REPORT_TYPE,
-  ],
-  answer_plus_web: [
-    {
-      key: "basic",
-      label: "기본보고서",
-      desc: "답변 + 외부 자료를 종합해 더 풍부한 현황으로 정리합니다.",
-    },
-    {
-      key: "analysis",
-      label: "분석보고서",
-      desc: "위 내용에 관련 동향 · 문제점 및 리스크 파악을 덧붙입니다.",
-    },
-    STATS_REPORT_TYPE,
-  ],
-};
-const REPORT_TYPE_LABEL = {
-  basic: "기본보고서",
-  analysis: "분석보고서",
-  stats: "통계분석",
-};
-
-// PPT 목적별 템플릿 — server/endpoints/pptDraft.js의 PPT_TEMPLATES와 라벨을
-// 맞춘 프론트엔드 전용 목록(서버 설정을 그대로 불러오지 않고 문구만 맞춤).
-const PPT_TEMPLATES = [
-  {
-    key: "analysis",
-    label: "내용 분석",
-    desc: "자료를 구조적으로 분석해 핵심 내용을 정리합니다.",
-  },
-  {
-    key: "proposal",
-    label: "제안",
-    desc: "문제 제기부터 제안 내용, 기대효과까지 구성합니다.",
-  },
-  {
-    key: "performance",
-    label: "성과보고",
-    desc: "주요 성과와 지표를 중심으로 보고합니다.",
-  },
-  {
-    key: "status",
-    label: "현황보고",
-    desc: "현재 상태와 진행 상황을 정리해 보고합니다.",
-  },
-  {
-    key: "data",
-    label: "데이터 분석",
-    desc: "수치·통계 자료를 표와 함께 분석적으로 제시합니다.",
-  },
-];
-const PPT_TEMPLATE_LABEL = Object.fromEntries(
-  PPT_TEMPLATES.map((t) => [t.key, t.label])
-);
-const MIN_SLIDE_COUNT = 4;
-const MAX_SLIDE_COUNT = 20;
 
 export default function DraftPanel({
   source,
@@ -1379,166 +1275,7 @@ export default function DraftPanel({
               onClose={() => setPptActiveBlock(null)}
             >
               {pptDraft.slideSpec.slides.map((slide, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg border border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md border border-blue-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:border-blue-900 dark:text-blue-400">
-                      {i + 1} / {SLIDE_LAYOUT_LABEL[slide.layout] || "내용"}
-                    </span>
-                    <span
-                      data-block-id={`${i}.title`}
-                      data-block-text={slide.title || ""}
-                      className="text-sm font-semibold text-slate-800 dark:text-zinc-100"
-                    >
-                      {slide.title}
-                    </span>
-                  </div>
-                  {slide.subtitle && (
-                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-                      {slide.subtitle}
-                    </p>
-                  )}
-                  {Array.isArray(slide.content) && slide.content.length > 0 && (
-                    <ul
-                      data-block-id={`${i}.content`}
-                      data-block-text={blockTextFor(slide, "content")}
-                      className="mt-2 list-disc space-y-1 rounded px-5 py-1 text-xs leading-5 text-slate-700 dark:text-zinc-300"
-                    >
-                      {slide.content.map((c, ci) => (
-                        <li
-                          key={ci}
-                          data-block-id={`${i}.bullet.${ci}`}
-                          data-block-text={c}
-                        >
-                          {c}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {Array.isArray(slide.stats) && slide.stats.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {slide.stats.map((st, si) => (
-                        <div
-                          key={si}
-                          className="min-w-[110px] rounded border border-slate-200 px-3 py-2 text-center dark:border-zinc-700"
-                        >
-                          <div className="text-base font-bold text-blue-600 dark:text-blue-400">
-                            {st.value}
-                          </div>
-                          <div className="text-[11px] font-medium text-slate-700 dark:text-zinc-200">
-                            {st.label}
-                          </div>
-                          {st.note && (
-                            <div className="text-[10px] text-slate-500 dark:text-zinc-500">
-                              {st.note}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {Array.isArray(slide.columns) && slide.columns.length > 0 && (
-                    <div className="mt-2 flex gap-2">
-                      {slide.columns.map((col, ci) => (
-                        <div
-                          key={ci}
-                          className="min-w-0 flex-1 rounded border border-slate-200 dark:border-zinc-700"
-                        >
-                          <div className="bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold dark:bg-zinc-800">
-                            {col.heading}
-                          </div>
-                          <ul className="list-disc space-y-0.5 px-5 py-1.5 text-xs text-slate-700 dark:text-zinc-300">
-                            {(col.items || []).map((it, ii) => (
-                              <li key={ii}>{it}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {Array.isArray(slide.steps) && slide.steps.length > 0 && (
-                    <ol className="mt-2 space-y-1 text-xs text-slate-700 dark:text-zinc-300">
-                      {slide.steps.map((st, si) => (
-                        <li key={si} className="flex gap-2">
-                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
-                            {si + 1}
-                          </span>
-                          <span>
-                            <b>{st.label}</b>
-                            {st.text ? ` — ${st.text}` : ""}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                  {slide.quote && (
-                    <blockquote className="mt-2 border-l-2 border-blue-500 pl-3 text-xs italic text-slate-700 dark:text-zinc-300">
-                      {slide.quote}
-                    </blockquote>
-                  )}
-                  {slide.table && (
-                    <div
-                      data-block-id={`${i}.table`}
-                      data-block-text={blockTextFor(slide, "table")}
-                      className="mt-2 overflow-x-auto rounded p-1"
-                    >
-                      <table className="w-full border-collapse text-xs">
-                        <thead>
-                          <tr>
-                            {slide.table.headers.map((h, hi) => (
-                              <th
-                                key={hi}
-                                data-block-id={`${i}.header.${hi}`}
-                                data-block-text={h}
-                                className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-semibold text-slate-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
-                              >
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {slide.table.rows.map((row, ri) => (
-                            <tr key={ri}>
-                              {row.map((cell, ci) => (
-                                <td
-                                  key={ci}
-                                  data-block-id={`${i}.cell.${ri}.${ci}`}
-                                  data-block-text={cell}
-                                  className="border border-slate-200 px-2 py-1 text-slate-600 dark:border-zinc-800 dark:text-zinc-400"
-                                >
-                                  {cell}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  {slide.chart && (
-                    <div
-                      data-block-id={`${i}.chart`}
-                      data-block-text={blockTextFor(slide, "chart")}
-                      className="mt-2 rounded border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-xs text-slate-600 dark:border-blue-900 dark:bg-blue-950/20 dark:text-zinc-300"
-                    >
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-                        {CHART_TYPE_LABEL[slide.chart.type] || "차트"}
-                      </span>
-                      <span className="ml-1.5">
-                        {(slide.chart.categories || []).join(", ")}
-                        {slide.chart.series?.length
-                          ? ` · ${slide.chart.series
-                              .map((s) => s.name)
-                              .filter(Boolean)
-                              .join(", ")}`
-                          : ""}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                <PptSlideCard key={i} slide={slide} index={i} />
               ))}
             </ScopedEditOverlay>
           </div>
@@ -1634,170 +1371,5 @@ export default function DraftPanel({
         />
       )}
     </div>
-  );
-}
-
-/** 다운로드되는 HTML의 표지 배너와 같은 모양을 패널 안에서 미리 보여준다. */
-function DraftCover({ label, title, accent }) {
-  return (
-    <div
-      className="rounded-t-lg px-5 py-4 text-white"
-      style={{
-        background: `linear-gradient(135deg, ${accent.accent}, ${accent.accentDark})`,
-      }}
-    >
-      <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-        {label || "문서 초안"}
-      </span>
-      <h3 className="mt-1.5 text-base font-extrabold leading-snug">{title}</h3>
-      <p className="mt-0.5 text-[11px] text-white/80">
-        {new Date().toLocaleString("ko-KR")} · NEXUS
-      </p>
-    </div>
-  );
-}
-
-// [auto-docu 문서/PPT 근거 문서 추가] 생성 전 초기 화면과 작성중 화면 양쪽에
-// 그대로 꽂아 쓰는 버튼+칩 목록. 생성 전이면 목록에 더하기만 하고, 작성중
-// 화면이면(DraftPanel의 confirmExtraArchiveDocs가) 고른 즉시 다시 생성한다 —
-// 이 컴포넌트 자체는 그 차이를 몰라도 된다.
-function ExtraArchiveDocsRow({ docs, onOpenPicker, onRemove }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <button
-        type="button"
-        onClick={onOpenPicker}
-        className="flex w-fit items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-400"
-      >
-        <FolderOpen size={12} /> 아카이브에서 추가 자료 선택
-      </button>
-      {docs.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {docs.map((d) => (
-            <span
-              key={d.id}
-              className="flex items-center gap-1.5 text-[11px] text-violet-600 dark:text-violet-400"
-            >
-              {d.title}
-              <button
-                type="button"
-                onClick={() => onRemove(d.id)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
-              >
-                <X size={11} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// [auto-docu 통계분석] 아카이브 문서 다중 선택 — PrioritySourcesBar의
-// 아카이브-선택 화면과 같은 검색+목록 패턴이지만, 체크박스로 여러 개를
-// 한 번에 고르고 "선택 완료"를 눌러야 확정된다(우선 자료는 하나씩 바로
-// 반영되지만, 이건 통계 분석 요청 하나에 여러 문서를 함께 쓰는 경우가
-// 많아 다중 선택이 더 자연스럽다).
-function ArchiveDocPickerModal({
-  workspace,
-  alreadyPicked,
-  onClose,
-  onConfirm,
-}) {
-  const [documents, setDocuments] = useState([]);
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(() => new Set());
-
-  useEffect(() => {
-    Workspace.bySlug(workspace.slug).then((ws) => {
-      setDocuments(Array.isArray(ws?.documents) ? ws.documents : []);
-    });
-  }, [workspace.slug]);
-
-  function docTitleOf(doc) {
-    try {
-      return JSON.parse(doc?.metadata || "{}").title || doc?.filename || "문서";
-    } catch {
-      return doc?.filename || "문서";
-    }
-  }
-
-  const alreadyPickedIds = useMemo(
-    () => new Set(alreadyPicked.map((d) => d.id)),
-    [alreadyPicked]
-  );
-
-  const filteredDocuments = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = q
-      ? documents.filter((d) => docTitleOf(d).toLowerCase().includes(q))
-      : documents;
-    return list.filter((d) => !alreadyPickedIds.has(d.id));
-  }, [documents, query, alreadyPickedIds]);
-
-  function toggle(id) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function handleConfirm() {
-    const docs = documents
-      .filter((d) => selected.has(d.id))
-      .map((d) => ({ id: d.id, title: docTitleOf(d) }));
-    onConfirm(docs);
-  }
-
-  return (
-    <Modal isOpen={true} onClose={onClose} size="md">
-      <ModalHeader
-        title="아카이브에서 선택"
-        subtitle="이번 분석에만 근거 자료로 쓰입니다(별도로 다시 저장되지 않습니다)."
-        onClose={onClose}
-      />
-      <ModalBody>
-        <div className="flex flex-col gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="문서 이름으로 찾기"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-blue-400 light:border-slate-300 light:bg-white light:text-slate-900 light:placeholder:text-slate-400"
-          />
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-700 light:border-slate-300">
-            {filteredDocuments.length === 0 && (
-              <p className="p-3 text-xs text-zinc-400 light:text-slate-500">
-                문서를 찾을 수 없습니다.
-              </p>
-            )}
-            {filteredDocuments.map((doc) => (
-              <label
-                key={doc.id}
-                className="flex w-full cursor-pointer items-center gap-2 border-b border-zinc-800 px-3 py-2 text-left text-sm text-zinc-100 last:border-b-0 hover:bg-zinc-800 light:border-slate-200 light:text-slate-900 light:hover:bg-blue-50"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(doc.id)}
-                  onChange={() => toggle(doc.id)}
-                />
-                <span className="truncate">{docTitleOf(doc)}</span>
-              </label>
-            ))}
-          </div>
-          <button
-            type="button"
-            disabled={selected.size === 0}
-            onClick={handleConfirm}
-            className="flex w-fit items-center gap-1.5 self-end rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            선택 완료{selected.size > 0 ? ` (${selected.size})` : ""}
-          </button>
-        </div>
-      </ModalBody>
-    </Modal>
   );
 }
