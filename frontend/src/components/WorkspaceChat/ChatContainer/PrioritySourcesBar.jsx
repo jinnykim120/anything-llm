@@ -190,14 +190,14 @@ function AddPrioritySourceModal({ workspace, threadSlug, onClose, onAdded }) {
             <button
               type="button"
               onClick={() => setMode("upload")}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-sm font-semibold text-zinc-100 transition hover:border-blue-400 light:border-slate-300 light:bg-white light:text-slate-800 light:hover:bg-blue-50"
             >
               업로드
             </button>
             <button
               type="button"
               onClick={() => setMode("archive")}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-sm font-semibold text-zinc-100 transition hover:border-blue-400 light:border-slate-300 light:bg-white light:text-slate-800 light:hover:bg-blue-50"
             >
               아카이브에서 선택
             </button>
@@ -227,11 +227,11 @@ function AddPrioritySourceModal({ workspace, threadSlug, onClose, onAdded }) {
               value={docQuery}
               onChange={(e) => setDocQuery(e.target.value)}
               placeholder="문서 이름으로 찾기"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-blue-400 light:border-slate-300 light:bg-white light:text-slate-900 light:placeholder:text-slate-400"
             />
-            <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-zinc-800">
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-700 light:border-slate-300">
               {filteredDocuments.length === 0 && (
-                <p className="p-3 text-xs text-slate-400 dark:text-zinc-600">
+                <p className="p-3 text-xs text-zinc-400 light:text-slate-500">
                   문서를 찾을 수 없습니다.
                 </p>
               )}
@@ -241,7 +241,7 @@ function AddPrioritySourceModal({ workspace, threadSlug, onClose, onAdded }) {
                   type="button"
                   disabled={adding}
                   onClick={() => handlePickArchiveDoc(doc)}
-                  className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-blue-50 dark:border-zinc-800 dark:hover:bg-blue-950/20"
+                  className="flex w-full items-center gap-2 border-b border-zinc-800 px-3 py-2 text-left text-sm text-zinc-100 last:border-b-0 hover:bg-zinc-800 light:border-slate-200 light:text-slate-900 light:hover:bg-blue-50"
                 >
                   <span className="truncate">{docTitleOf(doc)}</span>
                 </button>

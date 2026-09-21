@@ -11,6 +11,7 @@ import {
   Pulse,
   Plus,
   PushPin,
+  ShareNetwork,
   Tag,
   Trash,
   Wrench,
@@ -55,6 +56,13 @@ const MANAGEMENT_ITEMS = [
     description: "서버와 수집기의 동작 상태를 확인합니다.",
     icon: Pulse,
     href: (slug) => paths.settings.logs({ search: `workspace=${slug}` }),
+  },
+  {
+    key: "affinity",
+    title: "문서 연계성",
+    description: "함께 쓰인 문서 이력을 확인하고 초기화합니다.",
+    icon: ShareNetwork,
+    href: (slug) => paths.workspace.affinity(slug),
   },
 ];
 

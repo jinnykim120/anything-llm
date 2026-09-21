@@ -25,10 +25,7 @@ const { handleFileUpload } = require("../utils/files/multer");
 const { parseUploadEphemeral } = require("../utils/files/parseUploadEphemeral");
 const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
-const { loadBaseDocument } = require("../utils/docRegen");
-const {
-  recordExplicitCoSelection,
-} = require("../utils/classification/documentAffinity");
+const { resolveOwnedArchiveDocs } = require("../utils/docRegen");
 const prisma = require("../utils/prisma");
 
 const MAX_DOCS = 15;
@@ -117,25 +114,28 @@ async function extractFromDocument({
   return { title, values };
 }
 
-async function gatherArchiveDocuments({ workspace, folderKeys }) {
-  const docIds = await resolveFolderDocIds(workspace, folderKeys);
-  if (!Array.isArray(docIds) || !docIds.length) return [];
-  const rows = await prisma.workspace_documents.findMany({
-    where: { workspaceId: workspace.id, docId: { in: docIds } },
-    select: { id: true },
-    take: MAX_DOCS,
-  });
-  // [auto-docu 문서 연계성 학습] 같은 자료 추출 요청에 여러 문서를 함께
-  // 고른 건 명시적 판단 — fire-and-forget으로 기록한다.
-  if (rows.length > 1)
-    recordExplicitCoSelection({
-      workspaceId: workspace.id,
-      workspaceDocIds: rows.map((r) => r.id),
-    }).catch(() => null);
-  const docs = await Promise.all(
-    rows.map((r) => loadBaseDocument(r.id).catch(() => null))
-  );
-  return docs.filter(Boolean);
+// 폴더로 고른 문서 + 폴더를 열어 개별로 고른 문서(archiveDocIds)를 합쳐, 소유권
+// 검증·연계성 기록·본문 로드는 resolveOwnedArchiveDocs 한 곳에서 처리한다.
+async function gatherArchiveDocuments({
+  workspace,
+  folderKeys = [],
+  archiveDocIds = [],
+}) {
+  let ids = (Array.isArray(archiveDocIds) ? archiveDocIds : [])
+    .map(Number)
+    .filter(Number.isFinite);
+  if (folderKeys?.length) {
+    const docIds = await resolveFolderDocIds(workspace, folderKeys);
+    if (Array.isArray(docIds) && docIds.length) {
+      const rows = await prisma.workspace_documents.findMany({
+        where: { workspaceId: workspace.id, docId: { in: docIds } },
+        select: { id: true },
+      });
+      ids = [...ids, ...rows.map((r) => r.id)];
+    }
+  }
+  ids = [...new Set(ids)].slice(0, MAX_DOCS);
+  return resolveOwnedArchiveDocs({ workspaceId: workspace.id, docIds: ids });
 }
 
 function extractDataEndpoints(app) {
@@ -173,13 +173,19 @@ function extractDataEndpoints(app) {
           fields = "",
           uploadedDocs = [],
           folderKeys = null,
+          archiveDocIds = [],
         } = reqBody(request);
         if (!String(fields).trim())
           throw new Error("추출하고 싶은 항목을 입력해 주세요.");
 
-        const archiveDocs = folderKeys?.length
-          ? await gatherArchiveDocuments({ workspace, folderKeys })
-          : [];
+        const archiveDocs =
+          folderKeys?.length || archiveDocIds?.length
+            ? await gatherArchiveDocuments({
+                workspace,
+                folderKeys: folderKeys || [],
+                archiveDocIds,
+              })
+            : [];
         const allDocs = [...uploadedDocs, ...archiveDocs].slice(0, MAX_DOCS);
         if (!allDocs.length)
           throw new Error("추출할 자료(업로드 또는 아카이브 선택)가 없습니다.");

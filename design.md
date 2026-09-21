@@ -24,14 +24,24 @@ because its single "electric cobalt blue" signal accent is the same blue
 Recode's brand already anchors on (established this session) — the rotation
 doesn't fight prior work, it formalizes it.
 
-**Two deliberate deviations from the canonical Cobalt spec**, both driven by
-this being a live internal tool, not a marketing site:
-1. **No JetBrains Mono / Space Grotesk webfonts.** This project self-hosts
-   Plus Jakarta Sans only (`frontend/public/fonts/`, no external font CDN —
-   corp-proxy constraints, see `frontend/src/index.css` `@font-face`). Mono
-   texture comes from Tailwind's default `font-mono` system stack
-   (ui-monospace/SFMono/Menlo/Consolas) instead — zero network dependency.
-2. **No literal "code is the hero" artifact.** Recode has no code/API to
+**Three deliberate deviations from the canonical Cobalt spec**, driven by
+this being a live internal tool (not a marketing site) with Korean as a
+primary UI language:
+1. **No JetBrains Mono / Space Grotesk webfonts.** No external font CDN
+   (corp-proxy constraints). Mono texture, where still used, comes from
+   Tailwind's default `font-mono` system stack (ui-monospace/SFMono/Menlo/
+   Consolas) — zero network dependency.
+2. **Display font is Pretendard Variable, not Plus Jakarta Sans alone.**
+   Self-hosted (`frontend/public/fonts/PretendardVariable.woff2`, one
+   variable-weight file). Added 2026-09-17 (`21d094d1`) because Plus Jakarta
+   Sans is Latin-only and has no Hangul glyphs — most of this UI's real text
+   is Korean, and it was silently falling back to the OS default font.
+   `tailwind.config.js` → `fontFamily.sans` and both hardcoded
+   `frontend/src/index.css` font-family rules (html/body, and the
+   `!important` form-control fallback that was overriding it) list
+   `"Pretendard Variable", "plus-jakarta-sans", ...` in that order — Jakarta
+   Sans stays as the Latin fallback, not the primary.
+3. **No literal "code is the hero" artifact.** Recode has no code/API to
    demo. The equivalent focal-artifact move is the existing **citation /
    source card** (bordered snippet + page/bbox metadata + score) already
    surfaced in chat answers — that IS Recode's "structured data" hero, and
@@ -56,14 +66,29 @@ feature as an intentional secondary accent — a different *tool*, not a
 competing brand color. Amber stays reserved for "필요 자료"/status warnings.
 
 ## Typography
-- Display + body: **Plus Jakarta Sans** (already the app-wide font,
-  `tailwind.config.js` → `theme.extend.fontFamily.sans`). Single-family
-  discipline per modern-minimal — no second display face.
-- Mono (labels/meta only): Tailwind's default `font-mono` stack.
-- Eyebrow / section-label pattern (Cobalt signature "mono labels"):
-  `font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-blue-600`.
-  Used for: sidebar section labels ("아카이브", "관리", "관리 메뉴"), landing
-  page section eyebrows ("HOW IT WORKS"), citation-card meta lines.
+- Display + body: **Pretendard Variable**, Latin fallback **Plus Jakarta
+  Sans** (`tailwind.config.js` → `theme.extend.fontFamily.sans`; see the
+  Theme deviation above for why). Single-family discipline per
+  modern-minimal — no second display face.
+- Mono: Tailwind's default `font-mono` stack, reserved for genuinely
+  tabular/numeric or code-like content only — citation-index brackets
+  (`SourceItem`), token/sec metrics (`RenderMetrics`), tool-call JSON
+  (`ToolApprovalRequest`), the DraftPanel raw-markdown edit textarea. Not
+  used for section/eyebrow labels (see next point).
+- **Eyebrow / section-label pattern — de-monofied 2026-09-17 (`21d094d1`).**
+  The original Cobatt-signature `font-mono uppercase tracking-[0.08em]`
+  treatment was dropped project-wide (`ArchiveSidebar`, `LandingPage`,
+  `DraftPanel`, `ScopedEditOverlay`, `StatsMethodPicker`, `DocRegen`) because
+  uppercase+mono+wide-tracking Korean text is illegible — Hangul has no
+  upper/lowercase and the letterforms fought the tight tracking. Current
+  pattern is plain proportional text, semibold, accent-colored, no
+  uppercase/tracking/mono: `text-xs font-semibold text-blue-600`
+  (`text-sm` on the landing page's larger eyebrows). A few older screens
+  outside the originally-scoped file list (`DocumentRoom`,
+  `ArchiveManagement`, `GeneralSettings/ScheduledJobs`) still carry the old
+  `uppercase tracking-[…]` pattern — harmless (mostly Latin/numeric labels
+  there) but not yet reconciled; follow the new plain pattern if they're
+  next touched.
 
 ## Spacing & radius
 - Spacing: Tailwind's default scale as already used (no new custom scale —
@@ -126,10 +151,19 @@ behavior; no custom keyframes introduced that would need gating).
 - ✅ `pages/Main/LandingPage.jsx` — eyebrow/CTA/card tightening applied
   (partially done in the earlier ui-ux-pro-max pass; this pass finishes it).
 - ✅ `WorkspaceChat/ChatContainer/DraftPanel/index.jsx` — hairline + mono
-  meta applied.
-- ⏭ `pages/DocRegen/index.jsx` (959 lines, complex multi-step wizard) — left
-  untouched this pass to limit blast radius on a large functional file;
-  follow this system when it's next touched.
-- ⏭ Citation/source card inside `WorkspaceChat/ChatContainer` — not touched
-  this pass (out of the originally-scoped file list); follow this system
-  (hairline card, mono metadata line) when it's next touched.
+  meta applied; eyebrow labels de-monofied `21d094d1`; result preview
+  widened to `max-w-7xl` (`9a93bf01`).
+- ✅ `21d094d1` (2026-09-17) — Pretendard Variable self-hosted + wired as
+  primary font; eyebrow labels de-monofied across `ArchiveSidebar`,
+  `LandingPage`, `DraftPanel`, `ScopedEditOverlay`, `StatsMethodPicker`,
+  `DocRegen`.
+- 🟡 `pages/DocRegen/index.jsx` — eyebrow de-monofied (`21d094d1`), but the
+  full hairline/card restyle pass this file originally deferred (was 959
+  lines, complex multi-step wizard) still hasn't happened; still keeps its
+  violet secondary accent.
+- 🟡 `WorkspaceChat/ChatContainer/SourcesSidebar/SourceItem/index.jsx` — got
+  layout-only fixes in `9a93bf01` (capped citation-chip row height,
+  drag-resizable panel), not the hairline-card visual restyle this system
+  calls for; it's currently a plain list item (no border), with mono used
+  only for the `[n]` citation-index badge. Still the next candidate for the
+  full "structured data hero" treatment described above.

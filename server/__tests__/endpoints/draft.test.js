@@ -5,6 +5,7 @@ const {
   existingWebSources,
   mergeWebSources,
   webSourcesBlock,
+  archiveDocsBlock,
   deriveDraftSearchQueries,
   gatherWebSources,
   buildMessages,
@@ -257,6 +258,60 @@ describe("buildMessages", () => {
     }).map((m) => m.content);
     expect(user).toMatch(/외부 검색 자료/);
     expect(user).toMatch(/\[외부0\]: T/);
+  });
+});
+
+describe("archiveDocsBlock", () => {
+  it("returns an empty string for no docs", () => {
+    expect(archiveDocsBlock([])).toBe("");
+    expect(archiveDocsBlock()).toBe("");
+  });
+
+  it("renders each doc as a heading + its content", () => {
+    const block = archiveDocsBlock([
+      { title: "문서A", pageContent: "내용A" },
+      { title: "문서B", pageContent: "내용B" },
+    ]);
+    expect(block).toMatch(/### 문서A\n내용A/);
+    expect(block).toMatch(/### 문서B\n내용B/);
+  });
+
+  it("truncates a document longer than the per-doc cap", () => {
+    const long = "가".repeat(70000);
+    const block = archiveDocsBlock([{ title: "큰문서", pageContent: long }]);
+    expect(block.length).toBeLessThan(long.length);
+  });
+});
+
+describe("buildMessages — archiveDocs", () => {
+  it("omits 추가 아카이브 자료 when none are given", () => {
+    const [system, user] = buildMessages({
+      sourceText: "본문",
+      citations: [],
+      dataScope: "answer_only",
+      reportType: "basic",
+      instructions: "",
+      webSources: [],
+      archiveDocs: [],
+    }).map((m) => m.content);
+    expect(system).not.toMatch(/추가 아카이브 자료/);
+    expect(user).not.toMatch(/추가 아카이브 자료/);
+  });
+
+  it("includes 추가 아카이브 자료 and instructs treating it as equal evidence", () => {
+    const [system, user] = buildMessages({
+      sourceText: "본문",
+      citations: [],
+      dataScope: "answer_only",
+      reportType: "basic",
+      instructions: "",
+      webSources: [],
+      archiveDocs: [{ title: "반기보고서", pageContent: "매출액 6조" }],
+    }).map((m) => m.content);
+    expect(system).toMatch(/추가 아카이브 자료.*동등한 근거/);
+    expect(user).toMatch(/## 추가 아카이브 자료/);
+    expect(user).toMatch(/반기보고서/);
+    expect(user).toMatch(/매출액 6조/);
   });
 });
 

@@ -167,11 +167,54 @@ async function affinityBoostFor({
   return result;
 }
 
+/** 관리자 화면용 — 워크스페이스의 모든 연계 쌍을 weight 내림차순으로 돌려준다
+ * (랭킹 반영 여부와 무관하게 전부 보여준다 — 임계치 미달 쌍도 "곧 반영될
+ * 후보"로 확인할 수 있어야 한다).
+ */
+async function listForWorkspace({ workspaceId, limit = 200 }) {
+  if (!workspaceId) return [];
+  const rows = await prisma.document_affinity
+    .findMany({
+      where: { workspaceId },
+      orderBy: { weight: "desc" },
+      take: limit,
+    })
+    .catch(() => []);
+  return rows.map((row) => ({
+    ...row,
+    decayedWeight: row.weight * decayFactor(row.lastSeenAt),
+    belowRankThreshold: row.occurrences < MIN_OCCURRENCES_TO_RANK,
+  }));
+}
+
+/** 관리자 화면용 — 특정 쌍 한 줄을 지운다. 다른 워크스페이스의 행을 id로
+ * 잘못 지우지 못하도록 workspaceId로도 스코프를 건다. */
+async function deletePair({ workspaceId, id }) {
+  if (!workspaceId || !id) return false;
+  return prisma.document_affinity
+    .deleteMany({ where: { id: Number(id), workspaceId } })
+    .then((r) => r.count > 0)
+    .catch(() => false);
+}
+
+/** 관리자 화면용 — 워크스페이스의 연계 이력을 전부 초기화한다. */
+async function resetForWorkspace({ workspaceId }) {
+  if (!workspaceId) return 0;
+  return prisma.document_affinity
+    .deleteMany({ where: { workspaceId } })
+    .then((r) => r.count)
+    .catch(() => 0);
+}
+
 module.exports = {
   recordExplicitCoSelection,
   recordValidatedCitation,
   affinityBoostFor,
   resolveDocIdStrings,
+  listForWorkspace,
+  deletePair,
+  resetForWorkspace,
+  decayFactor,
   EXPLICIT_WEIGHT,
   VALIDATED_WEIGHT,
   MIN_OCCURRENCES_TO_RANK,

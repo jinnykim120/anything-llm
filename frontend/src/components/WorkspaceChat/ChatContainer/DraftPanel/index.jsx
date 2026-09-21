@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
   ArrowLeft,
+  ArrowsIn,
+  ArrowsOut,
   Sparkle,
   FileHtml,
   FileDoc,
@@ -154,10 +156,20 @@ const PPT_TEMPLATE_LABEL = Object.fromEntries(
 const MIN_SLIDE_COUNT = 4;
 const MAX_SLIDE_COUNT = 20;
 
-export default function DraftPanel({ source, workspace, onClose }) {
+export default function DraftPanel({
+  source,
+  workspace,
+  onClose,
+  // [auto-docu PPT 별도 창] "이 내용으로 PPT 만들기"는 기존 분석 화면을 그대로 둔
+  // 채, 그 위에 새 창을 하나 더 띄워 PPT 작업을 따로 보여준다 — 같은
+  // 컴포넌트를 PPT 흐름으로 시작시켜(stacked) 다시 쓴다.
+  initialOutputFormat = null,
+  initialPptSourceOverride = null,
+  stacked = false,
+}) {
   // [auto-docu PPT 생성 Phase 1] 무엇을 만들지부터 고른다 — "doc"(기존 문서
   // 초안 흐름) | "ppt"(새 PPT 흐름). null이면 아직 선택 전(0단계).
-  const [outputFormat, setOutputFormat] = useState(null);
+  const [outputFormat, setOutputFormat] = useState(initialOutputFormat);
   const [dataScope, setDataScope] = useState(null);
   const [reportType, setReportType] = useState(null);
   const [instructions, setInstructions] = useState("");
@@ -188,6 +200,13 @@ export default function DraftPanel({ source, workspace, onClose }) {
   // 패턴(검색+목록)이지만, 한 번에 여러 개를 고를 수 있는 다중 선택.
   const [statsArchiveDocs, setStatsArchiveDocs] = useState([]); // [{id, title}]
   const [showStatsArchivePicker, setShowStatsArchivePicker] = useState(false);
+  // [auto-docu 문서/PPT 근거 문서 추가] 통계분석의 아카이브 선택과 같은
+  // ArchiveDocPickerModal을 재사용한다 — 생성 전 단계뿐 아니라, 이미 만들어진
+  // 초안/PPT를 보는 "작성중" 화면에서도 자료를 더 골라 그 자리에서 다시
+  // 생성할 수 있어야 한다는 요구사항 때문에, 문서/PPT 두 흐름이 공유하는
+  // 하나의 상태로 둔다(둘은 동시에 쓰이지 않음 — outputFormat으로 갈림).
+  const [extraArchiveDocs, setExtraArchiveDocs] = useState([]); // [{id, title}]
+  const [showExtraArchivePicker, setShowExtraArchivePicker] = useState(false);
   // [auto-docu 통계분석] 블록별 "통계 분석" 애드혹 요청 — 3a(HTML) 전용,
   // ScopedEditOverlay의 텍스트 입력 옆에 보조 버튼으로 뜬다.
   const [blockStatsMode, setBlockStatsMode] = useState(false);
@@ -195,13 +214,20 @@ export default function DraftPanel({ source, workspace, onClose }) {
   // [auto-docu HTML→PPT 연결] "이 내용으로 PPT 만들기" — 원본 채팅 답변
   // 대신, 지금 화면에 있는(통계분석 결과가 반영됐을 수도, 손으로 고쳤을
   // 수도 있는) draft.markdown을 PPT 생성의 근거로 쓴다.
-  const [pptSourceOverride, setPptSourceOverride] = useState(null);
+  const [pptSourceOverride, setPptSourceOverride] = useState(
+    initialPptSourceOverride
+  );
+  const [pptWindowSource, setPptWindowSource] = useState(null);
   const [panelHeight, setPanelHeight] = useState(() => {
     const stored = Number(localStorage.getItem(PANEL_HEIGHT_STORAGE_KEY));
     return clampPanelHeight(
       stored > 0 ? stored : Math.round(window.innerHeight * 0.5)
     );
   });
+  // [auto-docu 문서 작성 전체화면] 만들기 창은 넓은 시야가 필요해서 열릴 때
+  // 마다 항상 전체화면으로 시작하고, 오른쪽 상단 버튼으로 평소 크기의
+  // 하단 패널(위 panelHeight/드래그 리사이즈)로 줄이거나 다시 늘릴 수 있다.
+  const [fullScreen, setFullScreen] = useState(true);
 
   function startResize(event) {
     event.preventDefault();
@@ -257,8 +283,13 @@ export default function DraftPanel({ source, workspace, onClose }) {
   const [pptBlockInstruction, setPptBlockInstruction] = useState("");
   const [pptRevisingBlock, setPptRevisingBlock] = useState(false);
 
-  async function generate() {
+  // [auto-docu 근거 문서 추가] archiveDocsOverride가 있으면(작성중 화면에서
+  // 방금 자료를 더 골라 즉시 다시 생성하는 경우) 그걸 쓰고, 없으면 현재
+  // extraArchiveDocs 상태를 쓴다 — setState 직후 같은 틱에서 읽으면 옛
+  // 값을 보게 되므로, 그 흐름에서는 병합된 배열을 직접 넘겨받는다.
+  async function generate(archiveDocsOverride) {
     if (!dataScope || !reportType) return;
+    const archiveDocsForRun = archiveDocsOverride ?? extraArchiveDocs;
     setGenerating(true);
     setDraft(null);
     setEditing(false);
@@ -268,6 +299,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
       dataScope,
       reportType,
       instructions: instructions.trim(),
+      archiveDocIds: archiveDocsForRun.map((d) => d.id),
     });
     setGenerating(false);
     if (res?.error || !res?.draft)
@@ -281,9 +313,11 @@ export default function DraftPanel({ source, workspace, onClose }) {
       designed: detectDesignRequest(instructions),
     });
     showToast(
-      res.externalSourcesUsed
-        ? `초안이 생성되었습니다. 외부 자료 ${res.externalSourcesUsed}건을 참고했습니다.`
-        : "초안이 생성되었습니다. 필요하면 내용을 직접 수정할 수 있습니다.",
+      res.archiveDocsUsed
+        ? `초안이 생성되었습니다. 추가 자료 ${res.archiveDocsUsed}건을 반영했습니다.`
+        : res.externalSourcesUsed
+          ? `초안이 생성되었습니다. 외부 자료 ${res.externalSourcesUsed}건을 참고했습니다.`
+          : "초안이 생성되었습니다. 필요하면 내용을 직접 수정할 수 있습니다.",
       "success"
     );
   }
@@ -530,8 +564,9 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
   // [auto-docu PPT 생성 Phase 1] pptSourceOverride가 있으면(HTML→PPT 연결로
   // 넘어온 경우) 원본 채팅 답변 대신 그 문서 초안 내용을 근거로 쓴다.
-  async function generatePpt() {
+  async function generatePpt(archiveDocsOverride) {
     if (!pptPurpose) return;
+    const archiveDocsForRun = archiveDocsOverride ?? extraArchiveDocs;
     setGeneratingPpt(true);
     setPptDraft(null);
     const res = await Workspace.generatePptDraft(workspace.slug, {
@@ -540,6 +575,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
       purpose: pptPurpose,
       slideCount,
       instructions: pptInstructions.trim(),
+      archiveDocIds: archiveDocsForRun.map((d) => d.id),
     });
     setGeneratingPpt(false);
     if (res?.error || !res?.slideSpec)
@@ -549,10 +585,27 @@ export default function DraftPanel({ source, workspace, onClose }) {
       );
     setPptDraft(res);
     showToast(
-      "PPT 초안이 생성되었습니다. 아래에서 슬라이드를 확인하세요.",
+      res.archiveDocsUsed
+        ? `PPT 초안이 생성되었습니다. 추가 자료 ${res.archiveDocsUsed}건을 반영했습니다.`
+        : "PPT 초안이 생성되었습니다. 아래에서 슬라이드를 확인하세요.",
       "success"
     );
     if (res.warning) showToast(res.warning, "warning");
+  }
+
+  // [auto-docu 문서/PPT 근거 문서 추가] 두 자리(생성 전 초기 화면 / 작성중
+  // 화면)에서 같은 피커를 쓴다 — 이미 초안·PPT가 있으면(작성중 화면에서
+  // 연 경우) 고른 즉시 그 근거를 반영해 다시 생성하고, 아직 없으면(초기
+  // 화면) 목록에만 더해두고 사용자가 직접 생성 버튼을 누르게 둔다.
+  function confirmExtraArchiveDocs(docs) {
+    setShowExtraArchivePicker(false);
+    const merged = [...extraArchiveDocs];
+    for (const d of docs) {
+      if (!merged.some((x) => x.id === d.id)) merged.push(d);
+    }
+    setExtraArchiveDocs(merged);
+    if (draft) generate(merged);
+    else if (pptDraft) generatePpt(merged);
   }
 
   function archivePptInBackground() {
@@ -600,17 +653,25 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
   return (
     <div
-      className="flex shrink-0 flex-col bg-white light:bg-white dark:bg-zinc-950"
-      style={{ height: panelHeight }}
+      className={
+        fullScreen
+          ? stacked
+            ? "fixed inset-y-6 right-6 left-[300px] z-[60] flex flex-col overflow-hidden rounded-lg border border-slate-300 bg-white shadow-2xl light:bg-white dark:border-zinc-700 dark:bg-zinc-950"
+            : "fixed inset-y-0 right-0 left-[276px] z-50 flex flex-col bg-white light:bg-white dark:bg-zinc-950"
+          : "flex shrink-0 flex-col bg-white light:bg-white dark:bg-zinc-950"
+      }
+      style={fullScreen ? undefined : { height: panelHeight }}
     >
-      {/* 크기 조절 핸들 */}
-      <div
-        onMouseDown={startResize}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="문서 초안 패널 크기 조절"
-        className="h-1.5 shrink-0 cursor-ns-resize bg-blue-500/40 hover:bg-blue-500/70 active:bg-blue-500"
-      />
+      {/* 크기 조절 핸들 — 전체화면일 땐 드래그로 줄일 대상이 없으니 숨김 */}
+      {!fullScreen && !stacked && (
+        <div
+          onMouseDown={startResize}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="문서 초안 패널 크기 조절"
+          className="h-1.5 shrink-0 cursor-ns-resize bg-blue-500/40 hover:bg-blue-500/70 active:bg-blue-500"
+        />
+      )}
       {/* 헤더 */}
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-zinc-800">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-zinc-100">
@@ -644,6 +705,17 @@ export default function DraftPanel({ source, workspace, onClose }) {
                   <PencilSimple size={12} /> 내용 수정
                 </>
               )}
+            </button>
+          )}
+          {!stacked && (
+            <button
+              type="button"
+              onClick={() => setFullScreen((v) => !v)}
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800"
+              aria-label={fullScreen ? "전체화면 줄이기" : "전체화면으로 보기"}
+              title={fullScreen ? "전체화면 줄이기" : "전체화면으로 보기"}
+            >
+              {fullScreen ? <ArrowsIn size={16} /> : <ArrowsOut size={16} />}
             </button>
           )}
           <button
@@ -902,7 +974,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
               )}
             </label>
             {showStatsArchivePicker && (
-              <StatsArchiveDocPickerModal
+              <ArchiveDocPickerModal
                 workspace={workspace}
                 alreadyPicked={statsArchiveDocs}
                 onClose={() => setShowStatsArchivePicker(false)}
@@ -959,9 +1031,16 @@ export default function DraftPanel({ source, workspace, onClose }) {
                   className="resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </label>
+              <ExtraArchiveDocsRow
+                docs={extraArchiveDocs}
+                onOpenPicker={() => setShowExtraArchivePicker(true)}
+                onRemove={(id) =>
+                  setExtraArchiveDocs((prev) => prev.filter((d) => d.id !== id))
+                }
+              />
               <button
                 type="button"
-                onClick={generate}
+                onClick={() => generate()}
                 className="flex w-fit items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
               >
                 <Sparkle size={14} weight="fill" /> 초안 생성
@@ -1003,6 +1082,15 @@ export default function DraftPanel({ source, workspace, onClose }) {
             >
               <ArrowLeft size={12} /> 요청 수정 / 다시 생성
             </button>
+            <div className="mb-3">
+              <ExtraArchiveDocsRow
+                docs={extraArchiveDocs}
+                onOpenPicker={() => setShowExtraArchivePicker(true)}
+                onRemove={(id) =>
+                  setExtraArchiveDocs((prev) => prev.filter((d) => d.id !== id))
+                }
+              />
+            </div>
 
             {editing ? (
               <div className="flex flex-col gap-1.5">
@@ -1202,9 +1290,16 @@ export default function DraftPanel({ source, workspace, onClose }) {
                   className="resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-800 outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </label>
+              <ExtraArchiveDocsRow
+                docs={extraArchiveDocs}
+                onOpenPicker={() => setShowExtraArchivePicker(true)}
+                onRemove={(id) =>
+                  setExtraArchiveDocs((prev) => prev.filter((d) => d.id !== id))
+                }
+              />
               <button
                 type="button"
-                onClick={generatePpt}
+                onClick={() => generatePpt()}
                 className="flex w-fit items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
               >
                 <Sparkle size={14} weight="fill" /> PPT 초안 생성
@@ -1232,6 +1327,13 @@ export default function DraftPanel({ source, workspace, onClose }) {
             >
               <ArrowLeft size={12} /> 요청 수정 / 다시 생성
             </button>
+            <ExtraArchiveDocsRow
+              docs={extraArchiveDocs}
+              onOpenPicker={() => setShowExtraArchivePicker(true)}
+              onRemove={(id) =>
+                setExtraArchiveDocs((prev) => prev.filter((d) => d.id !== id))
+              }
+            />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
               {pptDraft.title}
             </h3>
@@ -1364,7 +1466,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
 
       {/* 다운로드 바 */}
       {draft && !generating && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-2.5 dark:border-zinc-800">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 py-2.5 pl-4 pr-32 dark:border-zinc-800">
           <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
             내보내기
           </span>
@@ -1403,12 +1505,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
           </button>
           <button
             type="button"
-            onClick={() => {
-              setPptSourceOverride(draft.markdown);
-              setPptDraft(null);
-              setPptPurpose(null);
-              setOutputFormat("ppt");
-            }}
+            onClick={() => setPptWindowSource(draft.markdown)}
             className="ml-auto flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-300"
           >
             <Presentation size={15} weight="fill" /> 이 내용으로 PPT 만들기
@@ -1416,7 +1513,7 @@ export default function DraftPanel({ source, workspace, onClose }) {
         </div>
       )}
       {pptDraft && !generatingPpt && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-2.5 dark:border-zinc-800">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 py-2.5 pl-4 pr-32 dark:border-zinc-800">
           <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
             내보내기
           </span>
@@ -1434,6 +1531,24 @@ export default function DraftPanel({ source, workspace, onClose }) {
             PPTX 다운로드
           </button>
         </div>
+      )}
+      {pptWindowSource && (
+        <DraftPanel
+          source={source}
+          workspace={workspace}
+          onClose={() => setPptWindowSource(null)}
+          initialOutputFormat="ppt"
+          initialPptSourceOverride={pptWindowSource}
+          stacked
+        />
+      )}
+      {showExtraArchivePicker && (
+        <ArchiveDocPickerModal
+          workspace={workspace}
+          alreadyPicked={extraArchiveDocs}
+          onClose={() => setShowExtraArchivePicker(false)}
+          onConfirm={confirmExtraArchiveDocs}
+        />
       )}
     </div>
   );
@@ -1459,12 +1574,49 @@ function DraftCover({ label, title, accent }) {
   );
 }
 
+// [auto-docu 문서/PPT 근거 문서 추가] 생성 전 초기 화면과 작성중 화면 양쪽에
+// 그대로 꽂아 쓰는 버튼+칩 목록. 생성 전이면 목록에 더하기만 하고, 작성중
+// 화면이면(DraftPanel의 confirmExtraArchiveDocs가) 고른 즉시 다시 생성한다 —
+// 이 컴포넌트 자체는 그 차이를 몰라도 된다.
+function ExtraArchiveDocsRow({ docs, onOpenPicker, onRemove }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        onClick={onOpenPicker}
+        className="flex w-fit items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-blue-400 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-400"
+      >
+        <FolderOpen size={12} /> 아카이브에서 추가 자료 선택
+      </button>
+      {docs.length > 0 && (
+        <div className="flex flex-col gap-1">
+          {docs.map((d) => (
+            <span
+              key={d.id}
+              className="flex items-center gap-1.5 text-[11px] text-violet-600 dark:text-violet-400"
+            >
+              {d.title}
+              <button
+                type="button"
+                onClick={() => onRemove(d.id)}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // [auto-docu 통계분석] 아카이브 문서 다중 선택 — PrioritySourcesBar의
 // 아카이브-선택 화면과 같은 검색+목록 패턴이지만, 체크박스로 여러 개를
 // 한 번에 고르고 "선택 완료"를 눌러야 확정된다(우선 자료는 하나씩 바로
 // 반영되지만, 이건 통계 분석 요청 하나에 여러 문서를 함께 쓰는 경우가
 // 많아 다중 선택이 더 자연스럽다).
-function StatsArchiveDocPickerModal({
+function ArchiveDocPickerModal({
   workspace,
   alreadyPicked,
   onClose,
@@ -1531,18 +1683,18 @@ function StatsArchiveDocPickerModal({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="문서 이름으로 찾기"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-blue-400 light:border-slate-300 light:bg-white light:text-slate-900 light:placeholder:text-slate-400"
           />
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-zinc-800">
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-700 light:border-slate-300">
             {filteredDocuments.length === 0 && (
-              <p className="p-3 text-xs text-slate-400 dark:text-zinc-600">
+              <p className="p-3 text-xs text-zinc-400 light:text-slate-500">
                 문서를 찾을 수 없습니다.
               </p>
             )}
             {filteredDocuments.map((doc) => (
               <label
                 key={doc.id}
-                className="flex w-full cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-blue-50 dark:border-zinc-800 dark:hover:bg-blue-950/20"
+                className="flex w-full cursor-pointer items-center gap-2 border-b border-zinc-800 px-3 py-2 text-left text-sm text-zinc-100 last:border-b-0 hover:bg-zinc-800 light:border-slate-200 light:text-slate-900 light:hover:bg-blue-50"
               >
                 <input
                   type="checkbox"

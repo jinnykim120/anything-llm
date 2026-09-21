@@ -319,7 +319,14 @@ const Workspace = {
   // 정리만 할지, 시사점/동향·리스크 같은 분석 절을 덧붙일지.
   generateDraft: async function (
     slug,
-    { sourceText, citations = [], dataScope, reportType, instructions = "" }
+    {
+      sourceText,
+      citations = [],
+      dataScope,
+      reportType,
+      instructions = "",
+      archiveDocIds = [],
+    }
   ) {
     return await fetch(`${API_BASE}/workspace/${slug}/draft`, {
       method: "POST",
@@ -330,6 +337,7 @@ const Workspace = {
         dataScope,
         reportType,
         instructions,
+        archiveDocIds,
       }),
     })
       .then((res) => res.json())
@@ -425,12 +433,17 @@ const Workspace = {
   // RAG 없이 전부(exhaustive) 훑어 요청한 항목을 뽑는다.
   runExtractData: async function (
     slug,
-    { fields, uploadedDocs = [], folderKeys = [] }
+    { fields, uploadedDocs = [], folderKeys = [], archiveDocIds = [] }
   ) {
     return await fetch(`${API_BASE}/workspace/${slug}/extract-data/run`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ fields, uploadedDocs, folderKeys }),
+      body: JSON.stringify({
+        fields,
+        uploadedDocs,
+        folderKeys,
+        archiveDocIds,
+      }),
     })
       .then((res) => res.json())
       .catch((e) => ({ error: e.message }));
@@ -562,6 +575,43 @@ const Workspace = {
       // 부가 신호일 뿐 — 실패해도 사용자에게 보여줄 필요 없음.
     }
   },
+  // [auto-docu 문서 연계성 학습 admin] 학습된 연계 이력을 확인/초기화하는
+  // 관리자 화면용 — 조회·삭제 전부 admin/manager 권한이 필요하다(서버에서
+  // 강제).
+  listAffinity: async function (slug) {
+    try {
+      const res = await fetch(`${API_BASE}/workspace/${slug}/affinity`, {
+        method: "GET",
+        headers: baseHeaders(),
+      });
+      const data = await res.json();
+      return { pairs: data?.pairs || [], error: data?.error };
+    } catch (e) {
+      return { pairs: [], error: e.message };
+    }
+  },
+  deleteAffinityPair: async function (slug, id) {
+    try {
+      const res = await fetch(`${API_BASE}/workspace/${slug}/affinity/${id}`, {
+        method: "DELETE",
+        headers: baseHeaders(),
+      });
+      return await res.json();
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+  resetAffinity: async function (slug) {
+    try {
+      const res = await fetch(`${API_BASE}/workspace/${slug}/affinity`, {
+        method: "DELETE",
+        headers: baseHeaders(),
+      });
+      return await res.json();
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
   // [auto-docu 다른 파일 형태 다운로드] 초안/전사문서작성tool 결과를 HTML
   // 대신 실제 .docx 파일로 — 서버가 markdown을 진짜 워드 문서로 변환해
   // 바이너리로 돌려주고, 여기서 HTML 다운로드와 같은 방식(Blob + 임시
@@ -622,7 +672,14 @@ const Workspace = {
   // 생성한다. purpose: "analysis"|"proposal"|"performance"|"status"|"data".
   generatePptDraft: async function (
     slug,
-    { sourceText, citations = [], purpose, slideCount = 8, instructions = "" }
+    {
+      sourceText,
+      citations = [],
+      purpose,
+      slideCount = 8,
+      instructions = "",
+      archiveDocIds = [],
+    }
   ) {
     return await fetch(`${API_BASE}/workspace/${slug}/ppt-draft`, {
       method: "POST",
@@ -633,6 +690,7 @@ const Workspace = {
         purpose,
         slideCount,
         instructions,
+        archiveDocIds,
       }),
     })
       .then((res) => res.json())

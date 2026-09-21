@@ -65,6 +65,9 @@ const Actions = ({
             forkThread={forkThread}
             isEditing={isEditing}
             role={role}
+            slug={slug}
+            isLastMessage={isLastMessage}
+            regenerateMessage={regenerateMessage}
           />
         </div>
       </div>

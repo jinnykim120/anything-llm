@@ -108,6 +108,9 @@ export default {
     docRegen: (slug) => {
       return `/workspace/${slug}/doc-regen`;
     },
+    affinity: (slug) => {
+      return `/workspace/${slug}/affinity`;
+    },
   },
   apiDocs: () => {
     return `${API_BASE}/docs`;

@@ -6,8 +6,12 @@ jest.mock("../../../utils/helpers", () => ({
 }));
 
 const mockFindUnique = jest.fn();
+const mockFindMany = jest.fn();
 jest.mock("../../../utils/prisma", () => ({
-  workspace_documents: { findUnique: (...args) => mockFindUnique(...args) },
+  workspace_documents: {
+    findUnique: (...args) => mockFindUnique(...args),
+    findMany: (...args) => mockFindMany(...args),
+  },
 }));
 
 const mockFileData = jest.fn();
@@ -15,9 +19,16 @@ jest.mock("../../../utils/files", () => ({
   fileData: (...args) => mockFileData(...args),
 }));
 
+const mockRecordExplicitCoSelection = jest.fn().mockResolvedValue(undefined);
+jest.mock("../../../utils/classification/documentAffinity", () => ({
+  recordExplicitCoSelection: (...args) =>
+    mockRecordExplicitCoSelection(...args),
+}));
+
 const {
   loadBaseDocument,
   loadBaseDocuments,
+  resolveOwnedArchiveDocs,
   extractOutlineFromBlocks,
   extractOutlineViaLLM,
   getOutline,
@@ -90,6 +101,106 @@ describe("loadBaseDocument / loadBaseDocuments", () => {
   it("loadBaseDocuments rejects with a clear error for an empty selection", async () => {
     await expect(loadBaseDocuments([])).rejects.toThrow(/선택/);
     expect(mockFindUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveOwnedArchiveDocs", () => {
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockFindUnique.mockReset();
+    mockFileData.mockReset();
+    mockRecordExplicitCoSelection.mockClear();
+  });
+
+  it("returns [] without querying when workspaceId or docIds is missing", async () => {
+    expect(
+      await resolveOwnedArchiveDocs({ workspaceId: null, docIds: [1] })
+    ).toEqual([]);
+    expect(
+      await resolveOwnedArchiveDocs({ workspaceId: 5, docIds: [] })
+    ).toEqual([]);
+    expect(mockFindMany).not.toHaveBeenCalled();
+  });
+
+  it("only loads docs that belong to the workspace, ignoring foreign ids", async () => {
+    mockFindMany.mockResolvedValue([{ id: 1 }]); // only id 1 is owned
+    mockFindUnique.mockResolvedValue({
+      id: 1,
+      docpath: "custom-documents\\a.json",
+      filename: "a.json",
+      metadata: JSON.stringify({ title: "문서 A" }),
+    });
+    mockFileData.mockResolvedValue({ pageContent: "본문 A", blocks: [] });
+
+    const docs = await resolveOwnedArchiveDocs({
+      workspaceId: 5,
+      docIds: [1, 999],
+    });
+
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { id: { in: [1, 999] }, workspaceId: 5 },
+      select: { id: true },
+    });
+    expect(docs).toEqual([
+      { id: 1, title: "문서 A", pageContent: "본문 A", blocks: [] },
+    ]);
+  });
+
+  it("records explicit co-selection when 2+ docs are picked together", async () => {
+    mockFindMany.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: 1,
+        docpath: "a.json",
+        metadata: JSON.stringify({ title: "A" }),
+      })
+      .mockResolvedValueOnce({
+        id: 2,
+        docpath: "b.json",
+        metadata: JSON.stringify({ title: "B" }),
+      });
+    mockFileData.mockResolvedValue({ pageContent: "본문", blocks: [] });
+
+    await resolveOwnedArchiveDocs({ workspaceId: 5, docIds: [1, 2] });
+
+    expect(mockRecordExplicitCoSelection).toHaveBeenCalledWith({
+      workspaceId: 5,
+      workspaceDocIds: [1, 2],
+    });
+  });
+
+  it("does not record co-selection for a single doc", async () => {
+    mockFindMany.mockResolvedValue([{ id: 1 }]);
+    mockFindUnique.mockResolvedValue({
+      id: 1,
+      docpath: "a.json",
+      metadata: JSON.stringify({ title: "A" }),
+    });
+    mockFileData.mockResolvedValue({ pageContent: "본문", blocks: [] });
+
+    await resolveOwnedArchiveDocs({ workspaceId: 5, docIds: [1] });
+
+    expect(mockRecordExplicitCoSelection).not.toHaveBeenCalled();
+  });
+
+  it("drops a doc that fails to load instead of failing the whole batch", async () => {
+    mockFindMany.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    mockFindUnique
+      .mockResolvedValueOnce({
+        id: 1,
+        docpath: "a.json",
+        metadata: JSON.stringify({ title: "A" }),
+      })
+      .mockResolvedValueOnce(null); // id 2 fails to load
+    mockFileData.mockResolvedValue({ pageContent: "본문", blocks: [] });
+
+    const docs = await resolveOwnedArchiveDocs({
+      workspaceId: 5,
+      docIds: [1, 2],
+    });
+
+    expect(docs).toHaveLength(1);
+    expect(docs[0].id).toBe(1);
   });
 });
 

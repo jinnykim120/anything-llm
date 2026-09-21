@@ -62,6 +62,50 @@ async function loadBaseDocuments(workspaceDocIds = []) {
   return Promise.all(ids.map((id) => loadBaseDocument(id)));
 }
 
+/** [auto-docu 근거 문서 추가] 자료 추출하기/통계분석과 같은 원칙 — 클라이언트가
+ * 준 workspace_documents.id를 그대로 믿지 않고, 이 워크스페이스 소속인지
+ * 먼저 확인한 뒤에만 읽는다. 읽기 실패한 개별 문서는 조용히 걸러내고(하나가
+ * 깨졌다고 나머지 근거까지 못 쓰게 만들지 않음), 2개 이상을 함께 골랐으면
+ * 명시적 동시선택으로 문서 연계성 학습에 기록한다(fire-and-forget).
+ * @returns {Promise<Array<{id:number, title:string, pageContent:string}>>}
+ */
+async function resolveOwnedArchiveDocs({ workspaceId, docIds = [] }) {
+  const ids = [
+    ...new Set(
+      (Array.isArray(docIds) ? docIds : [docIds])
+        .map(Number)
+        .filter(Number.isFinite)
+    ),
+  ];
+  if (!workspaceId || !ids.length) return [];
+
+  const owned = await prisma.workspace_documents.findMany({
+    where: { id: { in: ids }, workspaceId: Number(workspaceId) },
+    select: { id: true },
+  });
+  const ownedIds = owned.map((r) => r.id);
+  if (!ownedIds.length) return [];
+
+  if (ownedIds.length > 1) {
+    const {
+      recordExplicitCoSelection,
+    } = require("../classification/documentAffinity");
+    recordExplicitCoSelection({
+      workspaceId: Number(workspaceId),
+      workspaceDocIds: ownedIds,
+    }).catch(() => null);
+  }
+
+  const docs = await Promise.all(
+    ownedIds.map((id) =>
+      loadBaseDocument(id)
+        .then((doc) => ({ id, ...doc }))
+        .catch(() => null)
+    )
+  );
+  return docs.filter(Boolean);
+}
+
 // ---------------------------------------------------------------------------
 // 목차 추출
 // ---------------------------------------------------------------------------
@@ -465,6 +509,7 @@ async function* regenerateDocument({
 module.exports = {
   loadBaseDocument,
   loadBaseDocuments,
+  resolveOwnedArchiveDocs,
   extractOutlineFromBlocks,
   extractOutlineViaLLM,
   getOutline,

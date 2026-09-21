@@ -23,6 +23,11 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { webSearch } = require("../utils/webSearch");
 const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
+const { resolveOwnedArchiveDocs } = require("../utils/docRegen");
+
+// [auto-docu 근거 문서 추가] 통계분석의 MAX_UPLOADED_TEXT_CHARS_PER_FILE과
+// 같은 값 — 반기보고서급 대형 문서 하나가 컨텍스트를 통째로 잡아먹지 않게.
+const MAX_ARCHIVE_DOC_CHARS = 60000;
 
 const DATA_SCOPES = {
   answer_only: { label: "답변 내용만" },
@@ -216,6 +221,19 @@ function webSourcesBlock(items = []) {
     .join("\n\n");
 }
 
+// [auto-docu 근거 문서 추가] 답변 내용만으로는 부족할 때, 아카이브에서 직접
+// 고른 문서를 검색 없이 통째로 추가 근거로 붙인다 — 통계분석의 아카이브
+// 선택과 같은 원칙, 사용 시점만 다르다(생성 전 or 작성중 화면에서 다시 생성).
+function archiveDocsBlock(docs = []) {
+  if (!docs.length) return "";
+  return docs
+    .map(
+      (d) =>
+        `### ${d.title}\n${String(d.pageContent || "").slice(0, MAX_ARCHIVE_DOC_CHARS)}`
+    )
+    .join("\n\n");
+}
+
 function buildMessages({
   sourceText,
   citations,
@@ -223,17 +241,24 @@ function buildMessages({
   reportType,
   instructions,
   webSources,
+  archiveDocs = [],
 }) {
   const guidance = buildGuidance(dataScope, reportType);
   const label = comboLabel(dataScope, reportType);
+  const hasArchiveDocs = archiveDocs.length > 0;
   const system = [
     "당신은 한국의 공공·기업 정책지원 실무자를 돕는 문서 작성 보조자입니다.",
     dataScope === "answer_plus_web"
       ? "아래 '사실 근거'와 '외부 검색 자료'에 담긴 내용만을 근거로 문서를 작성합니다."
       : "아래 '사실 근거'에 담긴 내용만을 근거로 문서를 작성합니다.",
+    hasArchiveDocs
+      ? "'추가 아카이브 자료'가 있으면 사실 근거와 동등한 근거로 취급해 반영합니다."
+      : "",
     dataScope === "answer_plus_web"
       ? "사실 근거와 외부 검색 자료에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오."
-      : "사실 근거에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오.",
+      : hasArchiveDocs
+        ? "사실 근거와 추가 아카이브 자료에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오."
+        : "사실 근거에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오.",
     "이메일 주소, 전화번호, 담당자명 등 개인·계정 정보는 사실 근거에 실제로",
     "적혀 있는 경우에만 사용하고, 없으면 '추가 확인 필요'로만 표시하십시오.",
     "이 시스템(운영 환경)의 사용자·개발자 계정 정보를 절대 언급하지 마십시오.",
@@ -243,7 +268,9 @@ function buildMessages({
     "작성 지침에 나열된 절 제목은 반드시 '##' 마크다운 헤딩으로 표시하십시오.",
     "'□', '▶' 같은 기호나 굵은 글씨로 절 제목을 대신하지 마십시오 — 렌더러가",
     "'##' 헤딩만 서식을 입히므로, 다른 표기는 문서에서 밋밋하게 보입니다.",
-  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
+  ]
+    .filter(Boolean)
+    .join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 작성 유형\n${label}`,
@@ -255,15 +282,22 @@ function buildMessages({
     dataScope === "answer_plus_web"
       ? `## 외부 검색 자료\n${webSourcesBlock(webSources)}`
       : "",
+    hasArchiveDocs
+      ? `## 추가 아카이브 자료\n${archiveDocsBlock(archiveDocs)}`
+      : "",
     `## 근거 출처 목록\n${citationLines(citations)}`,
     [
       "## 지시",
       dataScope === "answer_plus_web"
-        ? "위 '사실 근거'와 '외부 검색 자료'의 내용을 위 작성 유형과"
-        : "위 '사실 근거'의 내용을 위 작성 유형과",
+        ? "위 '사실 근거'와 '외부 검색 자료'의 내용을"
+        : "위 '사실 근거'의 내용을",
+      hasArchiveDocs ? "'추가 아카이브 자료'와 함께" : "",
+      "위 작성 유형과",
       "지침, 사용자 추가 요청에 맞추어 완성된 문서 초안으로 작성하십시오.",
       "문서 마지막에 '## 근거 출처' 절을 두어 위 출처 목록을 정리해 주십시오.",
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -391,6 +425,7 @@ function draftEndpoints(app) {
           dataScope = "answer_only",
           reportType = "basic",
           instructions = "",
+          archiveDocIds = [],
         } = reqBody(request);
 
         if (!String(sourceText).trim())
@@ -424,6 +459,11 @@ function draftEndpoints(app) {
               })
             : [];
 
+        const archiveDocs = await resolveOwnedArchiveDocs({
+          workspaceId: workspace.id,
+          docIds: archiveDocIds,
+        });
+
         const messages = buildMessages({
           sourceText: trimmedSourceText,
           citations,
@@ -431,6 +471,7 @@ function draftEndpoints(app) {
           reportType,
           instructions: trimmedInstructions,
           webSources,
+          archiveDocs,
         });
 
         const { textResponse, metrics } = await LLMConnector.getChatCompletion(
@@ -453,6 +494,7 @@ function draftEndpoints(app) {
           dataScope,
           reportType,
           externalSourcesUsed: webSources.length,
+          archiveDocsUsed: archiveDocs.length,
           metrics: metrics || {},
         });
       } catch (e) {
@@ -476,6 +518,7 @@ module.exports = {
   existingWebSources,
   mergeWebSources,
   webSourcesBlock,
+  archiveDocsBlock,
   deriveDraftSearchQueries,
   gatherWebSources,
   buildMessages,

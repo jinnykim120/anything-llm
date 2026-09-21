@@ -81,6 +81,15 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/workspace/:slug/affinity",
+        lazy: async () => {
+          const { default: DocumentAffinity } = await import(
+            "@/pages/DocumentAffinity"
+          );
+          return { element: <ManagerRoute Component={DocumentAffinity} /> };
+        },
+      },
+      {
         path: "/workspace/:slug",
         lazy: async () => {
           const { default: WorkspaceChat } = await import(

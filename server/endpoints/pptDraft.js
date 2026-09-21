@@ -19,6 +19,21 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { getLLMProvider, stripThinkingFromText } = require("../utils/helpers");
 const { renderPptx } = require("../utils/exporters/pptxRenderer");
 const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
+const { resolveOwnedArchiveDocs } = require("../utils/docRegen");
+
+// [auto-docu 근거 문서 추가] draft.js와 같은 값 — 반기보고서급 대형 문서
+// 하나가 슬라이드 생성 컨텍스트를 통째로 잡아먹지 않게.
+const MAX_ARCHIVE_DOC_CHARS = 60000;
+
+function archiveDocsBlock(docs = []) {
+  if (!docs.length) return "";
+  return docs
+    .map(
+      (d) =>
+        `### ${d.title}\n${String(d.pageContent || "").slice(0, MAX_ARCHIVE_DOC_CHARS)}`
+    )
+    .join("\n\n");
+}
 
 // 목적별 슬라이드 흐름 — DraftPanel의 REPORT_TYPES와 같은 역할. "반복"이라고
 // 표시된 항목은 slideCount에 맞춰 LLM이 필요한 만큼 늘리거나 줄인다.
@@ -204,12 +219,19 @@ function buildMessages({
   purpose,
   slideCount,
   instructions,
+  archiveDocs = [],
 }) {
   const template = PPT_TEMPLATES[purpose];
+  const hasArchiveDocs = archiveDocs.length > 0;
   const system = [
     "당신은 한국의 공공·기업 정책지원 실무자를 돕는 PPT 초안 작성 보조자입니다.",
     "아래 '사실 근거'에 담긴 내용만을 근거로 슬라이드 내용을 작성합니다.",
-    "사실 근거에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오.",
+    hasArchiveDocs
+      ? "'추가 아카이브 자료'가 있으면 사실 근거와 동등한 근거로 취급해 반영합니다."
+      : "",
+    hasArchiveDocs
+      ? "사실 근거와 추가 아카이브 자료에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오."
+      : "사실 근거에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오.",
     "근거가 부족한 부분은 추측하지 말고 해당 불릿에 '(추가 확인 필요)'라고 표시하십시오.",
     "이메일 주소, 전화번호, 담당자명 등 개인·계정 정보는 사실 근거에 실제로",
     "적혀 있는 경우에만 사용하고, 없으면 다루지 않습니다.",
@@ -230,7 +252,9 @@ function buildMessages({
     `- 불릿은 최대 ${MAX_BULLETS_PER_SLIDE}개까지만 씁니다. 한 불릿은 ${MAX_BULLET_CHARS}자 이내로 간결하게 써서 슬라이드에서 한 줄에 들어가도록 하십시오(더 많은 내용은 슬라이드를 나눠 담으십시오).`,
     "- 불릿 문장은 개조식('~함', '~임')으로 간결하게 씁니다.",
     `- 전체 슬라이드 수는 ${slideCount}장에 최대한 맞춥니다(표지 제외).`,
-  ].join("\n") + `\n\n${COMPANY_GLOSSARY}`;
+  ]
+    .filter(Boolean)
+    .join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 문서 목적\n${template.label} — ${template.desc}`,
@@ -240,8 +264,13 @@ function buildMessages({
       ? `## 사용자 추가 요청\n${instructions}`
       : "## 사용자 추가 요청\n(없음 — 기본 흐름에 따라 작성)",
     `## 사실 근거\n${sourceText}`,
+    hasArchiveDocs
+      ? `## 추가 아카이브 자료\n${archiveDocsBlock(archiveDocs)}`
+      : "",
     `## 근거 출처 목록\n${citationLines(citations)}`,
-    "## 지시\n위 사실 근거를 목적과 슬라이드 흐름 가이드에 맞춰 JSON 슬라이드 스펙으로 작성하십시오.",
+    hasArchiveDocs
+      ? "## 지시\n위 사실 근거와 추가 아카이브 자료를 목적과 슬라이드 흐름 가이드에 맞춰 JSON 슬라이드 스펙으로 작성하십시오."
+      : "## 지시\n위 사실 근거를 목적과 슬라이드 흐름 가이드에 맞춰 JSON 슬라이드 스펙으로 작성하십시오.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -270,6 +299,7 @@ async function generateSlideSpec({
   purpose,
   slideCount,
   instructions = "",
+  archiveDocs = [],
   LLMConnector,
   temperature,
   titleOverride,
@@ -286,6 +316,7 @@ async function generateSlideSpec({
     purpose,
     slideCount: clampedCount,
     instructions: String(instructions || "").trim(),
+    archiveDocs,
   });
 
   const { textResponse } = await LLMConnector.getChatCompletion(messages, {
@@ -352,6 +383,7 @@ function pptDraftEndpoints(app) {
           purpose = "analysis",
           slideCount = 8,
           instructions = "",
+          archiveDocIds = [],
         } = reqBody(request);
 
         if (!String(sourceText).trim())
@@ -368,12 +400,18 @@ function pptDraftEndpoints(app) {
           model: workspace?.chatModel,
         });
 
+        const archiveDocs = await resolveOwnedArchiveDocs({
+          workspaceId: workspace.id,
+          docIds: archiveDocIds,
+        });
+
         const slideSpec = await generateSlideSpec({
           sourceText,
           citations,
           purpose,
           slideCount,
           instructions,
+          archiveDocs,
           LLMConnector,
           temperature: workspace?.openAiTemp,
         });
@@ -384,6 +422,7 @@ function pptDraftEndpoints(app) {
           purpose,
           slideCount: slideSpec.slides.length,
           warning: slideSpec.warning,
+          archiveDocsUsed: archiveDocs.length,
         });
       } catch (e) {
         console.error("POST /workspace/:slug/ppt-draft", e);
@@ -438,6 +477,7 @@ module.exports = {
   PPT_TEMPLATES,
   clampSlideCount,
   buildMessages,
+  archiveDocsBlock,
   extractJsonObject,
   generateSlideSpec,
   splitOverflowingContentSlides,
