@@ -341,7 +341,7 @@ ul.plain li{ margin-bottom:5px; }
       <h1>NEXUS(넥서스) — v23 시스템 소개</h1>
       <p class="sub">정책지원팀의 자료 정리·검색·활용을 돕기 위해 만든 사내 문서 아카이브 + AI 질의응답 + 문서 작성 시스템(구 Document Expansion LLM → Recode → 2026-09-21 <b>NEXUS(넥서스)</b>로 리브랜딩). N·Neural — 내·외부 데이터를 신경망처럼 유기적으로 연결 / E·Expert — 자료를 파악·분석해 활용 / X·eXact — 할루시네이션 없는 정확한 Fact 기반 검증 / U·Understanding — 원천 수집부터 논리적 추론까지 심층 이해 / S·Solutions — PPT·Word 문서·정책 제안 등 새로운 시각 도출. 위쪽은 무엇을 할 수 있는지 도식으로 소개하고, 가운데는 지금 상태와 한계를, 아래쪽은 기술 아키텍처를 기록한다.</p>
       <div class="hero-meta">
-        <span class="chip accent">NEXUS 리브랜딩 · 호출량 관리 페이지 · 생성문서 메타 상속 · 자료 추출 리미트</span>
+        <span class="chip accent">NEXUS 리브랜딩 · 호출량 관리 · 생성문서 메타 상속 · PPT 레이아웃 다양화(6종 + 후처리)</span>
         <span class="chip">실코퍼스 91문서 · 서버 테스트 676 통과</span>
         <span class="chip">할루시네이션 방지 원칙 — 근거 없으면 "확인 필요", 통계 수치는 실제 계산만 인용</span>
         <span class="chip bad">서버 미확보 · 로컬 PC 한정 운영</span>
@@ -1126,7 +1126,7 @@ ul.plain li{ margin-bottom:5px; }
         <li><b>(신규) 복합 질문 검색 누락</b> — 대형 다중 섹션 PDF(반기·사업보고서)에서 "2026년 실적 + 2023~25 추이"처럼 시점·추이를 한 문장에 묻으면 검색이 정답 섹션을 놓치고 "자료 없음"으로 답하는 경우가 있다(§26). 자동 해법은 아직 없고, 수동 "근거 문서 추가"로 우회한다.</li>
         <li><b>빈양식 원본서식 채우기는 DOCX 전용</b> — HWP는 쓰기 라이브러리가 없어 대상 밖(§21). HWP 빈양식은 구조화된 콘텐츠(1단계)로만 받을 수 있다.</li>
         <li><b>통계분석은 PPT 미지원</b> — 정보 밀도 문제로 처음부터 HTML 초안 전용으로 범위를 한정(§09).</li>
-        <li><b>PPT 레이아웃 다양화</b> — 슬라이드 구성 자체를 다양화하는 작업은 보류 중.</li>
+        <li><b>PPT 시각 점검은 수동</b> — 렌더링 이미지를 Claude가 보고 고치는 자동 루프는 아직 없다(§27의 <code>ppt-render-check.js</code>로 사람이 확인).</li>
         <li><b>고성능 임베딩(bge-m3) 미사용</b> — 로컬 PC 메모리 한계로 경량 모델(e5-small) 유지 중.</li>
         <li><b>서버 미확보</b> — 팀원 개인 PC에서만 실행.</li>
       </ul>
@@ -1179,7 +1179,7 @@ POST /api/doc-export/pptx  { title, slides }                       # (신규) ma
     </section>
 
     <section id="v23">
-      <div class="section-head"><span class="section-num">27</span><h2>(신규) v23 변경 — NEXUS 리브랜딩 · 호출량 관리 · 생성문서 메타 상속</h2></div>
+      <div class="section-head"><span class="section-num">27</span><h2>(신규) v23 변경 — NEXUS 리브랜딩 · 호출량 · 생성문서 메타 · PPT 레이아웃</h2></div>
       <p class="section-dek">v22 이후 변경(2026-09-21). 이름이 <b>NEXUS</b>로 바뀌었고, Claude 사용량을 눈으로 확인·통제하는 장치와 생성 문서의 검색 메타데이터가 추가됐다.</p>
       <ul class="plain">
         <li><b>NEXUS 리브랜딩(Recode → SYNAPSE 검토 → NEXUS):</b> 화면·로고·브라우저 탭·한국어/영어 문구·다운로드 문서 푸터·PPT 회사명·<code>design.md</code> 전부 교체. 첫 화면은 제목 아래 N·E·X·U·S 의미를 세로로 나열하고, 헤드라인 "흩어진 데이터를 신경망처럼 잇고, 근거를 통해 새로운 시각을 도출합니다."와 컨셉 문구, How it works(수집 → 연결 → 근거 → 생성)로 구성. 과거 문서(v21·v22)의 Recode 표기는 기록이라 그대로 둠.</li>
@@ -1187,14 +1187,17 @@ POST /api/doc-export/pptx  { title, slides }                       # (신규) ma
         <li><b>자료 추출하기 호출 리미트(되돌릴 수 있음):</b> 기본 문서 8·문서당 청크 10·1회 호출 50으로 제한하고, 긴 문서는 앞부분 절단 대신 관련 구간 발췌(<code>textExcerpt.js</code>). 실행 전 <code>POST /extract-data/estimate</code>로 "예상 최대 N회 호출"을 표시. 해제: <code>node server/scripts/extract-limits.js off</code> 후 서버 재시작(<code>on</code>·<code>status</code>도 지원).</li>
         <li><b>PPT 텍스트 아카이빙 · XLSX 정리:</b> PPT 다운로드 시 .pptx가 아니라 슬라이드 세부 내용(제목·불릿·표·차트 데이터·노트)을 markdown으로 내부생성자료에 보관. XLSX 내보내기는 자료 추출하기(근거 시트)와 통계분석(계산 결과 시트)에만 남김.</li>
         <li><b>생성 문서 메타 상속(§22 보강):</b> <code>utils/classification/generatedMeta.js</code> — 내부생성자료 저장 시 LLM 호출 없이 (1) 생성에 쓴 원본 문서(인용 <code>doc_id</code>·추가 선택·기준 문서)의 <b>사업부·분야 최빈값</b>을 물려받고, (2) 태그를 <code>원본:파일명</code>(최대 5) + <code>AI생성</code> + 종류 + 제목·소제목 가중 빈도 기반 <b>핵심 키워드(최대 8)</b>로 채운다. 여전히 "제안" 상태라 사람이 승인해야 검색에 반영. 단위 테스트 5개 추가.</li>
+        <li><b>PPT 레이아웃 다양화(§23 보강):</b> 슬라이드 유형을 6종 추가 — <code>stat</code>(핵심 수치 카드 1~4), <code>compare</code>(2~3단 비교), <code>timeline</code>(3~6단계), <code>quote</code>(핵심 메시지), <code>agenda</code>(목차), <code>content2</code>(짧은 불릿 2단). 프롬프트가 내용에 맞춰 유형을 섞어 쓰라고 지시하고(8장 이상이면 2~3개 section으로 구간 분할), 아래 <b>결정적 후처리</b>(<code>utils/exporters/pptSpecPolish.js</code>, LLM 호출 없음)가 다듬는다: ① 필드가 빠진 유형은 content로 되돌림 ② 숫자 위주 작은 표(행 2~8·계열 1~4·단위 통일·계열 간 크기차 10배 이하)는 차트로 변환(연도·분기면 선, 비중이면 원, 그 외 막대) ③ 짧은 불릿(28자 이하) 5~8개는 2단, 넘치는 불릿·표는 나눠 담기(표는 8행 초과 시 머리글 반복) ④ section이 2개 이상이면 목차 자동 삽입. 사용자에게는 "가독성을 위해 조정했습니다: …" 안내로 알린다.</li>
+        <li><b>글자 넘침 방지(적합도 점검):</b> <code>utils/exporters/pptxLayouts.js</code>가 제목·불릿·표를 글자 수 기반 폭 근사(한글 1em, 영문 0.55em)로 계산해 <b>제목 24→16pt, 불릿 16→11pt, 표 12→9pt</b>로 자동 축소하고, 그래도 안 들어가면 후처리 단계에서 나눠 담는다. 기본 content/표/차트도 이 렌더러로 그려 일관된 틀(제목·밑줄·푸터)을 쓴다. 미리보기(DraftPanel)와 텍스트 아카이빙(<code>slideSpecToMarkdown</code>)도 새 유형을 표시·저장한다.</li>
+        <li><b>PPT 렌더링 점검 도구:</b> <code>node server/scripts/ppt-render-check.js [spec.json] [outDir]</code> — 스펙(생략 시 모든 유형이 들어간 샘플)을 .pptx로 만들고 LibreOffice(<code>D:\LibreOffice</code> 또는 <code>SOFFICE_PATH</code>)로 PDF, pymupdf로 슬라이드별 PNG까지 생성. 이 도구로 실제 렌더링을 보고 세 가지를 잡았다: 크기 차 큰 두 계열을 한 축에 그려 한쪽이 납작해지는 차트(→ 변환 금지 규칙), 카드 폭을 넘는 수치(→ 폭 기반 글자 크기), 내용보다 큰 비교 박스(→ 내용 높이에 맞춤). 단위 테스트 추가(후처리·적합도·전 유형 렌더 호출).</li>
         <li><b>관리 화면 스타일 정리:</b> 문서함·아카이브 관리·예약 작업 화면의 대문자·자간 영문 라벨 패턴을 제거해 나머지 화면(Pretendard, 평문 파란 라벨)과 통일.</li>
       </ul>
-      <div class="rule-callout"><b>남은 과제:</b> 복합 질문 검색 누락(§24, 수동 "근거 문서 추가"로 우회) · Gemini 비전/롱컨텍스트(API 키 발급 대기) · PPT 레이아웃 다양화(보류) · 호출량 확인 후 사용량 급증 원인 재점검.</div>
+      <div class="rule-callout"><b>남은 과제:</b> 복합 질문 검색 누락(§24, 수동 "근거 문서 추가"로 우회) · Gemini 비전/롱컨텍스트(API 키 발급 대기) · 호출량 확인 후 사용량 급증 원인 재점검 · PPT 시각 점검 자동 루프(렌더링 이미지 → Claude 검토 → 수정, 옵션) · 대형 파일 분리 리팩토링(DraftPanel·DocRegen·pgvector).</div>
     </section>
 
     <footer class="footer container">
       <span>NEXUS · <code>feat/archive-qa</code> · AnythingLLM v1.16.0 fork</span>
-      <span>architecture v23 · 2026-09-21 · NEXUS 리브랜딩 · 호출량 관리 · 생성문서 메타 상속. 기술 상세는 v16~v22 참고.</span>
+      <span>architecture v23 · 2026-09-21 · NEXUS 리브랜딩 · 호출량 관리 · 생성문서 메타 상속 · PPT 레이아웃 다양화. 기술 상세는 v16~v22 참고.</span>
     </footer>
   </main>
 </div>
