@@ -1579,7 +1579,7 @@ function DraftCover({ label, title, accent }) {
       </span>
       <h3 className="mt-1.5 text-base font-extrabold leading-snug">{title}</h3>
       <p className="mt-0.5 text-[11px] text-white/80">
-        {new Date().toLocaleString("ko-KR")} · Recode
+        {new Date().toLocaleString("ko-KR")} · NEXUS
       </p>
     </div>
   );

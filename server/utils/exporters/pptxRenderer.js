@@ -46,7 +46,7 @@ async function renderPptx(slideSpec) {
   const pptx = new PptxGenJS();
   pptx.title = title;
   if (author) pptx.author = author;
-  pptx.company = "Recode";
+  pptx.company = "NEXUS";
 
   const totalSlideCount = slides.length;
 

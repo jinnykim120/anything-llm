@@ -288,11 +288,11 @@ function WorkspaceArchiveSidebar({ slug }) {
   return (
     <aside className="relative z-20 flex h-full w-[276px] shrink-0 flex-col border-r border-slate-200 bg-white text-slate-900 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="flex items-center justify-between px-5 pb-5 pt-6">
-        <Link to={paths.home()} aria-label="Recode 홈" className="block">
+        <Link to={paths.home()} aria-label="NEXUS 홈" className="block">
           {logo ? (
-            <img src={logo} alt="Recode" className="h-7 w-auto" />
+            <img src={logo} alt="NEXUS" className="h-7 w-auto" />
           ) : (
-            <span className="text-sm font-semibold">Recode</span>
+            <span className="text-sm font-semibold">NEXUS</span>
           )}
         </Link>
       </div>
@@ -487,11 +487,11 @@ function ManagementSidebar({ slug, activeManagement }) {
   return (
     <aside className="relative z-20 flex h-full w-[276px] shrink-0 flex-col border-r border-slate-200 bg-white text-slate-900 light:border-slate-200 light:bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="px-5 pb-5 pt-6">
-        <Link to={paths.home()} aria-label="Recode 홈" className="block">
+        <Link to={paths.home()} aria-label="NEXUS 홈" className="block">
           {logo ? (
-            <img src={logo} alt="Recode" className="h-7 w-auto" />
+            <img src={logo} alt="NEXUS" className="h-7 w-auto" />
           ) : (
-            <span className="text-sm font-semibold">Recode</span>
+            <span className="text-sm font-semibold">NEXUS</span>
           )}
         </Link>
         <div className="mt-7 border-b border-slate-200 pb-5 dark:border-zinc-800">
@@ -500,7 +500,7 @@ function ManagementSidebar({ slug, activeManagement }) {
           </p>
           <p className="mt-2 text-base font-semibold">아카이브 관리</p>
           <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-zinc-500">
-            Recode 아카이브 운영 도구
+            NEXUS 운영 도구
           </p>
         </div>
       </div>

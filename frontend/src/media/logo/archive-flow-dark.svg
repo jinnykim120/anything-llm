@@ -9,5 +9,5 @@
   <circle cx="5" cy="25" r="3.2" fill="#f1787e"/>
   <circle cx="27" cy="16" r="4.6" fill="#4ac7c6"/>
   <circle cx="27" cy="16" r="1.8" fill="#ffffff"/>
-  <text x="38" y="21" font-family="Inter, -apple-system, 'Segoe UI', sans-serif" font-size="14" font-weight="650" letter-spacing="0.2" fill="#161616">Recode</text>
+  <text x="38" y="21" font-family="Inter, -apple-system, 'Segoe UI', sans-serif" font-size="14" font-weight="650" letter-spacing="0.8" fill="#161616">NEXUS</text>
 </svg>

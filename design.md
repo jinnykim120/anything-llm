@@ -1,10 +1,10 @@
-# Design — Recode
+# Design — NEXUS
 
-A locked design system for the Recode archive/RAG tool (AnythingLLM fork).
-Every redesign of a Recode-branded page reads this file first. This is a
+A locked design system for the NEXUS archive/RAG tool (AnythingLLM fork).
+Every redesign of a NEXUS-branded page reads this file first. This is a
 production React + Tailwind app with existing routes and working
 functionality — the system below is expressed as Tailwind utility
-conventions, not raw CSS tokens, and is scoped to the **custom Recode UI**
+conventions, not raw CSS tokens, and is scoped to the **custom NEXUS UI**
 only (`frontend/src/pages/Main/LandingPage.jsx`,
 `frontend/src/components/ArchiveSidebar/`,
 `frontend/src/components/WorkspaceChat/ChatContainer/DraftPanel/`,
@@ -21,7 +21,7 @@ not editorial. (User-selected over utilitarian/austere.)
 ## Theme — Cobalt, adapted
 Catalog pick: **Cobalt** (cool cobalt-on-light, dev-tool register). Chosen
 because its single "electric cobalt blue" signal accent is the same blue
-Recode's brand already anchors on (established this session) — the rotation
+NEXUS's brand already anchors on (established this session) — the rotation
 doesn't fight prior work, it formalizes it.
 
 **Three deliberate deviations from the canonical Cobalt spec**, driven by
@@ -41,10 +41,10 @@ primary UI language:
    `!important` form-control fallback that was overriding it) list
    `"Pretendard Variable", "plus-jakarta-sans", ...` in that order — Jakarta
    Sans stays as the Latin fallback, not the primary.
-3. **No literal "code is the hero" artifact.** Recode has no code/API to
+3. **No literal "code is the hero" artifact.** NEXUS has no code/API to
    demo. The equivalent focal-artifact move is the existing **citation /
    source card** (bordered snippet + page/bbox metadata + score) already
-   surfaced in chat answers — that IS Recode's "structured data" hero, and
+   surfaced in chat answers — that IS NEXUS's "structured data" hero, and
    should read with the same instrument-panel precision Cobalt gives a code
    card (hairline border, mono metadata line, no drop shadow).
 
@@ -136,7 +136,7 @@ behavior; no custom keyframes introduced that would need gating).
   credit + one link, hairline rule above. Keep.)
 
 ## What pages MUST share
-- The Recode wordmark, exactly as-is.
+- The NEXUS wordmark, exactly as-is.
 - The blue-600 accent and its restrained (<5%) placement.
 - Plus Jakarta Sans, single-family.
 - The hairline-over-boxes component voice and the 6px/8px radius scale.

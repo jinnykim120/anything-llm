@@ -10,25 +10,51 @@ const ARCHIVE_SLUG = "archive-full";
 const FLOW_STEPS = [
   {
     number: "01",
-    title: "문서",
-    description: "PDF·HWP·PPTX 등 원본을 보존한 채 아카이브에 담습니다.",
+    title: "수집",
+    description:
+      "내부 문서(PDF·HWP·PPTX 등)를 원본 그대로 보존하며 분류해 담고, 외부 데이터·통계 지표를 함께 모읍니다.",
   },
   {
     number: "02",
-    title: "맥락",
-    description: "문장을 잘게 나누는 대신 문서의 구조와 맥락을 함께 읽습니다.",
+    title: "연결",
+    description:
+      "문서의 구조와 맥락, 데이터 사이의 관계를 신경망처럼 이어 하나의 근거 체계로 만듭니다.",
   },
   {
     number: "03",
     title: "근거",
     description:
-      "답변과 함께 출처·페이지·원본 위치를 확인하고, 부족하면 최신 외부 자료로 보강합니다.",
+      "모든 답변에 출처·페이지·원본 위치를 붙여 할루시네이션 없이 검증할 수 있게 합니다.",
   },
   {
     number: "04",
-    title: "초안",
+    title: "생성",
     description:
-      "확정된 답변을 그대로 기본·분석 보고서 초안으로 만들어 드립니다.",
+      "검증된 인사이트를 PPT·Word 문서·통계분석으로 유기적으로 만들어 드립니다.",
+  },
+];
+
+const MEANINGS = [
+  {
+    letter: "N",
+    word: "Neural",
+    note: "내·외부 데이터를 신경망처럼 유기적으로 연결",
+  },
+  { letter: "E", word: "Expert", note: "자료를 파악하고 분석해 활용" },
+  {
+    letter: "X",
+    word: "eXact",
+    note: "할루시네이션 없는 정확한 Fact 기반 검증",
+  },
+  {
+    letter: "U",
+    word: "Understanding",
+    note: "원천 데이터 수집부터 논리적 추론까지 심층 이해",
+  },
+  {
+    letter: "S",
+    word: "Solutions",
+    note: "PPT/Word 문서, 정책 제안 등 새로운 시각 도출",
   },
 ];
 
@@ -115,12 +141,12 @@ export default function LandingPage() {
           type="button"
           onClick={() => navigate(paths.home())}
           className="rounded border-0 bg-transparent p-0"
-          aria-label="Recode 홈"
+          aria-label="NEXUS 홈"
         >
           {logo ? (
-            <img src={logo} alt="Recode" className="h-11 w-auto" />
+            <img src={logo} alt="NEXUS" className="h-11 w-auto" />
           ) : (
-            <span className="text-sm font-semibold tracking-wide">Recode</span>
+            <span className="text-sm font-semibold tracking-wide">NEXUS</span>
           )}
         </button>
       </header>
@@ -129,32 +155,40 @@ export default function LandingPage() {
         <div className="relative z-10 max-w-2xl">
           <div className="mb-7 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-blue-600 light:border-slate-200 light:bg-white light:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-blue-500">
             <Sparkle size={13} weight="fill" />
-            자동 분류 적재 · 근거형 질의 · 문서 작성
+            통합 · 근거형 질의 · 문서/통계 생성
           </div>
           <h1 className="text-5xl font-semibold leading-[0.98] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-8xl light:text-slate-950 dark:text-white">
-            Re
+            NEX
             <span className="text-blue-600 light:text-blue-600 dark:text-blue-300">
-              code
+              US
             </span>
           </h1>
-          <p className="mt-4 text-sm font-medium leading-6 text-slate-500 light:text-slate-500 dark:text-zinc-400">
-            Recode (리코드): Record(기록) + Code/Synthesis(LLM 처리)
-          </p>
+          <ul className="mt-6 flex flex-col gap-1">
+            {MEANINGS.map(({ letter, word, note }) => (
+              <li
+                key={word}
+                className="flex items-center gap-3 text-[13px] leading-5"
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-600/10 text-xs font-bold text-blue-600 light:text-blue-600 dark:bg-blue-400/10 dark:text-blue-300">
+                  {letter}
+                </span>
+                <span className="w-[104px] shrink-0 font-semibold tracking-tight text-slate-800 light:text-slate-800 dark:text-zinc-100">
+                  {word}
+                </span>
+                <span className="text-slate-500 light:text-slate-500 dark:text-zinc-400">
+                  {note}
+                </span>
+              </li>
+            ))}
+          </ul>
           <div className="mt-10 max-w-xl lg:ml-auto lg:text-right">
             <h2 className="text-2xl font-medium leading-[1.25] tracking-[-0.03em] text-slate-900 sm:text-3xl light:text-slate-900 dark:text-white">
-              데이터의 흐름을 읽고,
+              흩어진 데이터를 신경망처럼 잇고,
               <br />
               <span className="text-blue-600 light:text-blue-600 dark:text-blue-300">
-                근거를 따라 답합니다.
+                근거를 통해 새로운 시각을 도출합니다.
               </span>
             </h2>
-            <p className="mt-5 text-sm leading-8 text-slate-600 light:text-slate-600 dark:text-zinc-300 xl:whitespace-nowrap">
-              문서의 맥락을 읽어 저장하고, 답변은 원본 근거 위에서만 작성합니다.
-            </p>
-            <p className="mt-1 text-sm leading-8 text-slate-600 light:text-slate-600 dark:text-zinc-300 xl:whitespace-nowrap">
-              필요한 자료는 정확히 추출하고, 보고서·PPT·통계분석까지 바로
-              만듭니다.
-            </p>
           </div>
           <div className="mt-9 flex flex-wrap items-end gap-5 lg:justify-end">
             <div className="flex flex-wrap items-center gap-3">
@@ -175,205 +209,241 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div
-          className="relative mx-auto h-[470px] w-full max-w-[540px] overflow-hidden lg:h-[600px] lg:justify-self-end"
-          role="img"
-          aria-label="왼쪽의 컬러 데이터 노드에서 곡선이 흐르고 오른쪽의 근거 버블로 모이는 지식 그래픽"
-        >
-          <div className="pointer-events-none absolute inset-0 z-0 opacity-95">
-            <svg
-              viewBox="0 0 760 600"
-              preserveAspectRatio="xMidYMid meet"
-              className="h-full w-full"
-              aria-hidden="true"
-            >
-              <defs>
-                <radialGradient id="data-halo" cx="62%" cy="50%" r="72%">
-                  <stop offset="0" stopColor="#3aabb0" stopOpacity="0.34" />
-                  <stop offset="0.28" stopColor="#1d7781" stopOpacity="0.24" />
-                  <stop offset="0.62" stopColor="#12485b" stopOpacity="0.12" />
-                  <stop offset="0.86" stopColor="#0b2335" stopOpacity="0.05" />
-                  <stop offset="1" stopColor="#061321" stopOpacity="0" />
-                </radialGradient>
-                <radialGradient id="bubble-glass" cx="32%" cy="26%" r="74%">
-                  <stop offset="0" stopColor="#ffffff" stopOpacity="0.3" />
-                  <stop offset="0.48" stopColor="#ffffff" stopOpacity="0.04" />
-                  <stop offset="1" stopColor="#061b2b" stopOpacity="0.08" />
-                </radialGradient>
-                <filter
-                  id="node-glow"
-                  x="-60%"
-                  y="-60%"
-                  width="220%"
-                  height="220%"
-                >
-                  <feGaussianBlur stdDeviation="8" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-                <filter
-                  id="stream-glow"
-                  x="-10%"
-                  y="-20%"
-                  width="120%"
-                  height="140%"
-                >
-                  <feGaussianBlur stdDeviation="1.4" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
+        <div className="mx-auto w-full max-w-[540px] lg:justify-self-end">
+          <div
+            className="relative mx-auto h-[470px] w-full max-w-[540px] overflow-hidden lg:h-[600px]"
+            role="img"
+            aria-label="왼쪽의 컬러 데이터 노드에서 곡선이 흐르고 오른쪽의 근거 버블로 모이는 지식 그래픽"
+          >
+            <div className="pointer-events-none absolute inset-0 z-0 opacity-95">
+              <svg
+                viewBox="0 0 760 600"
+                preserveAspectRatio="xMidYMid meet"
+                className="h-full w-full"
+                aria-hidden="true"
+              >
+                <defs>
+                  <radialGradient id="data-halo" cx="62%" cy="50%" r="72%">
+                    <stop offset="0" stopColor="#3aabb0" stopOpacity="0.34" />
+                    <stop
+                      offset="0.28"
+                      stopColor="#1d7781"
+                      stopOpacity="0.24"
+                    />
+                    <stop
+                      offset="0.62"
+                      stopColor="#12485b"
+                      stopOpacity="0.12"
+                    />
+                    <stop
+                      offset="0.86"
+                      stopColor="#0b2335"
+                      stopOpacity="0.05"
+                    />
+                    <stop offset="1" stopColor="#061321" stopOpacity="0" />
+                  </radialGradient>
+                  <radialGradient id="bubble-glass" cx="32%" cy="26%" r="74%">
+                    <stop offset="0" stopColor="#ffffff" stopOpacity="0.3" />
+                    <stop
+                      offset="0.48"
+                      stopColor="#ffffff"
+                      stopOpacity="0.04"
+                    />
+                    <stop offset="1" stopColor="#061b2b" stopOpacity="0.08" />
+                  </radialGradient>
+                  <filter
+                    id="node-glow"
+                    x="-60%"
+                    y="-60%"
+                    width="220%"
+                    height="220%"
+                  >
+                    <feGaussianBlur stdDeviation="8" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                  <filter
+                    id="stream-glow"
+                    x="-10%"
+                    y="-20%"
+                    width="120%"
+                    height="140%"
+                  >
+                    <feGaussianBlur stdDeviation="1.4" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
 
-              <ellipse
-                cx="488"
-                cy="300"
-                rx="340"
-                ry="330"
-                fill="url(#data-halo)"
-              />
-
-              <g fill="none" stroke="#8de8e4" strokeOpacity="0.14">
-                <ellipse cx="557" cy="300" rx="188" ry="244" strokeWidth="1" />
                 <ellipse
-                  cx="557"
+                  cx="488"
                   cy="300"
-                  rx="134"
-                  ry="185"
-                  strokeWidth="0.8"
-                  strokeDasharray="2 13"
+                  rx="340"
+                  ry="330"
+                  fill="url(#data-halo)"
                 />
-                <path
-                  d="M 268 66 C 412 112 554 76 724 132"
-                  strokeWidth="0.7"
-                  strokeDasharray="1 10"
-                />
-                <path
-                  d="M 290 550 C 432 478 568 536 736 470"
-                  strokeWidth="0.7"
-                  strokeDasharray="1 11"
-                />
-              </g>
 
-              <g>
-                {DATA_BUBBLES.map(({ x, y, radius, color, opacity }, index) => (
-                  <g key={`data-bubble-${index}`}>
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={radius}
-                      fill={color}
-                      fillOpacity={opacity}
-                      stroke={color}
-                      strokeOpacity={opacity + 0.1}
-                      strokeWidth="1"
-                    />
-                    <circle
-                      cx={x - radius * 0.2}
-                      cy={y - radius * 0.2}
-                      r={radius * 0.82}
-                      fill="url(#bubble-glass)"
-                      opacity="0.42"
-                    />
-                  </g>
-                ))}
-              </g>
-
-              <g fill="none" strokeLinecap="round" filter="url(#stream-glow)">
-                {DATA_STREAMS.map(({ id, d, color, width, opacity }) => (
-                  <path
-                    key={`data-stream-${id}`}
-                    d={d}
-                    stroke={color}
-                    strokeWidth={width}
-                    strokeOpacity={opacity}
+                <g fill="none" stroke="#8de8e4" strokeOpacity="0.14">
+                  <ellipse
+                    cx="557"
+                    cy="300"
+                    rx="188"
+                    ry="244"
+                    strokeWidth="1"
                   />
-                ))}
-              </g>
+                  <ellipse
+                    cx="557"
+                    cy="300"
+                    rx="134"
+                    ry="185"
+                    strokeWidth="0.8"
+                    strokeDasharray="2 13"
+                  />
+                  <path
+                    d="M 268 66 C 412 112 554 76 724 132"
+                    strokeWidth="0.7"
+                    strokeDasharray="1 10"
+                  />
+                  <path
+                    d="M 290 550 C 432 478 568 536 736 470"
+                    strokeWidth="0.7"
+                    strokeDasharray="1 11"
+                  />
+                </g>
 
-              <g fill="none" strokeLinecap="round" opacity="0.34">
-                <path
-                  d="M 147 112 C 282 75 401 126 684 74"
-                  stroke="#d8ffff"
-                  strokeWidth="0.9"
-                  strokeDasharray="1 10"
-                />
-                <path
-                  d="M 143 305 C 316 266 434 348 704 262"
-                  stroke="#d8ffff"
-                  strokeWidth="0.9"
-                  strokeDasharray="1 12"
-                />
-                <path
-                  d="M 154 462 C 320 448 458 528 716 438"
-                  stroke="#d8ffff"
-                  strokeWidth="0.9"
-                  strokeDasharray="1 11"
-                />
-              </g>
+                <g>
+                  {DATA_BUBBLES.map(
+                    ({ x, y, radius, color, opacity }, index) => (
+                      <g key={`data-bubble-${index}`}>
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={radius}
+                          fill={color}
+                          fillOpacity={opacity}
+                          stroke={color}
+                          strokeOpacity={opacity + 0.1}
+                          strokeWidth="1"
+                        />
+                        <circle
+                          cx={x - radius * 0.2}
+                          cy={y - radius * 0.2}
+                          r={radius * 0.82}
+                          fill="url(#bubble-glass)"
+                          opacity="0.42"
+                        />
+                      </g>
+                    )
+                  )}
+                </g>
 
-              <g filter="url(#node-glow)">
-                {DATA_NODES.map(({ id, x, y, radius, color }) => (
-                  <g key={`data-node-${id}`}>
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={radius + 10}
-                      fill={color}
-                      fillOpacity="0.1"
-                    />
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={radius}
-                      fill={color}
-                      fillOpacity="0.8"
-                    />
-                    <circle
-                      cx={x - radius * 0.2}
-                      cy={y - radius * 0.24}
-                      r={radius * 0.67}
-                      fill="#ffffff"
-                      fillOpacity="0.08"
-                    />
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={radius * 0.24}
-                      fill="#071a29"
-                      fillOpacity="0.56"
-                    />
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={radius * 0.1}
-                      fill="#ffffff"
-                      fillOpacity="0.72"
-                    />
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={radius + 4}
-                      fill="none"
+                <g fill="none" strokeLinecap="round" filter="url(#stream-glow)">
+                  {DATA_STREAMS.map(({ id, d, color, width, opacity }) => (
+                    <path
+                      key={`data-stream-${id}`}
+                      d={d}
                       stroke={color}
-                      strokeOpacity="0.55"
-                      strokeWidth="1"
+                      strokeWidth={width}
+                      strokeOpacity={opacity}
                     />
-                  </g>
-                ))}
-              </g>
+                  ))}
+                </g>
 
-              <g fill="#c8ffff" opacity="0.64">
-                <circle cx="416" cy="112" r="2" />
-                <circle cx="462" cy="192" r="1.6" />
-                <circle cx="548" cy="270" r="2.2" />
-                <circle cx="626" cy="360" r="1.8" />
-                <circle cx="694" cy="482" r="2.1" />
-              </g>
-            </svg>
+                <g fill="none" strokeLinecap="round" opacity="0.34">
+                  <path
+                    d="M 147 112 C 282 75 401 126 684 74"
+                    stroke="#d8ffff"
+                    strokeWidth="0.9"
+                    strokeDasharray="1 10"
+                  />
+                  <path
+                    d="M 143 305 C 316 266 434 348 704 262"
+                    stroke="#d8ffff"
+                    strokeWidth="0.9"
+                    strokeDasharray="1 12"
+                  />
+                  <path
+                    d="M 154 462 C 320 448 458 528 716 438"
+                    stroke="#d8ffff"
+                    strokeWidth="0.9"
+                    strokeDasharray="1 11"
+                  />
+                </g>
+
+                <g filter="url(#node-glow)">
+                  {DATA_NODES.map(({ id, x, y, radius, color }) => (
+                    <g key={`data-node-${id}`}>
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={radius + 10}
+                        fill={color}
+                        fillOpacity="0.1"
+                      />
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={radius}
+                        fill={color}
+                        fillOpacity="0.8"
+                      />
+                      <circle
+                        cx={x - radius * 0.2}
+                        cy={y - radius * 0.24}
+                        r={radius * 0.67}
+                        fill="#ffffff"
+                        fillOpacity="0.08"
+                      />
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={radius * 0.24}
+                        fill="#071a29"
+                        fillOpacity="0.56"
+                      />
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={radius * 0.1}
+                        fill="#ffffff"
+                        fillOpacity="0.72"
+                      />
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={radius + 4}
+                        fill="none"
+                        stroke={color}
+                        strokeOpacity="0.55"
+                        strokeWidth="1"
+                      />
+                    </g>
+                  ))}
+                </g>
+
+                <g fill="#c8ffff" opacity="0.64">
+                  <circle cx="416" cy="112" r="2" />
+                  <circle cx="462" cy="192" r="1.6" />
+                  <circle cx="548" cy="270" r="2.2" />
+                  <circle cx="626" cy="360" r="1.8" />
+                  <circle cx="694" cy="482" r="2.1" />
+                </g>
+              </svg>
+            </div>
+          </div>
+          <div className="-mt-6 text-center lg:-mt-16 lg:text-right">
+            <p className="relative z-10 text-sm leading-6 text-slate-600 light:text-slate-600 dark:text-zinc-300">
+              내부·외부 데이터와 통계를 연결해, 할루시네이션 없는 인사이트를
+              제공합니다.
+            </p>
+            <p className="relative z-10 text-sm leading-6 text-slate-600 light:text-slate-600 dark:text-zinc-300">
+              PPT·Word 문서·통계분석까지, 원본 근거를 따라 유기적으로
+              생성합니다.
+            </p>
           </div>
         </div>
       </section>
@@ -388,21 +458,20 @@ export default function LandingPage() {
               How it works
             </p>
             <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950 light:text-slate-950 dark:text-white">
-              근거에 기반한 답변과 문서 업무
+              연결된 데이터로 만드는 근거 기반 인사이트
             </h2>
             <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600 light:text-slate-600 dark:text-zinc-400">
               <span className="block">
-                우리가 쌓아온 내부 데이터를 자동으로 분류해서 안전하게
-                아카이빙하고,
+                내부 수집 자료와 외부 데이터, 통계 지표를 한곳에 연결하고,
               </span>
               <span className="block">
-                질문에는 내부 데이터를 근거 기반으로 답변합니다.
+                질문에는 원본 근거를 밝혀 할루시네이션 없이 답변합니다.
               </span>
               <span className="block">
-                근거자료를 눈으로 재검토해 자료를 검수하고,
+                근거를 재검토·검수해 신뢰할 수 있는 해석을 확정하고,
               </span>
               <span className="block">
-                추가적인 아이디어를 보강해 보고서 및 분석 보고서를 작성합니다.
+                PPT·Word 문서·통계분석으로 유기적으로 생성합니다.
               </span>
             </p>
           </div>

@@ -102,7 +102,7 @@ export function docRegenToHtml({ markdown = "", title = "문서 초안" }) {
 <style>${PLAIN_CSS}</style>
 </head>
 <body>
-<div class="doc-meta">전사문서작성tool · 생성: ${escapeHtml(stamp)} · Recode</div>
+<div class="doc-meta">전사문서작성tool · 생성: ${escapeHtml(stamp)} · NEXUS</div>
 ${body}
 </body>
 </html>`;

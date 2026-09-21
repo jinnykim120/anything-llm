@@ -44,7 +44,7 @@ export default function Footer() {
   if (footerData === false) return null;
 
   if (!Array.isArray(footerData) || footerData.length === 0) {
-    // [Recode] internal tool — no external project links by
+    // [NEXUS] internal tool — no external project links by
     // default. Admins can still add custom footer links in settings.
     return (
       <div className="flex justify-center mb-2">
