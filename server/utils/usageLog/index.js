@@ -52,7 +52,7 @@ function logDir() {
 }
 
 function record({ inChars = 0, outChars = 0, ms = 0, ok = true }) {
-  if (process.env.USAGE_LOG === "off") return;
+  if (process.env.USAGE_LOG === "off" || process.env.NODE_ENV === "test") return;
   try {
     const dir = logDir();
     fs.mkdirSync(dir, { recursive: true });
