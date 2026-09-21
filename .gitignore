@@ -18,3 +18,4 @@ collector/.collector-out.log
 collector/.collector-err.log
 frontend/.frontend-out.log
 frontend/.frontend-err.log
+ppt-check/
