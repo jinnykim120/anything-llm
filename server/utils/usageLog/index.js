@@ -66,7 +66,7 @@ function record({ inChars = 0, outChars = 0, ms = 0, ok = true }) {
       ms,
       ok,
     });
-    fs.appendFile(file, line + "\n", () => {});
+    fs.appendFileSync(file, line + "\n");
   } catch {
     // 로그 실패가 실제 호출을 막으면 안 된다.
   }
