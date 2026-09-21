@@ -131,7 +131,7 @@ export default function ArchiveManagement() {
             <ArrowLeft size={15} /> 작업 화면으로 돌아가기
           </Link>
           <div className="mt-8 border-b border-slate-200 pb-7 dark:border-zinc-800">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">
+            <p className="text-xs font-semibold text-blue-600">
               Archive controls
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">

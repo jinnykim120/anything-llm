@@ -274,7 +274,7 @@ export default function DocumentRoom() {
               >
                 <ArrowLeft size={15} /> 관리로 돌아가기
               </Link>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">
+              <p className="text-xs font-semibold text-blue-600">
                 Document room
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
@@ -301,7 +301,7 @@ export default function DocumentRoom() {
 
           <div className="mt-6 grid min-h-0 flex-1 gap-5 lg:grid-cols-[230px_minmax(0,1fr)_320px]">
             <aside className="min-h-0 overflow-y-auto border border-slate-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-              <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-600">
+              <p className="px-2 pb-2 text-[11px] font-semibold text-slate-400 dark:text-zinc-600">
                 분류 폴더
               </p>
               <button
@@ -494,7 +494,7 @@ function DocumentDetail({ document, classification }) {
     : null;
   return (
     <aside className="min-h-0 overflow-y-auto border border-slate-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-600">
+      <p className="text-[11px] font-semibold text-slate-400 dark:text-zinc-600">
         문서 상세
       </p>
       <h2 className="mt-3 break-words text-base font-semibold">
