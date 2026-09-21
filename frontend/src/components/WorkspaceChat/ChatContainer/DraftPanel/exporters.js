@@ -343,3 +343,42 @@ export function downloadDraftHtml({
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// [auto-docu 내부생성자료] PPT를 내려받을 때 아카이브에 넣는 건 .pptx 파일이 아니라,
+// 그 직전까지 만들어 둔 슬라이드 세부 내용(글씨)이다 — 제목/부제/불릿/표/그래프
+// 수치/발표자 노트까지 빠짐없이 마크다운 텍스트로 풀어 검색·재활용할 수 있게 한다.
+export function slideSpecToMarkdown(slideSpec) {
+  const slides = slideSpec?.slides || [];
+  const CHART_LABEL = { bar: "막대", line: "선", pie: "원형" };
+  const blocks = slides.map((s, i) => {
+    const parts = [`## ${i + 1}. ${s.title || "(제목 없음)"}`];
+    if (s.subtitle) parts.push(s.subtitle);
+    if (Array.isArray(s.content) && s.content.length)
+      parts.push(s.content.map((c) => `- ${c}`).join("\n"));
+    if (s.table?.headers?.length) {
+      parts.push(
+        [
+          `| ${s.table.headers.join(" | ")} |`,
+          `| ${s.table.headers.map(() => "---").join(" | ")} |`,
+          ...(s.table.rows || []).map((r) => `| ${r.join(" | ")} |`),
+        ].join("\n")
+      );
+    }
+    if (s.chart?.categories?.length && s.chart?.series?.length) {
+      parts.push(
+        [
+          `(${CHART_LABEL[s.chart.type] || ""} 그래프 데이터)`,
+          `| 항목 | ${s.chart.series.map((x) => x.name || "값").join(" | ")} |`,
+          `| --- | ${s.chart.series.map(() => "---").join(" | ")} |`,
+          ...s.chart.categories.map(
+            (c, idx) =>
+              `| ${c} | ${s.chart.series.map((x) => x.values?.[idx] ?? "").join(" | ")} |`
+          ),
+        ].join("\n")
+      );
+    }
+    if (s.notes) parts.push(`> 발표자 노트: ${s.notes}`);
+    return parts.join("\n\n");
+  });
+  return `# ${slideSpec?.title || "PPT 초안"}\n\n${blocks.join("\n\n")}`;
+}

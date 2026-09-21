@@ -27,6 +27,7 @@ const {
 
 const DOC_TYPE_BY_KIND = {
   draft: "초안",
+  ppt_draft: "PPT 초안(세부 내용)",
   docregen: "전사문서작성tool 결과",
 };
 

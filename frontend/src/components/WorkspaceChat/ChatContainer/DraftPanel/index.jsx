@@ -25,6 +25,7 @@ import {
   extractDraftTitle,
   detectDesignRequest,
   DRAFT_ACCENT,
+  slideSpecToMarkdown,
 } from "./exporters";
 import ScopedEditOverlay, { computeRelativeRect } from "./ScopedEditOverlay";
 import { patchSlideSpec, blockTextFor } from "./pptSlideSpecPatch";
@@ -610,29 +611,20 @@ export default function DraftPanel({
 
   function archivePptInBackground() {
     if (!pptDraft?.slideSpec) return;
-    // [auto-docu 내부생성자료] 문서 초안과 같은 게이트 — "제안" 상태로만
-    // 넣고 검수 전에는 검색에 노출되지 않는다. 마크다운 본문은 슬라이드
-    // 내용을 간단히 개요화한 텍스트(실제 파일은 pptx이지만 아카이브
-    // 색인은 markdown 텍스트만 받으므로).
-    const outline = pptDraft.slideSpec.slides
-      .map((s, i) => {
-        const body = s.table
-          ? [
-              s.table.headers.join(" | "),
-              ...s.table.rows.map((r) => r.join(" | ")),
-            ].join("\n")
-          : (s.content || []).map((c) => `- ${c}`).join("\n");
-        return `## ${i + 1}. ${s.title || ""}\n${body}`;
-      })
-      .join("\n\n");
+    // [auto-docu 내부생성자료] 완성된 .pptx가 아니라 그 직전까지 만든 슬라이드
+    // 세부 내용(글씨)을 텍스트로 저장한다. 문서 초안과 같은 게이트 — "제안"
+    // 상태로만 들어가 검수 전에는 검색에 노출되지 않는다.
     Workspace.archiveGenerated(workspace.slug, {
       title: pptDraft.title,
-      markdown: `# ${pptDraft.title}\n\n${outline}`,
+      markdown: slideSpecToMarkdown({
+        ...pptDraft.slideSpec,
+        title: pptDraft.title || pptDraft.slideSpec.title,
+      }),
       kind: "ppt_draft",
     }).then((res) => {
       if (res?.success)
         showToast(
-          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
+          "PPT 세부 내용(글씨)을 내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
           "info"
         );
     });
