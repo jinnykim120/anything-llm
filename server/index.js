@@ -37,6 +37,7 @@ const {
   threadPrioritySourcesEndpoints,
 } = require("./endpoints/threadPrioritySources");
 const { documentAffinityEndpoints } = require("./endpoints/documentAffinity");
+const { usageLogEndpoints } = require("./endpoints/usageLog");
 const { agentWebsocket } = require("./endpoints/agentWebsocket");
 const {
   agentSkillWhitelistEndpoints,
@@ -90,7 +91,7 @@ if (!!process.env.ENABLE_HTTPS) {
   require("@mintplex-labs/express-ws").default(app); // load WebSockets in non-SSL mode.
 }
 
-app.use("/api", apiRouter);
+app.use("/api", require("./utils/usageLog").usageContext, apiRouter);
 systemEndpoints(apiRouter);
 extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
@@ -112,6 +113,7 @@ statsAnalysisEndpoints(apiRouter);
 extractDataEndpoints(apiRouter);
 threadPrioritySourcesEndpoints(apiRouter);
 documentAffinityEndpoints(apiRouter);
+usageLogEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);

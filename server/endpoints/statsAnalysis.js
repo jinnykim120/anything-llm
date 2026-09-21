@@ -56,55 +56,12 @@ function extractJsonObject(text = "") {
 // 실제 재무 수치(매출액 등)가 문서 뒷부분에 있어, 이 값이 너무 작으면
 // 표지·목차만 남고 정작 필요한 수치가 잘려나간다(실사용 중 발견).
 const MAX_UPLOADED_TEXT_CHARS_PER_FILE = 60000;
+const { excerptRelevant } = require("../utils/textExcerpt");
 
 // 문서가 상한을 넘으면 앞부분만 자르는 대신, 요청·근거 답변과 관련 있는
 // 구간(키워드 + 숫자 밀도)을 골라 담는다. 앞 60K만 쓰면 수치가 뒤쪽에 있는
 // 사업/반기보고서(35~65만 자)에서 분기별 매출표가 통째로 빠져 "자료 부족"으로
 // 잘못 판정되는 문제가 있었다(2026-09-21 실사용 중 발견).
-const EXCERPT_WINDOW = 1500;
-const FINANCE_TERMS = [
-  "매출",
-  "영업이익",
-  "당기순이익",
-  "분기",
-  "반기",
-  "연결",
-  "재무",
-  "손익",
-  "단위",
-];
-function excerptRelevant(text, query = "", cap = MAX_UPLOADED_TEXT_CHARS_PER_FILE) {
-  const full = String(text || "");
-  if (full.length <= cap) return full;
-  const terms = [
-    ...new Set(
-      [...FINANCE_TERMS, ...(String(query).match(/[가-힣A-Za-z0-9]{2,}/g) || [])]
-    ),
-  ];
-  const windows = [];
-  for (let i = 0; i < full.length; i += EXCERPT_WINDOW) {
-    const chunk = full.slice(i, i + EXCERPT_WINDOW);
-    let score = 0;
-    for (const t of terms) if (chunk.includes(t)) score += 1;
-    const digits = (chunk.match(/\d/g) || []).length;
-    if (score > 0) score += digits / EXCERPT_WINDOW;
-    windows.push({ i, chunk, score });
-  }
-  const head = windows[0];
-  let budget = cap - head.chunk.length;
-  const picked = new Set([0]);
-  const ranked = windows.slice(1).sort((a, b) => b.score - a.score);
-  for (const w of ranked) {
-    if (w.score <= 0 || budget < w.chunk.length) continue;
-    picked.add(w.i / EXCERPT_WINDOW);
-    budget -= w.chunk.length;
-  }
-  return [...picked]
-    .sort((a, b) => a - b)
-    .map((k) => windows[k].chunk)
-    .join("\n…(중략)…\n");
-}
-
 function uploadedDataBlock(uploadedData, query = "") {
   if (!uploadedData) return "";
   if (Array.isArray(uploadedData)) {

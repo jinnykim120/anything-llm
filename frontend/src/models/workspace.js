@@ -431,6 +431,19 @@ const Workspace = {
   },
   // [auto-docu 자료 추출하기] 업로드된 자료/아카이브에서 고른 폴더를
   // RAG 없이 전부(exhaustive) 훑어 요청한 항목을 뽑는다.
+  // [auto-docu 호출량] 실행 전에 최대 LLM 호출 횟수를 미리 계산해 받는다.
+  estimateExtract: async function (
+    slug,
+    { folderKeys = [], archiveDocIds = [], uploadedChars = [] }
+  ) {
+    return await fetch(`${API_BASE}/workspace/${slug}/extract-data/estimate`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ folderKeys, archiveDocIds, uploadedChars }),
+    })
+      .then((res) => res.json())
+      .catch(() => null);
+  },
   runExtractData: async function (
     slug,
     { fields, uploadedDocs = [], folderKeys = [], archiveDocIds = [] }

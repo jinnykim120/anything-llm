@@ -69,7 +69,11 @@ async function loadBaseDocuments(workspaceDocIds = []) {
  * 명시적 동시선택으로 문서 연계성 학습에 기록한다(fire-and-forget).
  * @returns {Promise<Array<{id:number, title:string, pageContent:string}>>}
  */
-async function resolveOwnedArchiveDocs({ workspaceId, docIds = [] }) {
+async function resolveOwnedArchiveDocs({
+  workspaceId,
+  docIds = [],
+  recordAffinity = true,
+}) {
   const ids = [
     ...new Set(
       (Array.isArray(docIds) ? docIds : [docIds])
@@ -86,7 +90,7 @@ async function resolveOwnedArchiveDocs({ workspaceId, docIds = [] }) {
   const ownedIds = owned.map((r) => r.id);
   if (!ownedIds.length) return [];
 
-  if (ownedIds.length > 1) {
+  if (recordAffinity && ownedIds.length > 1) {
     const {
       recordExplicitCoSelection,
     } = require("../classification/documentAffinity");

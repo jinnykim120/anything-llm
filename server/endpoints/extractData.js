@@ -27,8 +27,9 @@ const { COMPANY_GLOSSARY } = require("../utils/prompts/companyGlossary");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
 const { resolveOwnedArchiveDocs } = require("../utils/docRegen");
 const prisma = require("../utils/prisma");
+const { extractLimits } = require("../utils/extractLimits");
+const { excerptRelevant } = require("../utils/textExcerpt");
 
-const MAX_DOCS = 15;
 const CHUNK_CHARS = 10000;
 
 function extractJsonObject(text = "") {
@@ -83,10 +84,25 @@ async function extractFromDocument({
   fields,
   LLMConnector,
   temperature,
+  limits = extractLimits(),
+  budget = { calls: 0 },
 }) {
-  const chunks = chunkText(String(pageContent || ""));
+  let text = String(pageContent || "");
+  // 상한보다 긴 문서는 앞에서 자르지 않고 요청 항목과 관련 있는 구간만 남긴다.
+  const chunkCap = limits.maxChunksPerDoc;
+  let excerpted = false;
+  if (Number.isFinite(chunkCap) && text.length > chunkCap * CHUNK_CHARS) {
+    text = excerptRelevant(text, fields, chunkCap * CHUNK_CHARS);
+    excerpted = true;
+  }
+  const chunks = chunkText(text);
   const values = {};
+  let stoppedByCallCap = false;
   for (let i = 0; i < chunks.length; i++) {
+    if (budget.calls >= limits.maxCalls) {
+      stoppedByCallCap = true;
+      break;
+    }
     const stillMissing =
       Object.keys(values).length === 0 || Object.values(values).some((v) => !v);
     if (!stillMissing && i > 0) break;
@@ -98,6 +114,7 @@ async function extractFromDocument({
       chunkIndex: i,
       chunkTotal: chunks.length,
     });
+    budget.calls += 1;
     const { textResponse } = await LLMConnector.getChatCompletion(messages, {
       temperature: temperature ?? LLMConnector.defaultTemp,
     });
@@ -111,7 +128,7 @@ async function extractFromDocument({
       else if (!(field in values)) values[field] = found || null;
     }
   }
-  return { title, values };
+  return { title, values, excerpted, stoppedByCallCap };
 }
 
 // 폴더로 고른 문서 + 폴더를 열어 개별로 고른 문서(archiveDocIds)를 합쳐, 소유권
@@ -120,6 +137,7 @@ async function gatherArchiveDocuments({
   workspace,
   folderKeys = [],
   archiveDocIds = [],
+  recordAffinity = true,
 }) {
   let ids = (Array.isArray(archiveDocIds) ? archiveDocIds : [])
     .map(Number)
@@ -134,8 +152,12 @@ async function gatherArchiveDocuments({
       ids = [...ids, ...rows.map((r) => r.id)];
     }
   }
-  ids = [...new Set(ids)].slice(0, MAX_DOCS);
-  return resolveOwnedArchiveDocs({ workspaceId: workspace.id, docIds: ids });
+  ids = [...new Set(ids)].slice(0, extractLimits().maxDocs);
+  return resolveOwnedArchiveDocs({
+    workspaceId: workspace.id,
+    docIds: ids,
+    recordAffinity,
+  });
 }
 
 function extractDataEndpoints(app) {
@@ -163,6 +185,63 @@ function extractDataEndpoints(app) {
     }
   );
 
+  // 실행 전에 "최대 몇 회 호출될지"를 미리 알려준다. 업로드 문서는 본문이
+  // 클라이언트에 있어 글자 수(uploadedChars)만 받는다.
+  app.post(
+    "/workspace/:slug/extract-data/estimate",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const {
+          folderKeys = [],
+          archiveDocIds = [],
+          uploadedChars = [],
+        } = reqBody(request);
+        const limits = extractLimits();
+        const archiveDocs =
+          folderKeys?.length || archiveDocIds?.length
+            ? await gatherArchiveDocuments({
+                workspace,
+                folderKeys: folderKeys || [],
+                archiveDocIds,
+                recordAffinity: false,
+              })
+            : [];
+        const lengths = [
+          ...(Array.isArray(uploadedChars) ? uploadedChars.map(Number) : []),
+          ...archiveDocs.map((d) => String(d.pageContent || "").length),
+        ].slice(0, limits.maxDocs);
+        const perDoc = lengths.map((len) =>
+          Math.min(Math.ceil(len / CHUNK_CHARS) || 1, limits.maxChunksPerDoc)
+        );
+        const worstCase = perDoc.reduce((a, b) => a + b, 0);
+        const uncappedWorstCase = lengths.reduce(
+          (a, len) => a + (Math.ceil(len / CHUNK_CHARS) || 1),
+          0
+        );
+        return response.status(200).json({
+          docs: lengths.length,
+          maxCalls: Math.min(worstCase, limits.maxCalls),
+          uncappedMaxCalls: uncappedWorstCase,
+          limited: limits.limited,
+          limits: {
+            maxDocs: limits.maxDocs,
+            maxChunksPerDoc: Number.isFinite(limits.maxChunksPerDoc)
+              ? limits.maxChunksPerDoc
+              : null,
+            maxCalls: Number.isFinite(limits.maxCalls)
+              ? limits.maxCalls
+              : null,
+          },
+        });
+      } catch (e) {
+        console.error("POST /workspace/:slug/extract-data/estimate", e);
+        return response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
   app.post(
     "/workspace/:slug/extract-data/run",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
@@ -186,7 +265,10 @@ function extractDataEndpoints(app) {
                 archiveDocIds,
               })
             : [];
-        const allDocs = [...uploadedDocs, ...archiveDocs].slice(0, MAX_DOCS);
+        const limits = extractLimits();
+        const combined = [...uploadedDocs, ...archiveDocs];
+        const allDocs = combined.slice(0, limits.maxDocs);
+        const docsDropped = combined.slice(limits.maxDocs).map((d) => d.title);
         if (!allDocs.length)
           throw new Error("추출할 자료(업로드 또는 아카이브 선택)가 없습니다.");
 
@@ -196,6 +278,7 @@ function extractDataEndpoints(app) {
         });
 
         const documents = [];
+        const budget = { calls: 0 };
         for (const doc of allDocs) {
           const out = await extractFromDocument({
             title: doc.title,
@@ -203,13 +286,33 @@ function extractDataEndpoints(app) {
             fields: String(fields).trim(),
             LLMConnector,
             temperature: workspace?.openAiTemp,
+            limits,
+            budget,
           });
           documents.push(out);
         }
 
-        return response
-          .status(200)
-          .json({ fields: String(fields).trim(), documents });
+        return response.status(200).json({
+          fields: String(fields).trim(),
+          documents,
+          // 상한이 실제로 결과에 영향을 줬는지 화면에 알려주기 위한 요약.
+          limits: {
+            applied: limits.limited,
+            maxDocs: limits.maxDocs,
+            maxChunksPerDoc: Number.isFinite(limits.maxChunksPerDoc)
+              ? limits.maxChunksPerDoc
+              : null,
+            maxCalls: Number.isFinite(limits.maxCalls) ? limits.maxCalls : null,
+            callsUsed: budget.calls,
+            docsDropped,
+            docsExcerpted: documents
+              .filter((d) => d.excerpted)
+              .map((d) => d.title),
+            docsCutByCallCap: documents
+              .filter((d) => d.stoppedByCallCap)
+              .map((d) => d.title),
+          },
+        });
       } catch (e) {
         console.error("POST /workspace/:slug/extract-data/run", e);
         return response

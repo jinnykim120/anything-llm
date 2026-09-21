@@ -14,6 +14,7 @@ const os = require("os");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const { NativeEmbedder } = require("../../EmbeddingEngines/native");
+const usageLog = require("../../usageLog");
 const {
   LLMPerformanceMonitor,
 } = require("../../helpers/chat/LLMPerformanceMonitor");
@@ -199,6 +200,8 @@ class ClaudeCliLLM {
     const finalArgs = systemPromptFile
       ? [...args, "--system-prompt-file", systemPromptFile]
       : args;
+    const startedAt = Date.now();
+    const inChars = String(promptStdin || "").length + String(system || "").length;
     return new Promise((resolve, reject) => {
       const child = spawn(this.bin, finalArgs, {
         env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
@@ -223,6 +226,12 @@ class ClaudeCliLLM {
       child.on("close", (code) => {
         clearTimeout(killer);
         cleanup();
+        usageLog.record({
+          inChars,
+          outChars: out.length,
+          ms: Date.now() - startedAt,
+          ok: code === 0,
+        });
         if (code !== 0) {
           const j = this.#parseResultLine(out);
           if (j) return reject(this.#errorFromResult(j, code));
@@ -287,6 +296,9 @@ class ClaudeCliLLM {
     });
     const cleanup = () => this.#cleanupSystemPromptFile(systemPromptFile);
     const killer = setTimeout(() => child.kill("SIGKILL"), this.timeout);
+    const startedAt = Date.now();
+    const inChars = String(promptStdin || "").length + String(system || "").length;
+    let outChars = 0;
     child.stdin.write(promptStdin);
     child.stdin.end();
 
@@ -310,6 +322,7 @@ class ClaudeCliLLM {
             evt.event?.type === "content_block_delta" &&
             evt.event.delta?.type === "text_delta"
           ) {
+            outChars += evt.event.delta.text?.length || 0;
             yield { text: evt.event.delta.text };
           } else if (evt.type === "result") {
             yield {
@@ -331,6 +344,12 @@ class ClaudeCliLLM {
       clearTimeout(killer);
       cleanup();
       child.kill();
+      usageLog.record({
+        inChars,
+        outChars,
+        ms: Date.now() - startedAt,
+        ok: true,
+      });
     }
   }
 

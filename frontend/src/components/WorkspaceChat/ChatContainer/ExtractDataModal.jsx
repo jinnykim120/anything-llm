@@ -135,6 +135,31 @@ export default function ExtractDataModal({ workspace, onClose }) {
   const individualDocIds = selectedDocIds.filter(
     (id) => !docIdsInSelectedFolders.has(id)
   );
+  // 실행 전 예상 호출 횟수(서버가 상한 적용해 계산) — 선택이 바뀌면 다시 받는다.
+  const [estimate, setEstimate] = useState(null);
+  const folderKeysSig = folderKeys.join("|");
+  const idsSig = individualDocIds.join(",");
+  const uploadedSig = uploadedDocs
+    .map((d) => (d.pageContent || "").length)
+    .join(",");
+  useEffect(() => {
+    if (
+      !scope ||
+      (!folderKeys.length && !individualDocIds.length && !uploadedDocs.length)
+    ) {
+      setEstimate(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      Workspace.estimateExtract(workspace.slug, {
+        folderKeys,
+        archiveDocIds: individualDocIds,
+        uploadedChars: uploadedDocs.map((d) => (d.pageContent || "").length),
+      }).then((r) => setEstimate(r && !r.error ? r : null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [scope, folderKeysSig, idsSig, uploadedSig, workspace.slug]);
+
   const canRun =
     fields.trim() &&
     (uploadedDocs.length > 0 ||
@@ -408,6 +433,19 @@ export default function ExtractDataModal({ workspace, onClose }) {
               </div>
             )}
 
+            {estimate && (
+              <p className="text-[11px] leading-4 text-zinc-400 light:text-slate-600">
+                예상 최대 <b>{estimate.maxCalls}회</b> Claude 호출
+                {estimate.limited &&
+                estimate.uncappedMaxCalls > estimate.maxCalls
+                  ? ` (상한 적용 — 상한이 없으면 최대 ${estimate.uncappedMaxCalls}회)`
+                  : ""}
+                {estimate.limited && estimate.limits
+                  ? ` · 한 번에 문서 ${estimate.limits.maxDocs}건, 문서당 ${estimate.limits.maxChunksPerDoc}구간, 전체 ${estimate.limits.maxCalls}회까지`
+                  : ""}
+              </p>
+            )}
+
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-zinc-200 light:text-slate-700">
                 추출하고 싶은 항목을 알려주세요
@@ -472,6 +510,23 @@ export default function ExtractDataModal({ workspace, onClose }) {
             <p className="text-[11px] text-zinc-400 light:text-slate-600">
               값 위에 마우스를 올리면 근거 문장이 보입니다.
             </p>
+            {result.limits?.applied &&
+              (result.limits.docsDropped?.length > 0 ||
+                result.limits.docsExcerpted?.length > 0 ||
+                result.limits.docsCutByCallCap?.length > 0) && (
+                <p className="rounded-md border border-amber-600/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-4 text-amber-300 light:text-amber-700">
+                  호출 상한 때문에 일부만 훑었습니다(호출{" "}
+                  {result.limits.callsUsed}회 사용).
+                  {result.limits.docsDropped?.length > 0 &&
+                    ` 제외된 문서: ${result.limits.docsDropped.join(", ")}.`}
+                  {result.limits.docsExcerpted?.length > 0 &&
+                    ` 관련 구간만 훑은 문서: ${result.limits.docsExcerpted.join(", ")}.`}
+                  {result.limits.docsCutByCallCap?.length > 0 &&
+                    ` 호출 한도로 중단된 문서: ${result.limits.docsCutByCallCap.join(", ")}.`}{" "}
+                  전부 보려면 문서를 나눠 실행하거나 관리자에게 상한 해제를
+                  요청하세요.
+                </p>
+              )}
           </div>
         )}
       </ModalBody>
