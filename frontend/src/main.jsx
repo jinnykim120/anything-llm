@@ -90,6 +90,13 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/workspace/:slug/usage",
+        lazy: async () => {
+          const { default: UsageLog } = await import("@/pages/UsageLog");
+          return { element: <ManagerRoute Component={UsageLog} /> };
+        },
+      },
+      {
         path: "/workspace/:slug",
         lazy: async () => {
           const { default: WorkspaceChat } = await import(

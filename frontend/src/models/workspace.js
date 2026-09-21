@@ -614,6 +614,19 @@ const Workspace = {
       return { success: false, error: e.message };
     }
   },
+  // [auto-docu 호출량 로그] admin/manager 전용 요약 조회.
+  usageSummary: async function (days = 7) {
+    try {
+      const res = await fetch(`${API_BASE}/usage-log/summary?days=${days}`, {
+        method: "GET",
+        headers: baseHeaders(),
+      });
+      if (!res.ok) return { error: "불러오지 못했습니다." };
+      return await res.json();
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
   resetAffinity: async function (slug) {
     try {
       const res = await fetch(`${API_BASE}/workspace/${slug}/affinity`, {

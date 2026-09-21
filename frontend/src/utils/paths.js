@@ -111,6 +111,9 @@ export default {
     affinity: (slug) => {
       return `/workspace/${slug}/affinity`;
     },
+    usage: (slug) => {
+      return `/workspace/${slug}/usage`;
+    },
   },
   apiDocs: () => {
     return `${API_BASE}/docs`;

@@ -16,6 +16,7 @@ import {
   Trash,
   Wrench,
   X,
+  ChartBar,
 } from "@phosphor-icons/react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import Workspace from "@/models/workspace";
@@ -63,6 +64,13 @@ const MANAGEMENT_ITEMS = [
     description: "함께 쓰인 문서 이력을 확인하고 초기화합니다.",
     icon: ShareNetwork,
     href: (slug) => paths.workspace.affinity(slug),
+  },
+  {
+    key: "usage",
+    title: "호출량",
+    description: "기능별 Claude 호출량을 확인합니다.",
+    icon: ChartBar,
+    href: (slug) => paths.workspace.usage(slug),
   },
 ];
 
