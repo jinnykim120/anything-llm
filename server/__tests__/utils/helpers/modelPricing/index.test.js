@@ -32,7 +32,27 @@ function okResponse(data, { etag = null } = {}) {
 
 /** Waits for the constructor's fire-and-forget refresh to settle. */
 async function flushRefresh() {
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  // 고정 25ms 대기는 디스크 쓰기(비동기 3건)와 경쟁해 가끔 실패했다 — 캐시 디렉터리의
+  // 파일 내용이 안정될 때까지(연속 두 번 같은 스냅샷) 기다린다. 최대 ~1초.
+  const dir = path.join(process.env.STORAGE_DIR || "", "models", "pricing");
+  const snapshot = () => {
+    try {
+      return fs
+        .readdirSync(dir)
+        .sort()
+        .map((f) => `${f}:${fs.statSync(path.join(dir, f)).size}`)
+        .join("|");
+    } catch {
+      return "";
+    }
+  };
+  let prev = null;
+  for (let i = 0; i < 40; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const cur = snapshot();
+    if (cur === prev) return;
+    prev = cur;
+  }
 }
 
 describe("ModelPricing", () => {
