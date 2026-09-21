@@ -498,6 +498,16 @@ export default function DraftPanel({
     showToast("선택한 부분을 수정했습니다.", "success");
   }
 
+  // [auto-docu 내부생성자료] 아카이빙 시 분류를 물려받을 원본 문서들.
+  function archiveSourceDocIds() {
+    return [
+      ...new Set([
+        ...(source.sources || []).map((s) => s.doc_id).filter(Boolean),
+        ...extraArchiveDocs.map((d) => d.id),
+      ]),
+    ];
+  }
+
   function archiveDraftInBackground() {
     // [auto-docu 내부생성자료] 다운로드와 별개로 백그라운드에서 아카이빙 —
     // 실패해도 다운로드 자체엔 영향 없음(await 안 함).
@@ -505,6 +515,7 @@ export default function DraftPanel({
       title: draft.title,
       markdown: draft.markdown,
       kind: "draft",
+      sourceDocIds: archiveSourceDocIds(),
     }).then((res) => {
       if (res?.success)
         showToast(
@@ -626,6 +637,7 @@ export default function DraftPanel({
         title: pptDraft.title || pptDraft.slideSpec.title,
       }),
       kind: "ppt_draft",
+      sourceDocIds: archiveSourceDocIds(),
     }).then((res) => {
       if (res?.success)
         showToast(

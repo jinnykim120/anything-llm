@@ -424,6 +424,7 @@ export default function DocRegen() {
       title: pptDraft.title,
       markdown: `# ${pptDraft.title}\n\n${outline}`,
       kind: "ppt_draft",
+      sourceDocIds: baseDocs.map((d) => d.id),
     }).then((res) => {
       if (res?.success)
         showToast(
@@ -496,6 +497,7 @@ export default function DocRegen() {
       title: result.title,
       markdown: result.markdown,
       kind: "docregen",
+      sourceDocIds: baseDocs.map((d) => d.id),
     }).then((res) => {
       if (res?.success)
         showToast(

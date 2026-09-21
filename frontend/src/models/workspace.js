@@ -555,11 +555,17 @@ const Workspace = {
   // "제안" 상태만 만들고 절대 자동 확정하지 않는다(분류 검수에서 확인해야
   // 검색에 쓰임). 다운로드 자체를 막지 않는 백그라운드 동작이라 실패해도
   // 조용히 넘어간다 — 호출부에서 await 없이 fire-and-forget으로 쓴다.
-  archiveGenerated: async function (slug, { title, markdown, kind }) {
+  archiveGenerated: async function (
+    slug,
+    { title, markdown, kind, sourceDocIds = [] }
+  ) {
     try {
       const filename = `${sanitizeFilename(title) || "생성문서"}.md`;
       const fd = new FormData();
       fd.append("kind", kind || "");
+      // 생성에 쓴 원본 문서(인용 docId 문자열 / 추가 선택 id 숫자) — 서버가 여기서
+      // 사업부·분야·원본 파일명 태그를 물려받는다.
+      fd.append("sourceDocIds", JSON.stringify(sourceDocIds));
       fd.append(
         "file",
         new Blob([markdown || ""], { type: "text/markdown" }),

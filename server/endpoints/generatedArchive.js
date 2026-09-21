@@ -21,6 +21,7 @@ const {
   parseAndArchiveUpload,
 } = require("../utils/files/parseAndArchiveUpload");
 const { DocumentClassification } = require("../models/documentClassification");
+const { buildGeneratedMeta } = require("../utils/classification/generatedMeta");
 const {
   GENERATED_WORK_TYPE,
 } = require("../utils/classification/generatedDocs");
@@ -46,10 +47,10 @@ function generatedArchiveEndpoints(app) {
       try {
         const workspace = response.locals.workspace;
         if (!request.file) throw new Error("업로드된 파일이 없습니다.");
-        const { kind = "" } = reqBody(request);
+        const { kind = "", sourceDocIds = "" } = reqBody(request);
         const docType = DOC_TYPE_BY_KIND[kind] || "생성문서";
 
-        const { title, contentHash } = await parseAndArchiveUpload({
+        const { title, contentHash, pageContent } = await parseAndArchiveUpload({
           workspace,
           originalname: request.file.originalname,
           // classification을 안 넘긴다 — 그냥 임베딩만 하고, 분류는 아래에서
@@ -58,11 +59,27 @@ function generatedArchiveEndpoints(app) {
         });
 
         if (contentHash) {
+          // 원본 문서(인용/추가 선택)에서 사업부·분야를 물려받고, 원본 파일명과
+          // 핵심 키워드를 태그로 남긴다 — LLM 호출 없음.
+          let parsedSources = [];
+          try {
+            const v = JSON.parse(sourceDocIds || "[]");
+            if (Array.isArray(v)) parsedSources = v;
+          } catch {}
+          const meta = await buildGeneratedMeta({
+            workspaceId: workspace.id,
+            sourceDocIds: parsedSources,
+            docType,
+            title,
+            markdown: pageContent || "",
+          }).catch(() => null);
           await DocumentClassification.upsertProposal({
             contentHash,
             workType: GENERATED_WORK_TYPE,
             docType,
-            tags: ["AI생성", docType],
+            businessUnit: meta?.businessUnit,
+            domain: meta?.domain,
+            tags: meta?.tags?.length ? meta.tags : ["AI생성", docType],
             rationale:
               "다운로드 시점에 자동으로 아카이빙된 생성 문서 — 분류 검수에서 확인(승인)해야 검색에 사용됩니다.",
             proposedBy: "system:generated-doc",
