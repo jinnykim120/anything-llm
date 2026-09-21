@@ -2,6 +2,36 @@
 
 Running log of what the harness has told us. Newest first.
 
+## 2026-09-21 — compound-query decomposition experiment (held)
+
+Problem: `gs-half-year-revenue` ("2026년 매출 실적과 2023~2025년 추이") gets "자료 없음"
+for the 2026 half-year figures even though the 반기보고서 has them.
+
+**Harness fix first:** `eval/lib/client.mjs` now sends a fresh `sessionId` per question.
+Before, every question shared the workspace's chat history, so earlier eval answers
+leaked into later ones (a judged answer even said "이전 대화에서 답변드린 적이 있다").
+Scores from runs before this change are slightly optimistic/contaminated.
+
+**Experiment:** `server/utils/chats/queryDecompose.js` (flag `QUERY_DECOMPOSE=on`) splits a
+compound question into 2–3 sub-queries with `claude -p`, searches each, and appends
+results after the primary ones (never reordering them). Four merge strategies tried —
+top-3 per sub-query, "docs the primary missed", "doc with most unseen chunks",
+"best unseen chunk per document" — all scored completeness 0.00–0.25
+(baseline 0.00; faithfulness 0.60–1.00, citation 0.60–1.00, noisy).
+
+**Why it can't work here:** decomposition worked (sub-queries were sensible and hit the
+right document), but the *answer chunk itself* never ranks: for the sub-query
+"GS리테일 2026년 매출 실적" the 반기보고서 contributes only 3 chunks (사업 개요,
+영업부문 주석, 재무상태표 일부); the income-statement "(5) 주요 재무정보" chunk is absent.
+Meanwhile a small unrelated doc ("2026년 … 공적서") is fully section-expanded and takes the
+top ranks. Adding the word "반기"/"상반기" to the query makes it worse (pulls the
+지속가능경영보고서). So the bottleneck is chunk-level recall/ranking, not query shape.
+
+**Decision:** flag stays off (default); code + 11 unit tests kept, header comment records
+why. Next real lever, if this matters: improve recall (table-aware chunks that carry the
+section title, section-title weighting in the lexical layer, or cap the whole-doc expansion
+so one small doc cannot monopolize the window) — measure with this same item.
+
 ## 2026-09-10 — v14 rebuild (P0–P5): retrieval rewrite + real corpus
 
 Full context: `docs/architecture-v14.html` (diagnosis + decisions),

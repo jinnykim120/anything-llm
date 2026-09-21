@@ -102,7 +102,13 @@ export class AllmClient {
   async chat(slug, message, { mode = "query" } = {}) {
     const json = await this.#req(`/v1/workspace/${slug}/chat`, {
       method: "POST",
-      body: { message, mode },
+      // 질문마다 새 sessionId — 워크스페이스 채팅 기록(이전 평가 답변 포함)이
+      // 검색·답변에 섞여 결과가 오염되는 것을 막는다.
+      body: {
+        message,
+        mode,
+        sessionId: `eval-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
     });
     return {
       answer: json.textResponse || "",

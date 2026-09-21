@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const { augmentWithDecomposition } = require("./queryDecompose");
 const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { getVectorDbClass, resolveProviderConnector } = require("../helpers");
@@ -338,6 +339,25 @@ async function chatSync({
           sources: [],
           message: null,
         };
+
+  // [auto-docu 복합질문] 하위 질문 검색 덧붙이기(QUERY_DECOMPOSE=on 일 때만).
+  if (embeddingsCount !== 0)
+    await augmentWithDecomposition({
+      results: vectorSearchResults,
+      message,
+      LLMConnector,
+      topN: workspace?.topN,
+      search: (input) =>
+        VectorDb.performSimilaritySearch({
+          namespace: workspace.slug,
+          input,
+          LLMConnector,
+          similarityThreshold: workspace?.similarityThreshold,
+          topN: workspace?.topN,
+          filterIdentifiers: pinnedDocIdentifiers,
+          rerank: workspace?.vectorSearchMode === "rerank",
+        }),
+    });
 
   // Failed similarity search if it was run at all and failed.
   if (!!vectorSearchResults.message) {
@@ -726,6 +746,25 @@ async function streamChat({
           sources: [],
           message: null,
         };
+
+  // [auto-docu 복합질문] 하위 질문 검색 덧붙이기(QUERY_DECOMPOSE=on 일 때만).
+  if (embeddingsCount !== 0)
+    await augmentWithDecomposition({
+      results: vectorSearchResults,
+      message,
+      LLMConnector,
+      topN: workspace?.topN,
+      search: (input) =>
+        VectorDb.performSimilaritySearch({
+          namespace: workspace.slug,
+          input,
+          LLMConnector,
+          similarityThreshold: workspace?.similarityThreshold,
+          topN: workspace?.topN,
+          filterIdentifiers: pinnedDocIdentifiers,
+          rerank: workspace?.vectorSearchMode === "rerank",
+        }),
+    });
 
   // Failed similarity search if it was run at all and failed.
   if (!!vectorSearchResults.message) {

@@ -19,6 +19,7 @@ const {
   mergeFollowupSearchResults,
   buildWebSearchContextBlock,
 } = require("./index");
+const { augmentWithDecomposition } = require("./queryDecompose");
 const { webSearch } = require("../webSearch");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
@@ -272,6 +273,27 @@ async function streamChatWithWorkspace(
       vectorSearchResults.sources = merged.sources;
     }
   }
+
+  // [auto-docu 복합질문] 서로 다른 시점·주제를 함께 묻는 질문은 하위 질문으로
+  // 나눠 각각 검색하고 결과를 덧붙인다(QUERY_DECOMPOSE=on 일 때만).
+  if (embeddingsCount !== 0)
+    await augmentWithDecomposition({
+      results: vectorSearchResults,
+      message: searchQuery,
+      LLMConnector,
+      topN: workspace?.topN,
+      search: (input) =>
+        VectorDb.performSimilaritySearch({
+          namespace: workspace.slug,
+          input,
+          LLMConnector,
+          similarityThreshold: workspace?.similarityThreshold,
+          topN: workspace?.topN,
+          filterIdentifiers: pinnedDocIdentifiers,
+          filterDocIds,
+          rerank: workspace?.vectorSearchMode === "rerank",
+        }),
+    });
 
   // Failed similarity search if it was run at all and failed.
   if (!!vectorSearchResults.message) {
