@@ -91,6 +91,8 @@ const PPT_TEMPLATES = {
   },
 };
 
+const { polishSlides } = require("../utils/exporters/pptSpecPolish");
+
 const MIN_SLIDES = 4;
 const MAX_SLIDES = 20;
 
@@ -106,38 +108,6 @@ function clampSlideCount(n) {
   const num = Number(n);
   if (!Number.isFinite(num)) return 8;
   return Math.min(MAX_SLIDES, Math.max(MIN_SLIDES, Math.round(num)));
-}
-
-// content 슬라이드의 불릿이 한 장에 담기 어려울 만큼 많으면("~기(1/2)" 식으로)
-// 자동으로 여러 장에 나눠 담는다 — 프롬프트로만 유도하면 LLM이 못 지킬 수
-// 있으므로 코드 단에서 강제하는 안전망. 개별 불릿 한 줄이 너무 긴 경우는
-// (분할로 해결되지 않는 문제라) 여기서 다루지 않고 프롬프트 가이드로만 유도한다.
-function splitOverflowingContentSlides(slides) {
-  const result = [];
-  let splitCount = 0;
-  for (const slide of slides) {
-    const bullets = Array.isArray(slide.content) ? slide.content : null;
-    if (!bullets || bullets.length <= MAX_BULLETS_PER_SLIDE) {
-      result.push(slide);
-      continue;
-    }
-    const chunks = [];
-    for (let i = 0; i < bullets.length; i += MAX_BULLETS_PER_SLIDE)
-      chunks.push(bullets.slice(i, i + MAX_BULLETS_PER_SLIDE));
-    chunks.forEach((chunk, idx) => {
-      result.push({
-        ...slide,
-        title:
-          chunks.length > 1
-            ? `${slide.title || ""} (${idx + 1}/${chunks.length})`
-            : slide.title,
-        subtitle: idx === 0 ? slide.subtitle : undefined,
-        content: chunk,
-      });
-    });
-    splitCount += 1;
-  }
-  return { slides: result, splitCount };
 }
 
 function normalizeChart(raw) {
@@ -198,9 +168,9 @@ const SLIDE_SPEC_SCHEMA_HINT = `{
   "title": "전체 프레젠테이션 제목",
   "slides": [
     {
-      "layout": "section" | "content",
+      "layout": "section" | "content" | "stat" | "compare" | "timeline" | "quote",
       "title": "슬라이드 제목",
-      "subtitle": "부제(section 레이아웃에서만, 선택)",
+      "subtitle": "부제 (section에서는 그 구간의 한 줄 요약, quote에서는 출처. 선택)",
       "content": ["불릿 문장1", "불릿 문장2"],
       "table": { "headers": ["열1","열2"], "rows": [["a","b"]] },
       "chart": {
@@ -208,6 +178,10 @@ const SLIDE_SPEC_SCHEMA_HINT = `{
         "categories": ["항목1","항목2","항목3"],
         "series": [{ "name": "계열명", "values": [1.2, 3.4, 5.6] }]
       },
+      "stats": [{ "value": "11.9조원", "label": "2025년 매출", "note": "전년 대비 +3.3%" }],
+      "columns": [{ "heading": "구분A", "items": ["항목1","항목2"] }, { "heading": "구분B", "items": ["항목1","항목2"] }],
+      "steps": [{ "label": "1분기", "text": "설명" }],
+      "quote": "강조할 핵심 메시지 한 문장",
       "notes": "발표자 노트(선택)"
     }
   ]
@@ -223,38 +197,45 @@ function buildMessages({
 }) {
   const template = PPT_TEMPLATES[purpose];
   const hasArchiveDocs = archiveDocs.length > 0;
-  const system = [
-    "당신은 한국의 공공·기업 정책지원 실무자를 돕는 PPT 초안 작성 보조자입니다.",
-    "아래 '사실 근거'에 담긴 내용만을 근거로 슬라이드 내용을 작성합니다.",
-    hasArchiveDocs
-      ? "'추가 아카이브 자료'가 있으면 사실 근거와 동등한 근거로 취급해 반영합니다."
-      : "",
-    hasArchiveDocs
-      ? "사실 근거와 추가 아카이브 자료에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오."
-      : "사실 근거에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오.",
-    "근거가 부족한 부분은 추측하지 말고 해당 불릿에 '(추가 확인 필요)'라고 표시하십시오.",
-    "이메일 주소, 전화번호, 담당자명 등 개인·계정 정보는 사실 근거에 실제로",
-    "적혀 있는 경우에만 사용하고, 없으면 다루지 않습니다.",
-    "이 시스템(운영 환경)의 사용자·개발자 계정 정보를 절대 언급하지 마십시오.",
-    "",
-    "반드시 아래 JSON 스키마 형식으로만 응답하십시오. 다른 설명, 코드펜스, 텍스트 없이 JSON 객체 하나만 출력합니다.",
-    SLIDE_SPEC_SCHEMA_HINT,
-    "",
-    "규칙:",
-    "- slides 배열의 첫 항목은 표지 다음에 오는 첫 내용 슬라이드입니다(표지 자체는 만들지 않음 — 렌더러가 title로 별도 생성).",
-    `- layout은 구분/전환 슬라이드는 "section", 실제 내용 슬라이드는 "content"를 씁니다.`,
-    "- content 슬라이드는 content(불릿) / table / chart 중 하나만 채웁니다(여러 개를 동시에 채우지 않음).",
-    "- 2~3개 항목·시기를 2~4개 지표로 비교하는 숫자 데이터는 table보다 chart를 우선 사용하십시오:",
-    '  같은 항목들을 여러 시점에서 추세로 보여주면 "line", 항목 간 크기를 비교하면 "bar",',
-    '  전체 대비 구성비를 보여주면(계열 1개, 합이 의미 있는 경우) "pie"를 씁니다.',
-    "- 행이 많거나(5행 초과), 텍스트와 숫자가 섞여 있거나(예: 담당자/일정 등 조회용 표),",
-    "  비교할 계열이 4개를 넘는 데이터는 chart 대신 table을 씁니다 — 그런 데이터는 차트로 그리면 오히려 읽기 어렵습니다.",
-    `- 불릿은 최대 ${MAX_BULLETS_PER_SLIDE}개까지만 씁니다. 한 불릿은 ${MAX_BULLET_CHARS}자 이내로 간결하게 써서 슬라이드에서 한 줄에 들어가도록 하십시오(더 많은 내용은 슬라이드를 나눠 담으십시오).`,
-    "- 불릿 문장은 개조식('~함', '~임')으로 간결하게 씁니다.",
-    `- 전체 슬라이드 수는 ${slideCount}장에 최대한 맞춥니다(표지 제외).`,
-  ]
-    .filter(Boolean)
-    .join("\n") + `\n\n${COMPANY_GLOSSARY}`;
+  const system =
+    [
+      "당신은 한국의 공공·기업 정책지원 실무자를 돕는 PPT 초안 작성 보조자입니다.",
+      "아래 '사실 근거'에 담긴 내용만을 근거로 슬라이드 내용을 작성합니다.",
+      hasArchiveDocs
+        ? "'추가 아카이브 자료'가 있으면 사실 근거와 동등한 근거로 취급해 반영합니다."
+        : "",
+      hasArchiveDocs
+        ? "사실 근거와 추가 아카이브 자료에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오."
+        : "사실 근거에 없는 수치, 날짜, 기관명, 인용, 결론을 새로 만들어 내지 마십시오.",
+      "근거가 부족한 부분은 추측하지 말고 해당 불릿에 '(추가 확인 필요)'라고 표시하십시오.",
+      "이메일 주소, 전화번호, 담당자명 등 개인·계정 정보는 사실 근거에 실제로",
+      "적혀 있는 경우에만 사용하고, 없으면 다루지 않습니다.",
+      "이 시스템(운영 환경)의 사용자·개발자 계정 정보를 절대 언급하지 마십시오.",
+      "",
+      "반드시 아래 JSON 스키마 형식으로만 응답하십시오. 다른 설명, 코드펜스, 텍스트 없이 JSON 객체 하나만 출력합니다.",
+      SLIDE_SPEC_SCHEMA_HINT,
+      "",
+      "규칙:",
+      "- slides 배열의 첫 항목은 표지 다음에 오는 첫 내용 슬라이드입니다(표지 자체는 만들지 않음 — 렌더러가 title로 별도 생성).",
+      `- layout은 기본적으로 구분/전환은 "section", 일반 내용은 "content"입니다. 단조로움을 피하도록 내용에 맞춰 아래 유형을 섞어 쓰십시오(한 유형만 반복하지 말 것):`,
+      '  · "stat": 핵심 수치 2~4개를 크게 강조(예: 매출·증감률·건수). stats에 value(짧게, 예 "11.9조원")·label·note(선택)를 채웁니다. 사실 근거에 있는 수치만 씁니다.',
+      '  · "compare": 두 가지(또는 세 가지) 대상·시기·방안을 나란히 비교. columns에 heading과 items(2~4개)를 채웁니다.',
+      '  · "timeline": 3~6개의 단계·일정·연혁. steps에 label(짧게: 시기/단계명)과 text(한 줄 설명)를 채웁니다.',
+      '  · "quote": 발표의 핵심 메시지나 원문 인용 한 문장. quote에 채우고 출처는 subtitle에 씁니다.',
+      "  · 'stat/compare/timeline/quote'는 각각 stats/columns/steps/quote 필드만 채웁니다(필요하면 stat에 한해 content 불릿 1~3개를 보조로 추가 가능).",
+      `- 전체가 8장 이상이면 2~3개의 "section" 슬라이드로 흐름을 구간으로 나누고, 각 section의 subtitle에 그 구간의 핵심을 한 줄로 요약하십시오(목차는 렌더러가 section 제목으로 자동 생성하므로 직접 만들지 않음).`,
+      "- content 슬라이드는 content(불릿) / table / chart 중 하나만 채웁니다(여러 개를 동시에 채우지 않음).",
+      "- 2~3개 항목·시기를 2~4개 지표로 비교하는 숫자 데이터는 table보다 chart를 우선 사용하십시오:",
+      '  같은 항목들을 여러 시점에서 추세로 보여주면 "line", 항목 간 크기를 비교하면 "bar",',
+      '  전체 대비 구성비를 보여주면(계열 1개, 합이 의미 있는 경우) "pie"를 씁니다.',
+      "- 행이 많거나(5행 초과), 텍스트와 숫자가 섞여 있거나(예: 담당자/일정 등 조회용 표),",
+      "  비교할 계열이 4개를 넘는 데이터는 chart 대신 table을 씁니다 — 그런 데이터는 차트로 그리면 오히려 읽기 어렵습니다.",
+      `- 불릿은 최대 ${MAX_BULLETS_PER_SLIDE}개까지만 씁니다. 한 불릿은 ${MAX_BULLET_CHARS}자 이내로 간결하게 써서 슬라이드에서 한 줄에 들어가도록 하십시오(더 많은 내용은 슬라이드를 나눠 담으십시오).`,
+      "- 불릿 문장은 개조식('~함', '~임')으로 간결하게 씁니다.",
+      `- 전체 슬라이드 수는 ${slideCount}장에 최대한 맞춥니다(표지 제외).`,
+    ]
+      .filter(Boolean)
+      .join("\n") + `\n\n${COMPANY_GLOSSARY}`;
 
   const user = [
     `## 문서 목적\n${template.label} — ${template.desc}`,
@@ -330,33 +311,26 @@ async function generateSlideSpec({
       "PPT 슬라이드 생성 결과를 해석하지 못했습니다. 다시 시도해 주세요."
     );
 
-  const mappedSlides = parsed.slides.map((s) => ({
-    layout: s.layout === "section" ? "section" : "content",
-    title: s.title || "",
-    subtitle: s.subtitle || "",
-    content: Array.isArray(s.content) ? s.content.filter(Boolean) : undefined,
-    table:
-      s.table && Array.isArray(s.table.headers) && Array.isArray(s.table.rows)
-        ? s.table
-        : undefined,
-    chart: normalizeChart(s.chart),
-    notes: s.notes || undefined,
-  }));
+  const rawSlides = parsed.slides
+    .filter((s) => s && typeof s === "object")
+    .map((s) => ({ ...s, chart: normalizeChart(s.chart) }));
 
-  const { slides: splitSlides, splitCount } =
-    splitOverflowingContentSlides(mappedSlides);
+  // 결정적 후처리(LLM 호출 없음): 새 레이아웃 정제 · 표→차트 · 밀도 규칙 · 목차.
+  const { slides: splitSlides, notes: polishNotes } = polishSlides(rawSlides, {
+    maxSlides: MAX_SLIDES,
+  });
 
   const finalSlides = splitSlides.slice(0, MAX_SLIDES);
   const truncated = splitSlides.length > finalSlides.length;
 
-  let warning;
-  if (splitCount > 0 && truncated) {
-    warning = `불릿이 많은 슬라이드 ${splitCount}장을 여러 장으로 나눴고, 그 결과 최대 슬라이드 수(${MAX_SLIDES}장)를 넘어 일부 내용이 제외되었습니다. 가독성을 위해 슬라이드 수 우선순위를 낮췄습니다.`;
-  } else if (splitCount > 0) {
-    warning = `불릿이 많은 슬라이드 ${splitCount}장을 가독성을 위해 여러 장으로 나눠 총 ${finalSlides.length}장이 되었습니다(요청: ${clampedCount}장).`;
-  } else if (truncated) {
-    warning = `생성된 슬라이드가 최대 슬라이드 수(${MAX_SLIDES}장)를 넘어 일부가 제외되었습니다.`;
-  }
+  const warnings = [];
+  if (polishNotes.length)
+    warnings.push(`가독성을 위해 조정했습니다: ${polishNotes.join(" · ")}.`);
+  if (truncated)
+    warnings.push(
+      `생성된 슬라이드가 최대 슬라이드 수(${MAX_SLIDES}장)를 넘어 일부가 제외되었습니다.`
+    );
+  const warning = warnings.join(" ");
 
   return {
     title: String(
@@ -480,6 +454,5 @@ module.exports = {
   archiveDocsBlock,
   extractJsonObject,
   generateSlideSpec,
-  splitOverflowingContentSlides,
   normalizeChart,
 };

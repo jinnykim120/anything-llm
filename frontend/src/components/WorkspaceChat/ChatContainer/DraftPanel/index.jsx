@@ -35,6 +35,17 @@ import StatsMethodPicker from "./StatsMethodPicker";
 // 답변 액션줄의 "문서 작성" 버튼이 아래 이벤트를 쏘면 ChatContainer 가 이 패널을 띄운다.
 export const ARCHIVE_DRAFT_EVENT = "archive-open-draft";
 
+const SLIDE_LAYOUT_LABEL = {
+  section: "구분",
+  content: "내용",
+  content2: "내용(2단)",
+  stat: "핵심 수치",
+  compare: "비교",
+  timeline: "타임라인",
+  quote: "인용",
+  agenda: "목차",
+};
+
 export function openDraftPanel({ message, sources = [], chatId = null }) {
   window.dispatchEvent(
     new CustomEvent(ARCHIVE_DRAFT_EVENT, {
@@ -1374,7 +1385,7 @@ export default function DraftPanel({
                 >
                   <div className="flex items-center gap-2">
                     <span className="rounded-md border border-blue-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:border-blue-900 dark:text-blue-400">
-                      {i + 1} / {slide.layout === "section" ? "구분" : "내용"}
+                      {i + 1} / {SLIDE_LAYOUT_LABEL[slide.layout] || "내용"}
                     </span>
                     <span
                       data-block-id={`${i}.title`}
@@ -1405,6 +1416,67 @@ export default function DraftPanel({
                         </li>
                       ))}
                     </ul>
+                  )}
+                  {Array.isArray(slide.stats) && slide.stats.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {slide.stats.map((st, si) => (
+                        <div
+                          key={si}
+                          className="min-w-[110px] rounded border border-slate-200 px-3 py-2 text-center dark:border-zinc-700"
+                        >
+                          <div className="text-base font-bold text-blue-600 dark:text-blue-400">
+                            {st.value}
+                          </div>
+                          <div className="text-[11px] font-medium text-slate-700 dark:text-zinc-200">
+                            {st.label}
+                          </div>
+                          {st.note && (
+                            <div className="text-[10px] text-slate-500 dark:text-zinc-500">
+                              {st.note}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {Array.isArray(slide.columns) && slide.columns.length > 0 && (
+                    <div className="mt-2 flex gap-2">
+                      {slide.columns.map((col, ci) => (
+                        <div
+                          key={ci}
+                          className="min-w-0 flex-1 rounded border border-slate-200 dark:border-zinc-700"
+                        >
+                          <div className="bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold dark:bg-zinc-800">
+                            {col.heading}
+                          </div>
+                          <ul className="list-disc space-y-0.5 px-5 py-1.5 text-xs text-slate-700 dark:text-zinc-300">
+                            {(col.items || []).map((it, ii) => (
+                              <li key={ii}>{it}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {Array.isArray(slide.steps) && slide.steps.length > 0 && (
+                    <ol className="mt-2 space-y-1 text-xs text-slate-700 dark:text-zinc-300">
+                      {slide.steps.map((st, si) => (
+                        <li key={si} className="flex gap-2">
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                            {si + 1}
+                          </span>
+                          <span>
+                            <b>{st.label}</b>
+                            {st.text ? ` — ${st.text}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  {slide.quote && (
+                    <blockquote className="mt-2 border-l-2 border-blue-500 pl-3 text-xs italic text-slate-700 dark:text-zinc-300">
+                      {slide.quote}
+                    </blockquote>
                   )}
                   {slide.table && (
                     <div

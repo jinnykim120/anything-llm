@@ -25,9 +25,9 @@ const {
 const {
   renderTitleSlide,
   renderSectionSlide,
-  renderContentSlide,
   renderBlankSlide,
 } = require("../agents/aibitat/plugins/create-files/pptx/utils.js");
+const { renderRichSlide } = require("./pptxLayouts");
 
 /**
  * @param {{title:string, author?:string, theme?:string, slides:Array}} slideSpec
@@ -80,14 +80,15 @@ async function renderPptx(slideSpec) {
         });
         break;
       default:
-        renderContentSlide(
+        // content/content2/stat/compare/timeline/quote/agenda — 글자 크기를
+        // 내용에 맞춰 조절하는 자체 렌더러(pptxLayouts.js)가 담당한다.
+        renderRichSlide(
           slide,
           pptx,
           slideData,
           theme,
           slideNumber,
-          totalSlideCount,
-          { branding: false }
+          totalSlideCount
         );
         break;
     }

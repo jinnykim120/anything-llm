@@ -355,6 +355,30 @@ export function slideSpecToMarkdown(slideSpec) {
     if (s.subtitle) parts.push(s.subtitle);
     if (Array.isArray(s.content) && s.content.length)
       parts.push(s.content.map((c) => `- ${c}`).join("\n"));
+    if (Array.isArray(s.stats) && s.stats.length)
+      parts.push(
+        s.stats
+          .map(
+            (x) => `- **${x.value}** ${x.label}${x.note ? ` (${x.note})` : ""}`
+          )
+          .join("\n")
+      );
+    if (Array.isArray(s.columns) && s.columns.length)
+      parts.push(
+        s.columns
+          .map(
+            (c) =>
+              `### ${c.heading}\n${(c.items || []).map((it) => `- ${it}`).join("\n")}`
+          )
+          .join("\n\n")
+      );
+    if (Array.isArray(s.steps) && s.steps.length)
+      parts.push(
+        s.steps
+          .map((x, n) => `${n + 1}. ${x.label}${x.text ? ` — ${x.text}` : ""}`)
+          .join("\n")
+      );
+    if (s.quote) parts.push(`> ${s.quote}`);
     if (s.table?.headers?.length) {
       parts.push(
         [
