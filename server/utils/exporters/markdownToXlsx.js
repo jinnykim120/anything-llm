@@ -94,10 +94,64 @@ function markdownToBlocks(markdown = "") {
 const HEADING_FONT_SIZE = { 1: 16, 2: 14, 3: 12, 4: 11 };
 
 /**
- * @param {{title:string, markdown:string}} params
+ * 임의의 JSON(통계 계산 결과 등)을 시트 행으로 펼친다 — 스칼라는 "항목 | 값",
+ * 객체 배열은 헤더가 있는 표, 중첩 객체는 "a.b.c" 경로 키로 평탄화.
+ * @returns {Array<Array<string|number|boolean|null>>}
+ */
+function jsonToRows(data) {
+  const rows = [];
+  const isScalar = (v) => v === null || typeof v !== "object";
+  const walk = (value, path) => {
+    if (isScalar(value)) {
+      rows.push([path || "값", value]);
+    } else if (Array.isArray(value)) {
+      if (!value.length) return;
+      if (value.every(isScalar)) {
+        rows.push([path || "값", ...value]);
+      } else if (value.every((v) => v && !Array.isArray(v) && isScalar(v) === false)) {
+        const headers = [...new Set(value.flatMap((v) => Object.keys(v)))];
+        if (path) rows.push([path]);
+        rows.push(headers);
+        value.forEach((v) =>
+          rows.push(
+            headers.map((h) =>
+              isScalar(v[h]) ? v[h] : JSON.stringify(v[h])
+            )
+          )
+        );
+        rows.push([]);
+      } else {
+        value.forEach((v, i) => walk(v, `${path}[${i}]`));
+      }
+    } else {
+      for (const [k, v] of Object.entries(value))
+        walk(v, path ? `${path}.${k}` : k);
+    }
+  };
+  walk(data, "");
+  return rows;
+}
+
+function addExtraSheet(workbook, { name = "추가", rows, json }) {
+  const sheet = workbook.addWorksheet(String(name).slice(0, 31));
+  const data = Array.isArray(rows) ? rows : jsonToRows(json);
+  data.forEach((cells, r) =>
+    cells.forEach((value, c) => {
+      const cell = sheet.getCell(r + 1, c + 1);
+      cell.value = value ?? "";
+      if (r === 0) cell.font = { bold: true };
+    })
+  );
+  sheet.columns.forEach((col) => {
+    col.width = 24;
+  });
+}
+
+/**
+ * @param {{title:string, markdown:string, extraSheets?:Array<{name:string, rows?:any[][], json?:any}>}} params
  * @returns {Promise<Buffer>}
  */
-async function markdownToXlsx({ title = "문서", markdown = "" }) {
+async function markdownToXlsx({ title = "문서", markdown = "", extraSheets = [] }) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("결과", {
     views: [{ state: "frozen", ySplit: 0 }],
@@ -182,7 +236,12 @@ async function markdownToXlsx({ title = "문서", markdown = "" }) {
     col.width = 22;
   });
 
+  for (const extra of Array.isArray(extraSheets) ? extraSheets : []) {
+    if (extra && (extra.rows || extra.json !== undefined))
+      addExtraSheet(workbook, extra);
+  }
+
   return workbook.xlsx.writeBuffer();
 }
 
-module.exports = { markdownToXlsx, markdownToBlocks };
+module.exports = { markdownToXlsx, markdownToBlocks, jsonToRows };

@@ -54,11 +54,15 @@ function exportDocEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.all])],
     async (request, response) => {
       try {
-        const { title = "문서", markdown = "" } = reqBody(request);
+        const {
+          title = "문서",
+          markdown = "",
+          extraSheets = [],
+        } = reqBody(request);
         if (!String(markdown).trim())
           throw new Error("내려받을 내용이 없습니다.");
 
-        const buffer = await markdownToXlsx({ title, markdown });
+        const buffer = await markdownToXlsx({ title, markdown, extraSheets });
         const filename = `${String(title).trim() || "문서"}.xlsx`.slice(0, 150);
 
         response.setHeader(

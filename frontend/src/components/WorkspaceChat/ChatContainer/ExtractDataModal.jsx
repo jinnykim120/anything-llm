@@ -205,9 +205,18 @@ export default function ExtractDataModal({ workspace, onClose }) {
   async function downloadXlsx() {
     if (exportingXlsx) return;
     setExportingXlsx(true);
+    // 값 표와 함께, 각 값이 어느 문장에서 나왔는지(근거)를 두 번째 시트로 준다.
+    const evidenceRows = [["문서", "항목", "값", "근거(원문 인용)"]];
+    result.documents.forEach((d) =>
+      Object.entries(d.values || {}).forEach(([field, v]) => {
+        if (v?.value)
+          evidenceRows.push([d.title, field, v.value, v.evidence || ""]);
+      })
+    );
     const res = await Workspace.downloadAsXlsx({
       title: "자료 추출 결과",
       markdown: resultMarkdown(),
+      extraSheets: [{ name: "근거", rows: evidenceRows }],
     });
     setExportingXlsx(false);
     if (!res?.success)

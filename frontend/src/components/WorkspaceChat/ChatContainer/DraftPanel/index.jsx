@@ -408,6 +408,7 @@ export default function DraftPanel({
       markdown: res.revised,
       title: `${res.methodLabel || "통계분석"} 결과`,
       designed: false,
+      statsResult: res.result || null,
     });
     showToast(
       `${res.methodLabel} 분석이 완료되었습니다(실제 계산 기반). 필요하면 내용을 직접 수정할 수 있습니다.`,
@@ -555,6 +556,10 @@ export default function DraftPanel({
     const res = await Workspace.downloadAsXlsx({
       title: extractDraftTitle(draft.markdown, draft.title),
       markdown: draft.markdown,
+      // 통계분석은 서술뿐 아니라 실제로 계산된 수치도 시트로 함께 준다.
+      extraSheets: draft.statsResult
+        ? [{ name: "계산 결과", json: draft.statsResult }]
+        : [],
     });
     setExportingXlsx(false);
     if (!res?.success)
@@ -1482,19 +1487,21 @@ export default function DraftPanel({
             )}
             DOCX 다운로드
           </button>
-          <button
-            type="button"
-            onClick={downloadXlsx}
-            disabled={exportingXlsx}
-            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
-          >
-            {exportingXlsx ? (
-              <CircleNotch size={15} className="animate-spin" />
-            ) : (
-              <FileXls size={15} weight="fill" />
-            )}
-            XLSX 다운로드
-          </button>
+          {draft.statsResult && (
+            <button
+              type="button"
+              onClick={downloadXlsx}
+              disabled={exportingXlsx}
+              className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+            >
+              {exportingXlsx ? (
+                <CircleNotch size={15} className="animate-spin" />
+              ) : (
+                <FileXls size={15} weight="fill" />
+              )}
+              XLSX 다운로드
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setPptWindowSource(draft.markdown)}

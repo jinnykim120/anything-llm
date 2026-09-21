@@ -644,10 +644,10 @@ const Workspace = {
   // [auto-docu XLSX 내보내기] downloadAsDocx와 같은 방식 — markdown 속 표를
   // 실제 엑셀 셀로 변환해 받는다. 자료 추출하기의 "문서 × 필드" 표처럼
   // 수치를 그대로 엑셀에서 다시 다루고 싶을 때가 핵심 용도.
-  downloadAsXlsx: async function ({ title, markdown }) {
+  downloadAsXlsx: async function ({ title, markdown, extraSheets = [] }) {
     const res = await fetch(`${API_BASE}/doc-export/xlsx`, {
       method: "POST",
-      body: JSON.stringify({ title, markdown }),
+      body: JSON.stringify({ title, markdown, extraSheets }),
       headers: baseHeaders(),
     });
     if (!res.ok) {
