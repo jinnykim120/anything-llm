@@ -20,6 +20,38 @@ describe("parseNumeric", () => {
   });
 });
 
+describe("normalizeSlide fallbacks keep content", () => {
+  it("keeps a 2-step timeline as a timeline", () => {
+    const s = normalizeSlide({
+      layout: "timeline",
+      title: "일정",
+      steps: [
+        { label: "3분기", text: "물류센터 가동" },
+        { label: "4분기", text: "성과 평가" },
+      ],
+    });
+    expect(s.layout).toBe("timeline");
+    expect(s.steps).toHaveLength(2);
+  });
+  it("turns an under-filled rich slide into bullets instead of an empty slide", () => {
+    const s = normalizeSlide({
+      layout: "timeline",
+      title: "일정",
+      steps: [{ label: "3분기", text: "물류센터 가동" }],
+    });
+    expect(s.layout).toBe("content");
+    expect(s.content).toEqual(["3분기: 물류센터 가동"]);
+    const c = normalizeSlide({
+      layout: "compare",
+      columns: [{ heading: "A", items: ["x", "y"] }],
+    });
+    expect(c.content).toEqual(["A: x", "A: y"]);
+    expect(
+      normalizeSlide({ layout: "quote", quote: "" }).content
+    ).toBeUndefined();
+  });
+});
+
 describe("normalizeSlide", () => {
   it("falls back to content when a rich layout lacks its data", () => {
     expect(normalizeSlide({ layout: "stat", title: "t" }).layout).toBe(
@@ -188,6 +220,17 @@ describe("ensureAgenda", () => {
       ]).added
     ).toBe(false);
     expect(ensureAgenda([sec("a"), sec("b")], 2).added).toBe(false);
+  });
+});
+
+describe("polishSlides safety", () => {
+  it("drops slides that end up with no body", () => {
+    const { slides, notes } = polishSlides([
+      { layout: "content", title: "내용 있음", content: ["a"] },
+      { layout: "content", title: "빈 슬라이드" },
+    ]);
+    expect(slides.map((s) => s.title)).toEqual(["내용 있음"]);
+    expect(notes.join(" ")).toMatch(/제외/);
   });
 });
 

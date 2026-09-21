@@ -27,6 +27,28 @@ const str = (v) => (v == null ? "" : String(v).trim());
 const strList = (arr) =>
   (Array.isArray(arr) ? arr : []).map(str).filter(Boolean);
 
+// 데이터가 모자라 일반 content 로 되돌릴 때, 그 슬라이드가 가진 내용을 불릿으로
+// 살려서 빈 슬라이드가 되지 않게 한다(예: 단계가 2개뿐인 타임라인 → 불릿 2개).
+function richToBullets(s) {
+  const out = [];
+  (Array.isArray(s.stats) ? s.stats : []).forEach((x) => {
+    if (x?.value && x?.label)
+      out.push(
+        `${str(x.label)}: ${str(x.value)}${x.note ? ` (${str(x.note)})` : ""}`
+      );
+  });
+  (Array.isArray(s.columns) ? s.columns : []).forEach((c) => {
+    strList(c?.items).forEach((it) =>
+      out.push(c?.heading ? `${str(c.heading)}: ${it}` : it)
+    );
+  });
+  (Array.isArray(s.steps) ? s.steps : []).forEach((x) => {
+    if (x?.label)
+      out.push(x.text ? `${str(x.label)}: ${str(x.text)}` : str(x.label));
+  });
+  return out;
+}
+
 function normalizeSlide(s) {
   const base = {
     layout: LAYOUTS.has(s.layout) ? s.layout : "content",
@@ -64,7 +86,7 @@ function normalizeSlide(s) {
       .map((x) => ({ label: str(x?.label), text: str(x?.text) }))
       .filter((x) => x.label)
       .slice(0, 6);
-    if (steps.length >= 3) base.steps = steps;
+    if (steps.length >= 2) base.steps = steps;
     else base.layout = "content";
   } else if (base.layout === "quote") {
     const quote = str(s.quote);
@@ -72,6 +94,18 @@ function normalizeSlide(s) {
     else base.layout = "content";
   } else if (base.layout === "agenda") {
     if (!base.content?.length) base.layout = "content";
+  }
+  if (
+    base.layout === "content" &&
+    s.layout !== "content" &&
+    s.layout !== "section"
+  ) {
+    // 되돌려진 슬라이드: 기존 불릿이 없으면 리치 데이터를 불릿으로.
+    if (!base.content?.length && !base.table && !base.chart) {
+      const bullets = richToBullets(s);
+      if (bullets.length) base.content = bullets;
+      else if (s.quote) base.content = [str(s.quote)];
+    }
   }
   return base;
 }
@@ -273,6 +307,18 @@ function ensureAgenda(slides, maxSlides = 20) {
   };
 }
 
+const hasBody = (s) =>
+  s.layout === "section" ||
+  Boolean(
+    s.content?.length ||
+      s.table ||
+      s.chart ||
+      s.stats?.length ||
+      s.columns?.length ||
+      s.steps?.length ||
+      s.quote
+  );
+
 /**
  * 전체 파이프라인. 반환: { slides, notes: string[] }  (notes = 사용자에게 보여줄 안내)
  */
@@ -297,6 +343,15 @@ function polishSlides(rawSlides, { maxSlides = 20 } = {}) {
     notes.push(`짧은 불릿 ${dense.twoCol}장을 2단으로 배치했습니다`);
   if (dense.split)
     notes.push(`넘칠 수 있는 ${dense.split}장을 나눠 담았습니다`);
+
+  // 안전장치: 본문이 하나도 없는 슬라이드(제목만 남은 것)는 빼서 빈 화면을 막는다.
+  const nonEmpty = slides.filter(hasBody);
+  if (nonEmpty.length !== slides.length && nonEmpty.length) {
+    notes.push(
+      `내용이 없는 슬라이드 ${slides.length - nonEmpty.length}장을 제외했습니다`
+    );
+    slides = nonEmpty;
+  }
 
   const agenda = ensureAgenda(slides, maxSlides);
   slides = agenda.slides;
