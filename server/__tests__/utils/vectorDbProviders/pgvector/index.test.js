@@ -485,6 +485,55 @@ describe("PGVector lexical fallback", () => {
     expect(result.contextTexts).toHaveLength(15);
     expect(result.sources.every((s) => s.doc_id === "LEAD")).toBe(true);
   });
+
+  // [auto-docu 검색 재현율] 실측 회귀 재현: 리드 문서가 topN을 넘겨 확장되면, 정답이
+  // 담긴 다른 문서들이 옛 "3개" 바닥에 눌려 최종 결과에서 완전히 빠졌다(사업보고서
+  // PDF 대 반기 XBRL 재무제표 — XBRL 청크는 원시 유사도 상위권인데도 탈락).
+  it("keeps several distinct non-lead documents alive even when the lead document expands past topN", async () => {
+    const leadChunks = Array.from({ length: 12 }, (_, i) => ({
+      text: `lead-chunk-${i}`,
+      score: 0.95 - i * 0.001,
+      sourceDoc: { doc_id: "LEAD", title: "무관한 리드 문서", chunk_index: i },
+    }));
+    // 8개의 서로 다른 다른-문서 후보 — perDocCap(기본 3)이 각각 1청크씩만 통과시킨다.
+    const otherChunks = Array.from({ length: 8 }, (_, i) => ({
+      text: `other-doc-${i}-answer`,
+      score: 0.7 - i * 0.01,
+      sourceDoc: { doc_id: `OTHER_${i}`, title: `다른 문서 ${i}` },
+    }));
+    const dense = {
+      contextTexts: [...leadChunks, ...otherChunks].map((c) => c.text),
+      sourceDocuments: [...leadChunks, ...otherChunks].map((c) => c.sourceDoc),
+      scores: [...leadChunks, ...otherChunks].map((c) => c.score),
+    };
+    jest.spyOn(PGVector, "connect").mockResolvedValue({
+      end: jest.fn().mockResolvedValue(),
+    });
+    jest.spyOn(PGVector, "namespaceExists").mockResolvedValue(true);
+    jest.spyOn(PGVector, "similarityResponse").mockResolvedValue(dense);
+    jest
+      .spyOn(PGVector, "lexicalSearchResponse")
+      .mockResolvedValue({ contextTexts: [], sourceDocuments: [], scores: [] });
+    jest.spyOn(PGVector, "tagsForDocIds").mockResolvedValue(new Map());
+    jest
+      .spyOn(PGVector, "expandSections")
+      .mockImplementation(async ({ result }) => result);
+
+    const result = await PGVector.performSimilaritySearch({
+      namespace: "archive",
+      input: "질문",
+      LLMConnector: { embedTextInput: jest.fn().mockResolvedValue([0.1, 0.2]) },
+      similarityThreshold: 0.15,
+      topN: 4,
+    });
+
+    const otherDocIds = new Set(
+      result.sources.filter((s) => s.doc_id !== "LEAD").map((s) => s.doc_id)
+    );
+    // 옛 로직이면 바닥이 3이라 OTHER 문서가 최대 3개만 살아남았다.
+    expect(otherDocIds.size).toBeGreaterThan(3);
+    expect(result.sources.some((s) => s.doc_id === "LEAD")).toBe(true);
+  });
 });
 
 // [auto-docu 내부생성자료] 다운로드 시점에 자동 아카이빙된 초안/전사문서작성

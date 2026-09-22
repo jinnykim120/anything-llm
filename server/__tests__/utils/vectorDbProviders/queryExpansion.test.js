@@ -13,6 +13,14 @@ describe("expandQuery", () => {
     expect(out).toMatch(/매출액/);
     expect(out).toMatch(/영업이익/);
   });
+  // [auto-docu XBRL] "수익"·"당기순이익"은 트리거에만 있고 추가 용어에는
+  // 빠져 있어, DART XBRL(IFRS 공식 계정명 사용)의 매출 행이 전혀 우대받지
+  // 못했던 실측 버그의 회귀 테스트.
+  it("adds the IFRS official terms (수익/당기순이익) that XBRL filings actually use", () => {
+    const out = expandQuery("GS리테일 2026년 매출 실적");
+    expect(out).toMatch(/수익/);
+    expect(out).toMatch(/당기순이익/);
+  });
   it("does not repeat terms already in the question", () => {
     const out = expandQuery("2026년 재무정보 매출액 알려줘");
     expect(out.match(/재무정보/g)).toHaveLength(1);

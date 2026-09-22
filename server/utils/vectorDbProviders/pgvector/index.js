@@ -1589,13 +1589,23 @@ class PGVector extends VectorDatabase {
       // merge's exact-name rescues.
       const leadCeiling = Math.max(Number(topN), 30);
       const leadKeep = leadIdx.slice(0, leadCeiling);
+      // [auto-docu 검색 재현율] 실측 회귀 — 리드 문서가 topN 이상의 청크를 가져가면
+      // (전형적: 30-청크 확장) 다른 모든 문서를 합쳐 "3개" 바닥으로 눌렀다. 정답이
+      // 다른 문서(예: XBRL 재무제표, 별도 공시)에 있고 원시 유사도로는 상위권(예:
+      // 13위)인데도 그 3자리를 다른 후보들과 다투다 밀려 최종 결과에서 빠지는 걸
+      // 확인했다(사업보고서 PDF 대 반기 XBRL 재무제표, "GS리테일 2026년 매출 실적").
+      // 바닥을 올려 여러 개의 좋은 비-리드 후보가 함께 생존할 여지를 둔다 — 여전히
+      // 상한(SEARCH_OTHER_MAX_SLOTS)으로 컨텍스트가 무한히 커지는 건 막는다.
       const minOtherSlots = Math.min(
         otherIdx.length,
-        Math.max(3, Math.ceil(Number(topN) * 0.3))
+        Math.max(
+          PGVector.integerSetting("SEARCH_OTHER_MIN_SLOTS", 8, 0, 200),
+          Math.ceil(Number(topN) * 0.3)
+        )
       );
-      const otherBudget = Math.max(
-        minOtherSlots,
-        Number(topN) - leadKeep.length
+      const otherBudget = Math.min(
+        Math.max(minOtherSlots, Number(topN) - leadKeep.length),
+        PGVector.integerSetting("SEARCH_OTHER_MAX_SLOTS", 20, 1, 200)
       );
       const keepIdx = [...leadKeep, ...otherIdx.slice(0, otherBudget)];
       let result = {
