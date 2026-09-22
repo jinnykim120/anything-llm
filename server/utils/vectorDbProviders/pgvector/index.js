@@ -1,3 +1,4 @@
+const { expandQuery, mergeDenseCandidates } = require("../queryExpansion");
 const pgsql = require("pg");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { TextSplitter } = require("../../TextSplitter");
@@ -74,7 +75,11 @@ class PGVector extends VectorDatabase {
         4,
         1_000
       ),
-      efSearch: this.integerSetting("PGVECTOR_HNSW_EF_SEARCH", 40, 1, 1_000),
+      // [auto-docu 검색 재현율] 기본 40 → 200. HNSW 는 ef_search 개까지만 돌려주므로
+      // 40이면 "후보 60~200개를 넓게 뽑는다"는 코드 의도와 달리 실제로는 39~40행만
+      // 나와, 큰 코퍼스(한 문서가 2천 청크)에서 정답 표 청크(밀집 순위 100위대)가
+      // 후보에 못 들어왔다. 200이면 candidateK 상한(200)을 채울 수 있다.
+      efSearch: this.integerSetting("PGVECTOR_HNSW_EF_SEARCH", 200, 1, 1_000),
     };
   }
 
@@ -538,11 +543,14 @@ class PGVector extends VectorDatabase {
       keyword:
         PGVector.integerSetting("HYBRID_KEYWORD_WEIGHT_PCT", 12, 0, 100) / 100,
       tag: PGVector.integerSetting("HYBRID_TAG_WEIGHT_PCT", 15, 0, 100) / 100,
-      // [auto-docu 문서 연계성 학습] affinityBoostFor()가 돌려주는 0~1
-      // 가산점에 곱해지는 가중치 — 기본은 태그 가산점보다 살짝 낮게 잡아,
-      // 아직 이력이 적을 초기 단계에서 과도하게 랭킹을 흔들지 않게 한다.
+      // [auto-docu 문서 연계성 학습] affinityBoostFor()가 돌려주는 0~1 가산점에
+      // 곱해지는 가중치. **기본 0 = 랭킹에 반영하지 않음(기록만 계속 쌓음).**
+      // 밀집 점수가 0.91~0.94로 거의 평평한 이 코퍼스에서 +0.10 은 이력이 있는
+      // 문서가 순위를 통째로 덮어(실측: "GS리테일 2026년 매출 실적"에서 정답
+      // 문서가 밀려남) 데이터가 충분히 쌓이기 전에는 켜지 않는다. 다시 켜려면
+      // HYBRID_AFFINITY_WEIGHT_PCT=2~3 처럼 작게 시작해 eval 로 확인할 것.
       affinity:
-        PGVector.integerSetting("HYBRID_AFFINITY_WEIGHT_PCT", 10, 0, 100) / 100,
+        PGVector.integerSetting("HYBRID_AFFINITY_WEIGHT_PCT", 0, 0, 100) / 100,
     };
   }
 
@@ -1375,7 +1383,7 @@ class PGVector extends VectorDatabase {
 
       // 2. Wide dense candidate pull.
       const candidateK = Math.min(200, Math.max(Number(topN) * 5, 60));
-      const rawDense = rerank
+      let rawDense = rerank
         ? await this.rerankedSimilarityResponse({
             client: connection,
             namespace,
@@ -1395,6 +1403,33 @@ class PGVector extends VectorDatabase {
             filterIdentifiers,
             filterDocIds: docIdFilter,
           });
+
+      // [auto-docu 검색 재현율] 질문 용어 확장 — "매출 실적" → +"재무정보 매출액
+      // 영업이익 연결". 확장 질문의 후보를 원래 후보에 청크별 최고 점수로 합친다
+      // (원 질문의 순위 신호는 유지, 어휘 차이로 후보 풀에서 빠진 표 청크를 구제).
+      if (!rerank) {
+        const expandedInput = expandQuery(input);
+        if (expandedInput) {
+          try {
+            const expandedVector =
+              await LLMConnector.embedTextInput(expandedInput);
+            if (Array.isArray(expandedVector) && expandedVector.length) {
+              const expandedDense = await this.similarityResponse({
+                client: connection,
+                namespace,
+                queryVector: expandedVector,
+                similarityThreshold,
+                topN: candidateK,
+                filterIdentifiers,
+                filterDocIds: docIdFilter,
+              });
+              rawDense = mergeDenseCandidates(rawDense, expandedDense);
+            }
+          } catch (err) {
+            this.logger(`Query expansion skipped: ${err.message}`);
+          }
+        }
+      }
 
       // [auto-docu 내부생성자료] 다운로드 시점에 자동 아카이빙된 초안/전사문서
       // 결과물은, 사람이 분류 검수에서 확정(승인)하기 전까지는 검색에서 아예
@@ -1417,7 +1452,12 @@ class PGVector extends VectorDatabase {
       //    file tagged "필수품목"/"구입강제" should out-rank generic boilerplate
       //    for a matching question even when raw cosine similarity ranks it
       //    far down the candidate list.
-      const hybridTerms = PGVector.lexicalSearchTerms(input);
+      // 키워드 중첩 점수는 확장 용어("재무정보·매출액·영업이익·연결")까지 포함해
+      // 계산한다 — 표 청크는 이 용어를 절 제목/본문에 갖고 있어, 어휘 차이로 밀린
+      // 정답 청크가 무관한 청크보다 높은 키워드 점수를 받는다.
+      const hybridTerms = PGVector.lexicalSearchTerms(
+        expandQuery(input) || input
+      );
       let scored = dense;
       if (hybridTerms.length && dense.sourceDocuments.length) {
         const docIds = [

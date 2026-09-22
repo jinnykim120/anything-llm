@@ -101,6 +101,12 @@ export default function DocumentAffinity() {
                 인용된(검증됨) 문서 쌍의 학습 이력입니다. 검색 랭킹에는 발생
                 횟수 2회 이상인 쌍만, 45일 반감기로 감쇠된 값으로 반영됩니다.
               </p>
+              <p className="mt-2 max-w-xl text-xs leading-5 text-amber-600 dark:text-amber-400">
+                현재는 <b>기록만 쌓고 검색 순위에는 반영하지 않습니다</b>(가산점
+                가중치 0). 데이터가 충분히 쌓이면 서버 설정{" "}
+                <code>HYBRID_AFFINITY_WEIGHT_PCT</code>로 켭니다. 아래 "반영
+                중"은 켰을 때 반영될 쌍이라는 뜻입니다.
+              </p>
             </div>
             {pairs.length > 0 && (
               <button

@@ -71,7 +71,7 @@ describe("PGVector HNSW configuration", () => {
     expect(PGVectorClass.hnswSettings()).toEqual({
       m: 16,
       efConstruction: 64,
-      efSearch: 40,
+      efSearch: 200,
     });
 
     process.env.PGVECTOR_HNSW_M = "1000";
@@ -80,7 +80,7 @@ describe("PGVector HNSW configuration", () => {
     expect(PGVectorClass.hnswSettings()).toEqual({
       m: 100,
       efConstruction: 4,
-      efSearch: 40,
+      efSearch: 200,
     });
   });
 
