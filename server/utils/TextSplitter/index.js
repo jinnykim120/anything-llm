@@ -244,9 +244,13 @@ class TextSplitter {
         const baseMeta = TextSplitter.#chunkMetaFromBlocks([block]);
         // [auto-docu] A split of a big table would leave every piece after the
         // first with rows but no column names. Repeat the header row on each.
+        // `block.table_header` (Docling: exact column_header-flagged rows, see
+        // asDoclingDoc.js) is preferred over the markdown-separator heuristic
+        // below, which only recognizes tables with a synthetic "---" row
+        // (XLSX/HWP) and never fires for Docling's real multi-row headers.
         const tableHeader =
           block.block_type === "table"
-            ? TextSplitter.#tableHeaderLine(blockText)
+            ? block.table_header || TextSplitter.#tableHeaderLine(blockText)
             : "";
         const pieces = await this.#splitter.rawSplit(blockText);
         for (const [pi, piece] of pieces.entries()) {

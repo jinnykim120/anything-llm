@@ -58,26 +58,44 @@ async function releaseDoclingModels() {
   }
 }
 
+// [auto-docu 표 헤더 보존] Docling 표는 XLSX/HWP 변환기처럼 GFM 구분선(---)을
+// 안 넣어서, 여러 줄짜리 실제 헤더(예: "매출구성비" 병합행 + "사업부문|회사명|..."
+// 행)가 TextSplitter의 구분선-기반 헤더 감지(#tableHeaderLine)에 안 걸린다 —
+// 오버사이즈 표가 쪼개지면 뒤쪽 조각이 열 이름 없이 숫자만 남을 위험. Docling
+// 셀에는 실제 `column_header` 불리언이 있어서(TableFormer 출력) 텍스트 패턴
+// 추측 없이 헤더 행 수를 정확히 계산할 수 있다 — 맨 위부터 column_header:true
+// 셀이 하나라도 있는 행까지를 헤더로 본다.
 function tableToText(tbl) {
   const grid = tbl?.data?.grid;
   if (Array.isArray(grid) && grid.length) {
-    return grid
-      .map((row) =>
-        row
-          .map((c) =>
-            String(c?.text ?? "")
-              .replace(/\s+/g, " ")
-              .trim()
-          )
-          .join(" | ")
-      )
-      .join("\n");
+    const rowText = (row) =>
+      row
+        .map((c) =>
+          String(c?.text ?? "")
+            .replace(/\s+/g, " ")
+            .trim()
+        )
+        .join(" | ");
+    let headerRows = 0;
+    while (
+      headerRows < grid.length - 1 &&
+      grid[headerRows].some((c) => c?.column_header)
+    )
+      headerRows += 1;
+    return {
+      text: grid.map(rowText).join("\n"),
+      headerText:
+        headerRows > 0 ? grid.slice(0, headerRows).map(rowText).join("\n") : "",
+    };
   }
   const cells = tbl?.data?.table_cells || [];
-  return cells
-    .map((c) => String(c?.text ?? "").trim())
-    .filter(Boolean)
-    .join(" | ");
+  return {
+    text: cells
+      .map((c) => String(c?.text ?? "").trim())
+      .filter(Boolean)
+      .join(" | "),
+    headerText: "",
+  };
 }
 
 // Korean government-document structure (법령 조 단위 · 예규/지침 아웃라인) lives in
@@ -154,7 +172,7 @@ function doclingToBlocks(doc) {
   }
 
   for (const tbl of doc?.tables || []) {
-    const text = tableToText(tbl);
+    const { text, headerText } = tableToText(tbl);
     if (!text) continue;
     const prov = Array.isArray(tbl?.prov) ? tbl.prov[0] : null;
     const page = prov?.page_no ?? null;
@@ -171,6 +189,7 @@ function doclingToBlocks(doc) {
         page_height: h,
         section_path: sectionStack.map((s) => s.text).join(" > ") || null,
         block_type: "table",
+        table_header: headerText || null,
       },
     });
   }
