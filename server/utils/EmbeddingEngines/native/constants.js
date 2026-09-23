@@ -40,10 +40,15 @@ const SUPPORTED_NATIVE_EMBEDDING_MODELS = {
   "MintplexLabs/multilingual-e5-small": {
     maxConcurrentChunks: 5,
     // Right now, this is NOT the token length, and is instead the number of characters
-    // that can be processed in a single pass. So we override to 1,000 characters.
-    // roughtly the max number of tokens assuming 2 characters per token. (undershooting)
+    // that can be processed in a single pass. The "2 characters per token" assumption
+    // below was wrong for this corpus — measured directly with the model's own
+    // tokenizer on real chunks: ~0.55 tokens/char (≈1.8 chars/token), and 46/60
+    // sampled chunks over 900 chars (77%) already exceeded the real 512-token limit,
+    // silently truncating table-heavy Korean/financial chunks in the embedding
+    // (raw text/lexical search is unaffected — only the dense vector is short).
+    // 700 chars keeps even dense chunks comfortably under 512 tokens.
     // embeddingMaxChunkLength: 512, (from the model card)
-    embeddingMaxChunkLength: 1_000,
+    embeddingMaxChunkLength: 700,
     chunkPrefix: "passage: ",
     queryPrefix: "query: ",
     apiInfo: {
@@ -86,8 +91,9 @@ const SUPPORTED_NATIVE_EMBEDDING_MODELS = {
   // multilingual-e5-large is well-proven with transformers.js v2 (also XLM-RoBERTa).
   "Xenova/multilingual-e5-large": {
     maxConcurrentChunks: 5,
-    // e5 max sequence length is 512 tokens.
-    embeddingMaxChunkLength: 1_000,
+    // e5 max sequence length is 512 tokens — see the same-family multilingual-e5-small
+    // entry above for the measured char/token ratio this 700 is based on.
+    embeddingMaxChunkLength: 700,
     chunkPrefix: "passage: ",
     queryPrefix: "query: ",
     apiInfo: {
