@@ -73,26 +73,63 @@ def load_labels(paths):
     return cl
 
 
+# [auto-docu XBRL 구형 포맷] 2022·2023년 공시(entry_point 방식)는 회사 고유 개념의
+# 라벨만 로컬에 담아 배포하고, IFRS 표준 개념(Revenue, Assets 등)의 한글 라벨은
+# DART 중앙 서버가 호스팅하는 외부 xsd에서만 제공해 로컬 파일만으로는 못 찾는다
+# (신형 공시는 이 표준 라벨도 로컬에 포함돼 있어 문제없음). IFRS 표준 개념명은
+# 연도와 무관하게 고정이므로, 자주 나오는 것만 최소한으로 대체한다.
+STANDARD_LABELS_KO = {
+    "Revenue": "수익(매출액)", "CostOfSales": "매출원가", "GrossProfit": "매출총이익",
+    "ProfitLoss": "당기순이익(손실)", "OperatingIncomeLoss": "영업이익(손실)",
+    "FinanceIncome": "금융수익", "FinanceCosts": "금융원가",
+    "OtherGains": "기타이익", "OtherLosses": "기타손실",
+    "TotalSellingGeneralAdministrativeExpenses": "판매비와관리비",
+    "Assets": "자산", "CurrentAssets": "유동자산", "NoncurrentAssets": "비유동자산",
+    "Liabilities": "부채", "CurrentLiabilities": "유동부채", "NoncurrentLiabilities": "비유동부채",
+    "Equity": "자본", "IssuedCapital": "자본금", "CapitalSurplus": "자본잉여금",
+    "RetainedEarnings": "이익잉여금",
+    "CashAndCashEquivalents": "현금및현금성자산", "Inventories": "재고자산",
+    "PropertyPlantAndEquipment": "유형자산", "InvestmentProperty": "투자부동산",
+    "RightofuseAssets": "사용권자산",
+    "OtherCurrentAssets": "기타유동자산", "OtherNonCurrentAssets": "기타비유동자산",
+    "OtherCurrentFinancialAssets": "기타유동금융자산",
+    "OtherNoncurrentFinancialAssets": "기타비유동금융자산",
+    "OtherCurrentLiabilities": "기타유동부채", "OtherNonCurrentLiabilities": "기타비유동부채",
+    "OtherCurrentFinancialLiabilities": "기타유동금융부채",
+    "OtherNoncurrentFinancialLiabilities": "기타비유동금융부채",
+    "CurrentProvisions": "유동충당부채", "NoncurrentProvisions": "비유동충당부채",
+    "NoncurrentLeaseLiabilities": "비유동리스부채",
+    "CurrentTaxLiabilities": "당기법인세부채",
+    "DeferredTaxAssets": "이연법인세자산", "DeferredTaxLiabilities": "이연법인세부채",
+    "OtherComprehensiveIncome": "기타포괄손익",
+    "OtherComprehensiveIncomeThatWillBeReclassifiedToProfitOrLossNetOfTax":
+        "당기손익으로 재분류되는 세후기타포괄손익",
+    "OtherComprehensiveIncomeThatWillNotBeReclassifiedToProfitOrLossNetOfTax":
+        "당기손익으로 재분류되지 않는 세후기타포괄손익",
+    "OtherComprehensiveIncomeLossAccumulatedAmount": "기타포괄손익누계액",
+    "BasicEarningsLossPerShare": "기본주당이익(손실)",
+    "CashFlowsFromUsedInOperatingActivities": "영업활동현금흐름",
+    "CashFlowsFromUsedInInvestingActivities": "투자활동현금흐름",
+    "CashFlowsFromUsedInFinancingActivities": "재무활동현금흐름",
+    "EffectOfExchangeRateChangesOnCashAndCashEquivalents": "현금및현금성자산의 환율변동효과",
+    "InterestPaidClassifiedAsOperatingActivities": "영업활동으로 분류된 이자지급",
+    "ProceedsFromShortTermBorrowings": "단기차입금의 차입",
+    "ProceedsFromLongTermBorrowings": "장기차입금의 차입",
+    "DividendsPaidClassifiedAsFinancingActivities": "재무활동으로 분류된 배당금지급",
+    "AcquisitionOfTreasuryShares": "자기주식의 취득",
+    "DispositionOfTreasuryShares": "자기주식의 처분",
+    "EquityAtBeginningOfPeriod": "기초자본",
+}
+
+
 def ko(cl, key, prefer=("label", "terseLabel")):
     d = cl.get(key, {})
     for p in prefer:
         if d.get(p):
             return d[p]
+    if key in STANDARD_LABELS_KO:
+        return STANDARD_LABELS_KO[key]
     return next(iter(d.values()), key)
-
-
-def load_roles(xsds):
-    roles = {}
-    for path in xsds:
-        try:
-            root = ET.parse(path).getroot()
-        except ET.ParseError:
-            continue
-        for rt in root.iter(LINK + "roleType"):
-            d = rt.find(LINK + "definition")
-            if d is not None and d.text:
-                roles[rt.get("roleURI")] = d.text.strip()
-    return roles
 
 
 def load_instance(path):
@@ -232,8 +269,31 @@ def segment_tables(cl, facts):
             row = [fmt(*by_concept[c].get(p, {}).get(m, (None, ""))) for m in members]
             if any(row):
                 out.append("| " + ko(cl, c).replace("|", "/") + " | " + " | ".join(row) + " |")
+        # [auto-docu XBRL] 비중(%)은 원문에 별도 항목으로 없는 경우가 많다(공식 답이
+        # "편의점 4,470,737백만원으로 전체의 74.1%"처럼 비중까지 요구한 게 이유였다).
+        # 매출(Revenue) 행에서 각 부문 금액 / 합계로 직접 계산해 같은 표 아래에 덧붙인다
+        # — 새 사실을 만드는 게 아니라 원문의 두 숫자를 나누는 것뿐이라 근거 문제가 없다.
+        revenue_concept = next((c for c in concepts if local(c) == "Revenue"), None)
+        if revenue_concept:
+            vals = {
+                m: parse_amount(*by_concept[revenue_concept].get(p, {}).get(m, (None, "")))
+                for m in members
+            }
+            total = sum(v for v in vals.values() if v is not None)
+            if total:
+                pct_row = [
+                    f"{vals[m] / total * 100:.1f}%" if vals.get(m) is not None else ""
+                    for m in members
+                ]
+                out.append("| 매출 비중(계산값) | " + " | ".join(pct_row) + " |")
         out.append("")
     return CHR10.join(out)
+
+
+def parse_amount(unit, text):
+    if not unit or not text or not re.fullmatch(r"-?\d+(\.\d+)?", text):
+        return None
+    return float(text)
 
 
 def entity_info(facts, roots):
@@ -248,13 +308,25 @@ def main():
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     inst_path, lab_paths, pre_paths, xsd_paths = find_files(folder)
     cl = load_labels(lab_paths)
-    roles = load_roles(xsd_paths)
     _, ctx, facts = load_instance(inst_path)
+    # [auto-docu XBRL 구형 포맷] 역할(role) 설명문("[D210000] 재무상태표...")은
+    # xsd의 roleType 요소에 있는데, 옛 공시(2022·2023년, dart_entry_point 방식)는
+    # 그 정의를 로컬 xsd 대신 DART 서버가 호스팅하는 외부 xsd에서만 import 해서
+    # 로컬 파일만 봐서는 못 찾는다. 대신 DART는 역할 URI 자체 끝에 항상
+    # ".../role-D210000" 식으로 코드를 박아 두므로(신형·구형 공통), 프레젠테이션
+    # 링크베이스가 실제로 쓰는 role URI에서 직접 코드를 뽑는다 — roleType 정의
+    # 유무와 무관하게 항상 동작한다.
     role_by_code = {}
-    for uri, d in roles.items():
-        m = re.match(r"\[(D\d+[a-z]?)\]", d)
-        if m:
-            role_by_code[m.group(1)] = uri
+    for path in pre_paths:
+        try:
+            root = ET.parse(path).getroot()
+        except ET.ParseError:
+            continue
+        for pl in root.iter(LINK + "presentationLink"):
+            uri = pl.get(XLINK + "role", "")
+            m = re.search(r"role-(D\d+[a-z]?)$", uri)
+            if m:
+                role_by_code.setdefault(m.group(1), uri)
     name = os.path.basename(os.path.normpath(folder))
     m = re.search(r"\[(.+?)\](.*?)\(원문XBRL\)\((\d{4}\.\d{2}\.\d{2})\)", name)
     company, report, filed = (m.group(1), m.group(2).replace("_IFRS", "").strip(), m.group(3)) if m else (name, "", "")
