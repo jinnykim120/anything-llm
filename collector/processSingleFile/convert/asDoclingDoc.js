@@ -267,6 +267,54 @@ async function convertOnce(fullFilePath, { doOcr, pageRange } = {}) {
   return json;
 }
 
+/** Thrown by convertRangeWithRetry when docling-serve itself has gone down mid-batch —
+ * distinct from a range-specific failure so the caller can stop the whole batch loop
+ * instead of quietly trying (and failing) every remaining batch. */
+class DoclingServerDownError extends Error {}
+
+/**
+ * [auto-docu 페이지 분할 강건화] 배치 [start,end]가 실패하면 우선 서버가 살아있는지
+ * 재확인한다 — 죽어 있으면 DoclingServerDownError를 던져 상위 루프가 남은 배치를
+ * 전부 포기하고 정직하게 중단하게 한다. 서버는 살아있는데 그 구간만 실패했다면
+ * (예: 표지처럼 이미지 하나가 무거운 페이지) 구간을 절반으로 쪼개 재귀적으로
+ * 재시도한다 — 1쪽 단위까지 내려가도 실패하면 그 1쪽만 소실로 기록하고 넘어간다.
+ * @returns {Promise<{start:number,end:number,json:object}[]>}
+ */
+async function convertRangeWithRetry(fullFilePath, { doOcr, start, end, stats }) {
+  try {
+    const json = await convertOnce(fullFilePath, {
+      doOcr,
+      pageRange: [start, end],
+    });
+    return [{ start, end, json }];
+  } catch (e) {
+    if (!(await doclingAvailable()))
+      throw new DoclingServerDownError(
+        `docling-serve down while converting pages ${start}-${end}: ${e.message}`
+      );
+    if (end > start) {
+      const mid = start + Math.floor((end - start) / 2);
+      const left = await convertRangeWithRetry(fullFilePath, {
+        doOcr,
+        start,
+        end: mid,
+        stats,
+      });
+      const right = await convertRangeWithRetry(fullFilePath, {
+        doOcr,
+        start: mid + 1,
+        end,
+        stats,
+      });
+      return [...left, ...right];
+    }
+    // 1쪽 단위까지 쪼갰는데도 실패 — 이 페이지만 건너뛴다(문서 전체를 실패시키지 않음).
+    stats.skippedPages.push(start);
+    stats.anyPartial = true;
+    return [];
+  }
+}
+
 function confidenceOf(json) {
   const raw = json?.confidence?.mean_score;
   return raw === null || raw === undefined || Number.isNaN(Number(raw))
@@ -304,42 +352,72 @@ async function parseWithDocling(fullFilePath, { doOcr = true } = {}) {
     // 큰 PDF — 쪽 구간별로 순차 호출(동시에 여러 배치를 보내면 메모리 압박이
     // 다시 커져 OOM 재현 위험이 있어 일부러 병렬화하지 않는다).
     const blocks = [];
-    let anyPartial = false;
+    const stats = { skippedPages: [], anyPartial: false };
     let confSum = 0;
     let confN = 0;
     let lastSectionPath = null;
+    let serverDownAt = null;
     for (let start = 1; start <= pageCount; start += PAGE_BATCH_SIZE) {
       const end = Math.min(start + PAGE_BATCH_SIZE - 1, pageCount);
-      let json;
+      let subResults;
       try {
-        json = await convertOnce(fullFilePath, {
+        subResults = await convertRangeWithRetry(fullFilePath, {
           doOcr,
-          pageRange: [start, end],
+          start,
+          end,
+          stats,
         });
       } catch (e) {
-        anyPartial = true; // 이 구간만 건너뛴다 — 문서 전체를 실패시키지 않음.
-        continue;
+        if (e instanceof DoclingServerDownError) {
+          // 서버가 실제로 죽었다 — 남은 배치는 시도조차 안 하고 정직하게
+          // 중단한다(계속 돌리면 남은 배치가 전부 조용히 실패해 "부분 성공"
+          // 뒤에 사실상 텅 빈 문서가 숨는다).
+          serverDownAt = start;
+          console.warn(
+            `[asDoclingDoc] docling-serve down at page ${start}/${pageCount} of ${path.basename(
+              fullFilePath
+            )} — stopping batch loop, keeping pages parsed so far.`
+          );
+          break;
+        }
+        throw e;
       }
-      const batchBlocks = doclingToBlocks(json?.document?.json_content);
-      if (json?.status === "partial_success") anyPartial = true;
-      if (batchBlocks.length) {
-        confSum += confidenceOf(json);
-        confN += 1;
+      for (const { json } of subResults) {
+        const batchBlocks = doclingToBlocks(json?.document?.json_content);
+        if (json?.status === "partial_success") stats.anyPartial = true;
+        if (batchBlocks.length) {
+          confSum += confidenceOf(json);
+          confN += 1;
+        }
+        // [auto-docu 페이지 분할] 배치 경계에서 섹션 제목을 잃는 문제 완화 —
+        // doclingToBlocks 는 배치(=한 번의 docling 호출)마다 섹션 스택을 새로
+        // 시작하므로, 이 배치의 첫 제목이 나오기 전 블록들은 section_path 가
+        // 비어 있다. 이전 배치의 마지막 제목을 이어 붙인다(완벽하진 않지만 —
+        // 배치 경계가 실제 절 경계와 우연히 겹치면 그래도 비게 된다 — 아예
+        // 없는 것보다는 낫다).
+        for (const b of batchBlocks) {
+          if (!b.section_path && lastSectionPath) b.section_path = lastSectionPath;
+          if (b.section_path) lastSectionPath = b.section_path;
+        }
+        blocks.push(...batchBlocks);
       }
-      // [auto-docu 페이지 분할] 배치 경계에서 섹션 제목을 잃는 문제 완화 —
-      // doclingToBlocks 는 배치(=한 번의 docling 호출)마다 섹션 스택을 새로
-      // 시작하므로, 이 배치의 첫 제목이 나오기 전 블록들은 section_path 가
-      // 비어 있다. 이전 배치의 마지막 제목을 이어 붙인다(완벽하진 않지만 —
-      // 배치 경계가 실제 절 경계와 우연히 겹치면 그래도 비게 된다 — 아예
-      // 없는 것보다는 낫다).
-      for (const b of batchBlocks) {
-        if (!b.section_path && lastSectionPath) b.section_path = lastSectionPath;
-        if (b.section_path) lastSectionPath = b.section_path;
-      }
-      blocks.push(...batchBlocks);
     }
+    if (stats.skippedPages.length)
+      console.warn(
+        `[asDoclingDoc] ${path.basename(
+          fullFilePath
+        )} — pages skipped after halving retry (still failing at 1 page): [${stats.skippedPages.join(
+          ", "
+        )}]`
+      );
+    const anyPartial = stats.anyPartial || serverDownAt !== null;
     if (!blocks.length)
-      return { ok: false, reason: "docling returned no content" };
+      return {
+        ok: false,
+        reason: serverDownAt
+          ? `docling-serve down before page ${serverDownAt} of ${pageCount}`
+          : "docling returned no content",
+      };
     const confidence = confN
       ? Math.round((confSum / confN) * 100) / 100
       : 0.9;
@@ -348,6 +426,15 @@ async function parseWithDocling(fullFilePath, { doOcr = true } = {}) {
       blocks,
       parsePath: anyPartial ? "docling-partial" : "docling",
       confidence: anyPartial ? Math.min(confidence, 0.75) : confidence,
+      reason: serverDownAt
+        ? `docling-serve down before page ${serverDownAt} of ${pageCount}; parsed pages 1-${
+            serverDownAt - 1
+          } only`
+        : stats.skippedPages.length
+        ? `skipped pages (still failing at 1-page granularity): [${stats.skippedPages.join(
+            ", "
+          )}]`
+        : undefined,
     };
   } catch (e) {
     return { ok: false, reason: `docling error: ${e.message}` };
