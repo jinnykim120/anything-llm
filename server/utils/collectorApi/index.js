@@ -29,6 +29,18 @@ class CollectorApi {
     bodyTimeout: this.extensionRequestTimeout,
   });
 
+  // [auto-docu 페이지 분할] /process 는 큰 PDF(300쪽급)를 Docling 배치(각 배치마다
+  // 별도 호출)로 순차 처리하는데, 이전 600s headersTimeout(바디 타임아웃 없이 undici
+  // 기본 300s)로는 335쪽 문서 처리 중 서버가 먼저 포기하고 500을 던지는 걸 실측했다
+  // (콜렉터/docling-serve는 그 뒤로도 계속 작업 — 응답만 못 받을 뿐). 확장 요청과
+  // 같은 패턴으로 넉넉한 타임아웃을 둔다.
+  documentProcessingTimeout = 60 * 60_000; // 60 minutes
+  /** @type {Agent} - The agent for /process (large multi-batch Docling documents) */
+  documentProcessingAgent = new Agent({
+    headersTimeout: this.documentProcessingTimeout,
+    bodyTimeout: this.documentProcessingTimeout,
+  });
+
   /**
    * Gets the collector port from the environment variables.
    * If the port is not set, it will fall back to the default port.
@@ -128,7 +140,7 @@ class CollectorApi {
         ),
       },
       body: data,
-      dispatcher: new Agent({ headersTimeout: 600000 }),
+      dispatcher: this.documentProcessingAgent,
     })
       .then((res) => {
         if (!res.ok) throw new Error("Response could not be completed");
