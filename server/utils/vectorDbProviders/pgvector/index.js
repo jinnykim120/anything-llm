@@ -534,6 +534,24 @@ class PGVector extends VectorDatabase {
     return terms.filter((term) => tagText.includes(term)).length / terms.length;
   }
 
+  /** [auto-docu 복합질문] 문서 제목에서 4자리 연도를 전부 뽑아 Set으로 반환 —
+   * "GS리테일 2026년 반기보고서" -> {"2026"}. 하이브리드 리랭크/섹션 확장에서
+   * 질문의 연도와 비교해 기간이 명백히 다른 문서를 걸러내는 데 쓴다. */
+  static docYearTokens(title = "") {
+    const years = String(title || "").match(/\b(19|20)\d{2}\b/g) || [];
+    return new Set(years);
+  }
+
+  /** [auto-docu 복합질문] 이 코퍼스 제목 컨벤션 — "[회사명]사업보고서...",
+   * "[BGF리테일][정정]반기보고서..." — 맨 앞 "[...]" 안의 회사명만 뽑는다
+   * (두 번째 이후 괄호는 "정정" 같은 상태 태그라 무시). 브래킷이 없는 제목
+   * (내부 md/hwp 등)은 null — 회사 정보가 없다는 뜻이니 게이트에서 그냥
+   * 통과시킨다(오탐 방지, 확실한 불일치만 걸러낸다). */
+  static docCompanyTag(title = "") {
+    const m = String(title || "").match(/^\[([^\]]+)\]/);
+    return m ? m[1].trim() : null;
+  }
+
   /** [auto-docu v18] How much the hybrid rerank (performSimilaritySearch step
    * 2b) trusts keyword-overlap and classification-tag matches relative to
    * raw cosine similarity. Both are expressed as % of a similarity point so
@@ -551,6 +569,28 @@ class PGVector extends VectorDatabase {
       // HYBRID_AFFINITY_WEIGHT_PCT=2~3 처럼 작게 시작해 eval 로 확인할 것.
       affinity:
         PGVector.integerSetting("HYBRID_AFFINITY_WEIGHT_PCT", 0, 0, 100) / 100,
+      // [auto-docu 복합질문] 질문에 연도가 있는데 후보 문서 제목의 연도와 전혀
+      // 겹치지 않으면 이 점수만큼 깎는다. 이 코퍼스 밀집 점수가 0.91~0.94로 거의
+      // 평평해서(위 affinity 주석 참고) 순위를 확실히 뒤집으려면 이 정도 크기가
+      // 필요하다 — 실측: "2026년 매출 실적" 질문에서 2024년에 제출된 FY2023
+      // 정정 사업보고서가 리드 문서로 잘못 뽑힌 사례.
+      yearMismatchPenalty:
+        PGVector.integerSetting("HYBRID_YEAR_MISMATCH_PENALTY_PCT", 20, 0, 100) /
+        100,
+      // [auto-docu 복합질문] 질문이 겨냥한 회사와 제목의 "[회사명]" 접두사가
+      // 다르면 이 점수만큼 깎는다 — 실측: "GS리테일 2026년 매출 실적 + 2023~
+      // 2025년 추이"에서 경쟁사 "[BGF리테일][정정]반기보고서"가 "매출/실적"
+      // 같은 범용 키워드만으로 상위권에 끼어들어(연도도 2026이라 연도 페널티도
+      // 안 걸림) otherBudget을 넉넉히 늘린 뒤 whole-doc 확장까지 타면서 22개
+      // 청크로 불어난 사례. 연도 페널티보다 크게 잡는다 — 회사가 다르면 거의
+      // 항상 무관한 문서이지 "참고할 만한 다른 관점"이 아니다.
+      companyMismatchPenalty:
+        PGVector.integerSetting(
+          "HYBRID_COMPANY_MISMATCH_PENALTY_PCT",
+          35,
+          0,
+          100
+        ) / 100,
     };
   }
 
@@ -1163,7 +1203,13 @@ class PGVector extends VectorDatabase {
    * Expand repeated hits in one top-level section into the section's remaining
    * chunks. Location-aware metadata and chunk_index make this deterministic.
    */
-  async expandSections({ client, namespace, result }) {
+  async expandSections({
+    client,
+    namespace,
+    result,
+    queryYears = new Set(),
+    queryCompanies = new Set(),
+  }) {
     const { contextTexts, sourceDocuments, scores } = result;
     if (process.env.SECTION_EXPANSION === "off" || sourceDocuments.length === 0)
       return result;
@@ -1216,6 +1262,22 @@ class PGVector extends VectorDatabase {
         continue;
       }
 
+      // [auto-docu 복합질문] 질문에 연도가 있는데 이 문서 제목의 연도와 전혀
+      // 겹치지 않으면 확장하지 않는다 — 실측: "2026년" 질문에서 FY2023 정정
+      // 보고서의 무관한 절이 라벨링 오류로 61개 청크째 통째로 딸려온 사례.
+      if (queryYears.size) {
+        const docYears = PGVector.docYearTokens(rows[0]?.title);
+        if (
+          docYears.size &&
+          ![...docYears].some((year) => queryYears.has(year))
+        )
+          continue;
+      }
+      if (queryCompanies.size) {
+        const docCompany = PGVector.docCompanyTag(rows[0]?.title);
+        if (docCompany && !queryCompanies.has(docCompany)) continue;
+      }
+
       const section = rows
         .filter((row) => topSegment(row.section_path) === group.segment)
         .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0));
@@ -1225,7 +1287,16 @@ class PGVector extends VectorDatabase {
       );
       if (!section.length || sectionChars > sectionMaxChars) continue;
 
+      // 절 라벨링이 잘못 뭉쳐져(예: 무관한 여러 장이 한 top-level segment 아래로
+      // 묶임) 글자수 캡은 통과하면서 개수만 폭증하는 경우의 2차 방어선 — 히트
+      // 수에 비례한 캡(기본 히트당 10개, 최소 20개)을 넘으면 그만 추가한다.
+      const groupCap = Math.max(
+        group.hits.length * 10,
+        Number(process.env.SECTION_EXPANSION_MAX_GROUP_ADDITIONS) || 20
+      );
+      let groupAdditions = 0;
       for (const row of section) {
+        if (groupAdditions >= groupCap) break;
         const key = rowKey(row.doc_id, row.chunk_index);
         if (seen.has(key)) continue;
         const length = row.text?.length || 0;
@@ -1233,6 +1304,7 @@ class PGVector extends VectorDatabase {
         additions.push({ metadata: row, text: row.text, score: groupScore });
         seen.add(key);
         budget -= length;
+        groupAdditions += 1;
       }
     }
 
@@ -1262,6 +1334,25 @@ class PGVector extends VectorDatabase {
         rows = response.rows.map((row) => row.metadata);
       } catch {
         continue;
+      }
+      // [auto-docu 복합질문] 위 섹션 확장과 같은 연도 게이트 — 실측: 연도가 다른
+      // (FY2025 연간) XBRL 문서가 "매출/영업이익" 같은 범용 키워드만으로 히트
+      // 조건을 넘겨 통째로(18/18) 덤프된 사례("2026년 반기" 질문).
+      if (queryYears.size) {
+        const docYears = PGVector.docYearTokens(rows[0]?.title);
+        if (
+          docYears.size &&
+          ![...docYears].some((year) => queryYears.has(year))
+        )
+          continue;
+      }
+      // [auto-docu 복합질문] 회사 게이트 — 실측: 경쟁사 "[BGF리테일][정정]
+      // 반기보고서"가 연도(2026)는 겹치는데 회사가 달라 whole-doc 확장에서
+      // 22개 청크로 불어난 사례. 하이브리드 리랭크 페널티만으로는 이미
+      // otherBudget 안에 들어온 청크를 막지 못하므로 확장 단계에서도 막는다.
+      if (queryCompanies.size) {
+        const docCompany = PGVector.docCompanyTag(rows[0]?.title);
+        if (docCompany && !queryCompanies.has(docCompany)) continue;
       }
       const docChars = rows.reduce((t, r) => t + (r.text?.length || 0), 0);
       if (!rows.length || docChars > wholeDocMaxChars || docChars > budget)
@@ -1458,6 +1549,25 @@ class PGVector extends VectorDatabase {
       const hybridTerms = PGVector.lexicalSearchTerms(
         expandQuery(input) || input
       );
+      // [auto-docu 복합질문] 질문에 들어있는 4자리 연도 — 하이브리드 리랭크의
+      // 연도 불일치 페널티와 expandSections()의 연도 게이트가 함께 쓴다.
+      // hybridTerms(파티클 제거 토큰)에서 뽑으면 "2026년"처럼 한글 조사/단위가
+      // 안 떨어져 나간 토큰이 섞여 정규식이 매칭 안 되므로, 원문에 직접 적용.
+      const queryYears = PGVector.docYearTokens(expandQuery(input) || input);
+      // [auto-docu 복합질문] 후보 풀 제목들의 "[회사명]" 태그 중 질문 원문에
+      // 그대로 들어있는 것만 추린다 — 이 코퍼스는 회사명을 별도 태그로 분류
+      // 하지 않아서(business_unit은 내부 조직 축, 회사 축이 아님), DB 추가
+      // 조회 없이 이미 가져온 후보들의 제목 컨벤션에서 역추출한다. 질문이
+      // 여러 회사를 실제로 비교하면(둘 다 원문에 들어있음) 페널티가 둘 다에
+      // 안 걸려 정상 동작한다.
+      const candidateCompanyTags = new Set(
+        dense.sourceDocuments
+          .map((src) => PGVector.docCompanyTag(src.title))
+          .filter(Boolean)
+      );
+      const queryCompanies = new Set(
+        [...candidateCompanyTags].filter((c) => input.includes(c))
+      );
       let scored = dense;
       if (hybridTerms.length && dense.sourceDocuments.length) {
         const docIds = [
@@ -1477,10 +1587,27 @@ class PGVector extends VectorDatabase {
               hybridTerms,
               tagsByDoc.get(src.doc_id) || []
             );
+            let yearPenalty = 0;
+            if (queryYears.size) {
+              const docYears = PGVector.docYearTokens(src.title);
+              if (
+                docYears.size &&
+                ![...docYears].some((year) => queryYears.has(year))
+              )
+                yearPenalty = weights.yearMismatchPenalty;
+            }
+            let companyPenalty = 0;
+            if (queryCompanies.size) {
+              const docCompany = PGVector.docCompanyTag(src.title);
+              if (docCompany && !queryCompanies.has(docCompany))
+                companyPenalty = weights.companyMismatchPenalty;
+            }
             const hybridScore =
               (dense.scores[i] ?? 0) +
               keywordScore * weights.keyword +
-              tagScore * weights.tag;
+              tagScore * weights.tag -
+              yearPenalty -
+              companyPenalty;
             return { i, hybridScore };
           })
           .sort((a, b) => b.hybridScore - a.hybridScore);
@@ -1596,11 +1723,22 @@ class PGVector extends VectorDatabase {
       // 확인했다(사업보고서 PDF 대 반기 XBRL 재무제표, "GS리테일 2026년 매출 실적").
       // 바닥을 올려 여러 개의 좋은 비-리드 후보가 함께 생존할 여지를 둔다 — 여전히
       // 상한(SEARCH_OTHER_MAX_SLOTS)으로 컨텍스트가 무한히 커지는 건 막는다.
+      // [auto-docu 복합질문] 여러 연도를 명시한 추이/비교 질문("2023~2025년 추이")은
+      // 리드 문서(보통 최신 연차보고서) 하나가 leadCeiling(30)까지 차지해버려서
+      // otherBudget이 바닥(minOtherSlots)까지 눌리는데, 그 바닥이 8개뿐이면 질문이
+      // 언급한 연도마다 있는 보고서/XBRL 문서(연도별로 최대 perDocCap개씩)가 전부
+      // 들어갈 자리가 없다 — 실측: "GS리테일 2026년 매출 실적 + 2023~2025년 추이"에서
+      // 정답인 2026 반기 XBRL 문서의 청크 3개가 딱 이 컷에 걸려 전부 탈락했다.
+      // 연도 하나당 "본문 보고서 + XBRL" 두 종류 문서가 각각 perDocCap까지 살 수
+      // 있게 바닥을 올린다(질문이 연도 2개 이상을 언급할 때만 — 일반 질문은 그대로).
+      const multiYearFloor =
+        queryYears.size > 1 ? queryYears.size * perDocCap * 2 : 0;
       const minOtherSlots = Math.min(
         otherIdx.length,
         Math.max(
           PGVector.integerSetting("SEARCH_OTHER_MIN_SLOTS", 8, 0, 200),
-          Math.ceil(Number(topN) * 0.3)
+          Math.ceil(Number(topN) * 0.3),
+          multiYearFloor
         )
       );
       const otherBudget = Math.min(
@@ -1621,6 +1759,8 @@ class PGVector extends VectorDatabase {
         client: connection,
         namespace,
         result,
+        queryYears,
+        queryCompanies,
       });
 
       const { contextTexts, sourceDocuments } = result;
