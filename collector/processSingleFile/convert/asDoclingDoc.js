@@ -214,6 +214,66 @@ function doclingToBlocks(doc) {
   return buildSectionPaths(merged);
 }
 
+// [auto-docu 페이지 분할] 큰 PDF(300쪽급)를 한 번에 보내면 이 PC(16GB, 여유
+// 3~4GB)에서 레이아웃 모델이 메모리 부족으로 죽는 걸 실측했다(335쪽 문서,
+// 단일 호출). docling-serve는 `page_range` 폼 필드를 지원하고(원본 페이지
+// 번호가 그대로 유지됨 — page 29~30 요청 시 결과의 page_no도 29·30), 청킹 없이
+// 같은 파일을 여러 번 보내 페이지 구간만 나누면 된다는 걸 확인했다(pdf-lib 같은
+// 분할 라이브러리 불필요). 배치 크기는 4쪽 발췌 테스트(~33초/배치, 성공)를
+// 근거로 보수적으로 잡는다 — OOM 재현 없이 안정적으로 끝내는 게 우선이다.
+const PAGE_BATCH_THRESHOLD = Number(process.env.DOCLING_PAGE_BATCH_THRESHOLD || 20);
+const PAGE_BATCH_SIZE = Number(process.env.DOCLING_PAGE_BATCH_SIZE || 10);
+
+/** pdfjs(이미 pdf-parse 의존성에 번들)로 가볍게 쪽수만 센다 — docling 모델을 전혀 안 씀. */
+async function getPdfPageCount(fullFilePath) {
+  try {
+    const pdfjs = await import(
+      "pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js"
+    );
+    const data = new Uint8Array(fs.readFileSync(fullFilePath));
+    const doc = await pdfjs.getDocument({ data }).promise;
+    return doc.numPages;
+  } catch (e) {
+    return null; // 못 세면 배치 안 하고 기존 단일 호출 경로로(안전 기본값).
+  }
+}
+
+/** docling-serve 한 번 호출 — 성공하면 원시 응답 json을 돌려준다(실패 시 throw). */
+async function convertOnce(fullFilePath, { doOcr, pageRange } = {}) {
+  const fd = new FormData();
+  fd.append(
+    "files",
+    new Blob([fs.readFileSync(fullFilePath)]),
+    path.basename(fullFilePath)
+  );
+  fd.append("to_formats", "json");
+  // OCR is opt-in per call — digital PDFs pass doOcr:false (docling + RapidOCR
+  // on CPU is ~80s/page). Non-PDF formats ignore it.
+  fd.append("do_ocr", doOcr ? "true" : "false");
+  fd.append("do_table_structure", "true");
+  if (pageRange) {
+    fd.append("page_range", String(pageRange[0]));
+    fd.append("page_range", String(pageRange[1]));
+  }
+
+  const res = await fetchWithTimeout(
+    `${DOCLING_URL}/v1/convert/file`,
+    { method: "POST", body: fd },
+    CONVERT_TIMEOUT_MS
+  );
+  if (!res.ok) throw new Error(`docling HTTP ${res.status}`);
+  const json = await res.json();
+  if (json?.status === "failure") throw new Error("docling failed to parse");
+  return json;
+}
+
+function confidenceOf(json) {
+  const raw = json?.confidence?.mean_score;
+  return raw === null || raw === undefined || Number.isNaN(Number(raw))
+    ? 0.9 // e.g. DOCX/PPTX — no layout model runs, so no score
+    : Math.round(Number(raw) * 100) / 100;
+}
+
 /**
  * @returns {Promise<{ok:boolean, blocks?:object[], parsePath?:string, confidence?:number, reason?:string}>}
  */
@@ -222,45 +282,72 @@ async function parseWithDocling(fullFilePath, { doOcr = true } = {}) {
     return { ok: false, reason: "docling-serve unavailable" };
   activeParses += 1;
   try {
-    const fd = new FormData();
-    fd.append(
-      "files",
-      new Blob([fs.readFileSync(fullFilePath)]),
-      path.basename(fullFilePath)
-    );
-    fd.append("to_formats", "json");
-    // OCR is opt-in per call — digital PDFs pass doOcr:false (docling + RapidOCR
-    // on CPU is ~80s/page). Non-PDF formats ignore it.
-    fd.append("do_ocr", doOcr ? "true" : "false");
-    fd.append("do_table_structure", "true");
+    const isPdf = /\.pdf$/i.test(fullFilePath);
+    const pageCount = isPdf ? await getPdfPageCount(fullFilePath) : null;
 
-    const res = await fetchWithTimeout(
-      `${DOCLING_URL}/v1/convert/file`,
-      { method: "POST", body: fd },
-      CONVERT_TIMEOUT_MS
-    );
-    if (!res.ok) return { ok: false, reason: `docling HTTP ${res.status}` };
+    if (!pageCount || pageCount <= PAGE_BATCH_THRESHOLD) {
+      const json = await convertOnce(fullFilePath, { doOcr });
+      const blocks = doclingToBlocks(json?.document?.json_content);
+      if (!blocks.length)
+        return { ok: false, reason: "docling returned no content" };
+      const partial = json?.status === "partial_success";
+      return {
+        ok: true,
+        blocks,
+        parsePath: partial ? "docling-partial" : "docling",
+        confidence: partial
+          ? Math.min(confidenceOf(json), 0.75)
+          : confidenceOf(json),
+      };
+    }
 
-    const json = await res.json();
-    if (json?.status === "failure")
-      return { ok: false, reason: "docling failed to parse" };
-
-    const doc = json?.document?.json_content;
-    const blocks = doclingToBlocks(doc);
+    // 큰 PDF — 쪽 구간별로 순차 호출(동시에 여러 배치를 보내면 메모리 압박이
+    // 다시 커져 OOM 재현 위험이 있어 일부러 병렬화하지 않는다).
+    const blocks = [];
+    let anyPartial = false;
+    let confSum = 0;
+    let confN = 0;
+    let lastSectionPath = null;
+    for (let start = 1; start <= pageCount; start += PAGE_BATCH_SIZE) {
+      const end = Math.min(start + PAGE_BATCH_SIZE - 1, pageCount);
+      let json;
+      try {
+        json = await convertOnce(fullFilePath, {
+          doOcr,
+          pageRange: [start, end],
+        });
+      } catch (e) {
+        anyPartial = true; // 이 구간만 건너뛴다 — 문서 전체를 실패시키지 않음.
+        continue;
+      }
+      const batchBlocks = doclingToBlocks(json?.document?.json_content);
+      if (json?.status === "partial_success") anyPartial = true;
+      if (batchBlocks.length) {
+        confSum += confidenceOf(json);
+        confN += 1;
+      }
+      // [auto-docu 페이지 분할] 배치 경계에서 섹션 제목을 잃는 문제 완화 —
+      // doclingToBlocks 는 배치(=한 번의 docling 호출)마다 섹션 스택을 새로
+      // 시작하므로, 이 배치의 첫 제목이 나오기 전 블록들은 section_path 가
+      // 비어 있다. 이전 배치의 마지막 제목을 이어 붙인다(완벽하진 않지만 —
+      // 배치 경계가 실제 절 경계와 우연히 겹치면 그래도 비게 된다 — 아예
+      // 없는 것보다는 낫다).
+      for (const b of batchBlocks) {
+        if (!b.section_path && lastSectionPath) b.section_path = lastSectionPath;
+        if (b.section_path) lastSectionPath = b.section_path;
+      }
+      blocks.push(...batchBlocks);
+    }
     if (!blocks.length)
       return { ok: false, reason: "docling returned no content" };
-
-    const raw = json?.confidence?.mean_score;
-    const conf =
-      raw === null || raw === undefined || Number.isNaN(Number(raw))
-        ? 0.9 // e.g. DOCX/PPTX — no layout model runs, so no score
-        : Math.round(Number(raw) * 100) / 100;
-    const partial = json?.status === "partial_success";
+    const confidence = confN
+      ? Math.round((confSum / confN) * 100) / 100
+      : 0.9;
     return {
       ok: true,
       blocks,
-      parsePath: partial ? "docling-partial" : "docling",
-      confidence: partial ? Math.min(conf, 0.75) : conf,
+      parsePath: anyPartial ? "docling-partial" : "docling",
+      confidence: anyPartial ? Math.min(confidence, 0.75) : confidence,
     };
   } catch (e) {
     return { ok: false, reason: `docling error: ${e.message}` };
