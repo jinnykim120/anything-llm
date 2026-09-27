@@ -4,9 +4,13 @@ import { basename } from "node:path";
 import undici from "../../server/node_modules/undici/index.js";
 
 const BASE = process.env.ALLM_BASE || "http://localhost:3001";
+// [auto-docu] 서버 쪽 /v1/document/upload -> collector /process 는 이제
+// documentProcessingAgent(60분, server/utils/collectorApi/index.js)를 쓴다 —
+// 이 클라이언트가 그보다 먼저 포기하면 서버는 여전히 처리 중인데 여기서 먼저
+// HeadersTimeoutError로 죽는다. 서버보다 여유 있게 90분으로 둔다.
 const REQUEST_AGENT = new undici.Agent({
-  headersTimeout: 30 * 60_000,
-  bodyTimeout: 30 * 60_000,
+  headersTimeout: 90 * 60_000,
+  bodyTimeout: 90 * 60_000,
 });
 
 export class AllmClient {
