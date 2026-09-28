@@ -82,6 +82,22 @@ function tableToText(tbl) {
       grid[headerRows].some((c) => c?.column_header)
     )
       headerRows += 1;
+    // [auto-docu TableFormer #4255 방어] 헤더 행은 인식됐는데 그 아래 데이터
+    // 행들의 셀 텍스트가 전부 빈 값이면(표 프레임/헤더만 남기고 실제 숫자를
+    // 다 날린) 업스트림 회귀 증상과 일치 — table_mode=fast로 상당수 피하지만
+    // (위 convertOnce), doOcr:true 경로(스캔 문서)는 여전히 accurate라 남을
+    // 수 있어 조용히 넘어가지 않게 경고만 남긴다.
+    const dataRows = grid.slice(headerRows);
+    const dataHasContent = dataRows.some((row) =>
+      row.some((c) => String(c?.text ?? "").trim().length > 0)
+    );
+    if (headerRows > 0 && dataRows.length > 0 && !dataHasContent) {
+      console.warn(
+        `[asDoclingDoc] table has ${headerRows} header row(s) and ${dataRows.length} ` +
+          `data row(s) but all data cells are empty — possible TableFormer #4255 ` +
+          `regression. header: "${rowText(grid[0]).slice(0, 120)}"`
+      );
+    }
     return {
       text: grid.map(rowText).join("\n"),
       headerText:
@@ -270,6 +286,14 @@ async function convertOnce(fullFilePath, { doOcr, pageRange } = {}) {
   // on CPU is ~80s/page). Non-PDF formats ignore it.
   fd.append("do_ocr", doOcr ? "true" : "false");
   fd.append("do_table_structure", "true");
+  // [auto-docu TableFormer #4255] ACCURATE (default) has an open upstream
+  // regression (docling >=2.118.0, we run 2.123.0) that can silently drop
+  // every data row of a table while keeping its header — reported on
+  // financial-report tables, directly relevant to our XBRL/재무제표 corpus.
+  // FAST avoids it. Its only documented downside is table-quality on scanned
+  // pages, so we only use FAST when this call isn't doing OCR (digital PDFs,
+  // HWP/Office conversions) and keep ACCURATE for actual scanned-page OCR.
+  fd.append("table_mode", doOcr ? "accurate" : "fast");
   if (pageRange) {
     fd.append("page_range", String(pageRange[0]));
     fd.append("page_range", String(pageRange[1]));
