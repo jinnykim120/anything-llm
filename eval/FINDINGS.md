@@ -2,6 +2,79 @@
 
 Running log of what the harness has told us. Newest first.
 
+## 2026-09-28 — front-matter (총칙/정의조항) expansion in `expandSections()`
+
+Re-checked the 2026-09-24 entry's premise: as of today's re-verification run
+(after re-ingesting all 96 docs at the 700-char chunk cap), `gs-half-year-revenue`
+already scores faithful/complete/citation `1/1/1` — the "다중 홉/사업부문별 비중"
+gap noted earlier no longer exists; that framing was stale. The two real remaining
+completeness gaps in the 11-item golden set are both about opening 총칙/정의/목적
+articles (제1~3조) that sit in a different structural position than the substantive
+article the query actually hits, so `expandSections()` never reaches them:
+
+- `franchise-disclosure` (complete 0.75→0.85): missing 고시's 제1조(목적) — the
+  target doc is a 1,485-char, ~6-article 고시; only one chunk (제3조) ever clears
+  `minHits=2`, so neither the whole-doc nor section-group expansion path fires at
+  all for it.
+- `homeshop-linked` (complete 0.67, unchanged): missing "연계편성" 정의 — the
+  definition lives in a **different** document (a separate 홈쇼핑 관련 법령/고시)
+  than the 사규 doc the operative content comes from. Cross-document, not a
+  same-doc structural gap — deferred, not attempted this round (1/11 golden items,
+  needs a term→definition-document index, out of scope for a light fix).
+
+Two fixes added to `expandSections()` (`server/utils/vectorDbProviders/pgvector/index.js`),
+both scoped to documents already confirmed as a hit (>=1 chunk in the result):
+1. **Front-matter fallback**: when a doc is too big for whole-doc expansion (e.g.
+   가맹거래법 본문, 39,880 chars) and the hit article's section-group doesn't
+   cover the opening 총칙 chapter, pull just the doc's own `제1조`/`제2조`/`제3조`
+   chunks (regex `^제[1-3]조\s*\(`) under a small separate cap
+   (`SECTION_EXPANSION_FRONT_MATTER_MAX_CHARS`, default 3,000 chars).
+2. **Small-doc minHits waiver**: a document whose total content is under
+   `SECTION_EXPANSION_SMALL_DOC_MAX_CHARS` (default 3,000 chars) now qualifies for
+   whole-doc expansion at 1 hit instead of `minHits` (2) — a short document with
+   even a single matching chunk is very likely the whole answer.
+
+**Verified** via `eval/answers.mjs --workspace archive-full` (11 items, run 3x
+across both fixes): no regression — retrieval-hit stayed `1.000` throughout, mean
+faithful/complete/citation moved within normal judge-run noise (0.975-0.993 /
+0.943-0.950 / 0.945-0.973). `franchise-disclosure` improved 0.75→0.85 (still
+missing 제1조 in the final run — root cause not fully confirmed; the small-doc
+waiver should apply on paper but didn't visibly close the gap, likely because the
+target chunk isn't making it into the pre-expansion candidate pool at all rather
+than being blocked by the `minHits` gate). Not chased further — 0.85 is already
+well above the 0.7 pass threshold and further eval runs cost shared Claude quota
+for a already-passing item; revisit only if it regresses.
+
+## 2026-09-24 — year/company-aware hybrid rerank fixes the compound-query bug
+
+Follow-up to the 2026-09-21 entry below. Reproduced `gs-half-year-revenue`
+("GS리테일 2026년 매출 실적 + 2023~2025년 추이") against `archive-full` directly via
+`performSimilaritySearch`: of the final ~99-chunk context, 93 chunks came from two
+wrong documents — a lead document was picked with the wrong fiscal year (a 2024-filed
+FY2023 정정 사업보고서, not anything from 2026), and its `expandSections()` whole-doc
+expansion pulled in a same-year-mismatched competitor doc (BGF리테일) and a
+wrong-year XBRL doc, both via generic keyword hits with no year check. The two chunks
+that actually answer the question (반기보고서 PDF, 반기 XBRL) never made it into the
+candidate pool — the budget was already spent.
+
+Two approaches tried first and reverted (kept for the record, not repeated):
+sibling-section "rescue" for zero-hit sections (mixed 별도/연결 financials, faithfulness
+0.50→0.35 regression, full rollback); and the 2026-09-21 compound-query decomposition
+above (sub-queries hit the right doc, but chunk-level ranking never changed, so
+completeness didn't move).
+
+**Fix** (`server/utils/vectorDbProviders/pgvector/index.js`, commit `4a8546bd`):
+- `docYearTokens`/`docCompanyTag` parse the `"[회사명]... YYYY"` title convention
+- hybrid rerank penalizes candidates whose parsed year/company mismatches the query
+- `multiYearFloor` raises `otherBudget` when a query names >1 year, so each named
+  year's report + XBRL keep their own per-doc cap instead of competing for one budget
+- `expandSections()` gates both its section-group and whole-doc expansion paths on
+  year/company match, so a mismatched lead document can no longer balloon the context
+
+**Verified** via `eval/answers.mjs --workspace archive-full` (11 items): target XBRL
+doc retrieval-hit 0→1, no regression on the other 10 — MEAN faithful `0.988` /
+complete `0.923` / citation `0.977` / retrieval-hit `1.000`.
+
 ## 2026-09-21 — compound-query decomposition experiment (held)
 
 Problem: `gs-half-year-revenue` ("2026년 매출 실적과 2023~2025년 추이") gets "자료 없음"

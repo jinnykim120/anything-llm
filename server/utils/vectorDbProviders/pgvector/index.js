@@ -1,11 +1,7 @@
-const { expandQuery, mergeDenseCandidates } = require("../queryExpansion");
-const pgsql = require("pg");
-const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
-const { TextSplitter } = require("../../TextSplitter");
-const { v4: uuidv4 } = require("uuid");
-const { sourceIdentifier } = require("../../chats");
-const { NativeEmbeddingReranker } = require("../../EmbeddingRerankers/native");
 const { VectorDatabase } = require("../base");
+const SearchTuning = require("./searchTuning");
+const Schema = require("./schema");
+const Retrieval = require("./retrieval");
 
 /*
  Embedding Table Schema (table name defined by user)
@@ -14,6 +10,16 @@ const { VectorDatabase } = require("../base");
  - embedding: vector(xxxx)
  - metadata: JSONB
  - created_at: TIMESTAMP
+
+ [auto-docu] This class was split into searchTuning.js (stateless tuning
+ helpers), schema.js (connection/table/namespace management) and
+ retrieval.js (search pipeline) for maintainability — the class below is a
+ thin delegator layer so every method/static keeps its original name and
+ signature for external callers (including jest.spyOn(instance, "...") in
+ index.test.js, which spies on this instance, not the extracted modules).
+ Extracted methods take `this` as an explicit first parameter instead of
+ using `this` directly, so they never need to require this file back
+ (avoids a circular require).
 */
 
 class PGVector extends VectorDatabase {
@@ -42,244 +48,84 @@ class PGVector extends VectorDatabase {
     "SELECT column_name,data_type FROM information_schema.columns WHERE table_name = $1";
   createExtensionSql = "CREATE EXTENSION IF NOT EXISTS vector;";
 
-  /**
-   * Get the table name for the PGVector database.
-   * - Defaults to "anythingllm_vectors" if no table name is provided.
-   * @returns {string}
-   */
   static tableName() {
-    return process.env.PGVECTOR_TABLE_NAME || "anythingllm_vectors";
+    return SearchTuning.tableName();
   }
 
-  /**
-   * Get the connection string for the PGVector database.
-   * - Requires a connection string to be present in the environment variables.
-   * @returns {string | null}
-   */
   static connectionString() {
-    return process.env.PGVECTOR_CONNECTION_STRING;
+    return SearchTuning.connectionString();
   }
 
   static integerSetting(name, fallback, min, max) {
-    const parsed = Number.parseInt(process.env[name], 10);
-    if (!Number.isInteger(parsed)) return fallback;
-    return Math.max(min, Math.min(max, parsed));
+    return SearchTuning.integerSetting(name, fallback, min, max);
   }
 
   static hnswSettings() {
-    return {
-      m: this.integerSetting("PGVECTOR_HNSW_M", 16, 2, 100),
-      efConstruction: this.integerSetting(
-        "PGVECTOR_HNSW_EF_CONSTRUCTION",
-        64,
-        4,
-        1_000
-      ),
-      // [auto-docu 검색 재현율] 기본 40 → 200. HNSW 는 ef_search 개까지만 돌려주므로
-      // 40이면 "후보 60~200개를 넓게 뽑는다"는 코드 의도와 달리 실제로는 39~40행만
-      // 나와, 큰 코퍼스(한 문서가 2천 청크)에서 정답 표 청크(밀집 순위 100위대)가
-      // 후보에 못 들어왔다. 200이면 candidateK 상한(200)을 채울 수 있다.
-      efSearch: this.integerSetting("PGVECTOR_HNSW_EF_SEARCH", 200, 1, 1_000),
-    };
+    return SearchTuning.hnswSettings();
   }
 
   static rerankCandidateLimit(totalEmbeddings, topN = 4) {
-    const configured = this.integerSetting(
-      "RERANKER_CANDIDATE_LIMIT",
-      30,
-      10,
-      50
-    );
-    const corpusCandidateCount = Math.ceil(totalEmbeddings * 0.1);
-    return Math.max(
-      topN,
-      Math.min(configured, Math.max(10, corpusCandidateCount))
-    );
+    return SearchTuning.rerankCandidateLimit(totalEmbeddings, topN);
   }
 
   static indexName(suffix) {
-    const base = PGVector.tableName().replace(/[^a-zA-Z0-9_]/g, "_");
-    return `${base}_${suffix}`.slice(0, 63);
+    return SearchTuning.indexName(suffix);
+  }
+
+  static lexicalSearchTerms(input = "") {
+    return SearchTuning.lexicalSearchTerms(input);
+  }
+
+  static termMatchRatio(terms = [], text = "") {
+    return SearchTuning.termMatchRatio(terms, text);
+  }
+
+  static termTagOverlap(terms = [], tags = []) {
+    return SearchTuning.termTagOverlap(terms, tags);
+  }
+
+  static docYearTokens(title = "") {
+    return SearchTuning.docYearTokens(title);
+  }
+
+  static docCompanyTag(title = "") {
+    return SearchTuning.docCompanyTag(title);
+  }
+
+  static hybridWeights() {
+    return SearchTuning.hybridWeights();
   }
 
   createTableSql(dimensions) {
-    return `CREATE TABLE IF NOT EXISTS "${PGVector.tableName()}" (id UUID PRIMARY KEY, namespace TEXT, embedding vector(${Number(dimensions)}), metadata JSONB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
+    return Schema.createTableSql(this, dimensions);
   }
 
   createIndexSql() {
-    const { m, efConstruction } = PGVector.hnswSettings();
-    return [
-      `CREATE INDEX IF NOT EXISTS "${PGVector.indexName("namespace_idx")}" ON "${PGVector.tableName()}" (namespace)`,
-      `CREATE INDEX IF NOT EXISTS "${PGVector.indexName("embedding_hnsw_idx")}" ON "${PGVector.tableName()}" USING hnsw (embedding vector_cosine_ops) WITH (m = ${m}, ef_construction = ${efConstruction})`,
-    ];
+    return Schema.createIndexSql(this);
   }
 
   async configureVectorSearch(client) {
-    const { efSearch } = PGVector.hnswSettings();
-    await client.query(`SET hnsw.ef_search = ${efSearch}`);
+    return Schema.configureVectorSearch(this, client);
   }
 
-  /**
-   * Recursively sanitize values intended for JSONB to prevent Postgres errors
-   * like "unsupported Unicode escape sequence". This primarily removes the
-   * NUL character (\u0000) and other disallowed control characters from
-   * strings. Arrays and objects are traversed and sanitized deeply.
-   * @param {any} value
-   * @returns {any}
-   */
   sanitizeForJsonb(value) {
-    // Fast path for null/undefined and primitives that do not need changes
-    if (value === null || value === undefined) return value;
-
-    // Strings: strip NUL and unsafe C0 control characters except common whitespace
-    if (typeof value === "string") {
-      // Build a sanitized string by excluding C0 control characters except
-      // horizontal tab (9), line feed (10), and carriage return (13).
-      let sanitized = "";
-      for (let i = 0; i < value.length; i++) {
-        const code = value.charCodeAt(i);
-        if (code === 9 || code === 10 || code === 13 || code >= 0x20) {
-          sanitized += value[i];
-        }
-      }
-      return sanitized;
-    }
-
-    // Arrays: sanitize each element
-    if (Array.isArray(value)) {
-      return value.map((item) => this.sanitizeForJsonb(item));
-    }
-
-    // Dates: keep as ISO string
-    if (value instanceof Date) {
-      return value.toISOString();
-    }
-
-    // Objects: sanitize each property value
-    if (typeof value === "object") {
-      const result = {};
-      for (const [k, v] of Object.entries(value)) {
-        result[k] = this.sanitizeForJsonb(v);
-      }
-      return result;
-    }
-
-    // Numbers, booleans, etc.
-    return value;
+    return Schema.sanitizeForJsonb(this, value);
   }
 
-  /**
-   * Keep per-document fields out of chunk JSONB while retaining the stable
-   * retrieval metadata shared with LanceDB.
-   */
   prepareDocumentData(documentData = {}) {
-    const {
-      pageContent,
-      docId,
-      blocks,
-      file_hash: _fileHash,
-      content_hash: _contentHash,
-      original_path: originalPath,
-      render_path: renderPath,
-      ...rest
-    } = documentData;
-    return {
-      pageContent,
-      docId,
-      blocks,
-      metadata: {
-        ...rest,
-        doc_id: docId || "",
-        has_original: originalPath || renderPath ? 1 : 0,
-        sensitivity: rest.sensitivity || "unclassified",
-        parse_path: rest.parse_path || "",
-        parse_confidence:
-          typeof rest.parse_confidence === "number" ? rest.parse_confidence : 0,
-      },
-    };
+    return Schema.prepareDocumentData(this, documentData);
   }
 
   client(connectionString = null) {
-    return new pgsql.Client({
-      connectionString: connectionString || PGVector.connectionString(),
-    });
+    return Schema.client(this, connectionString);
   }
 
-  /**
-   * Validate the existing embedding table schema.
-   * @param {pgsql.Client} pgClient
-   * @param {string} tableName
-   * @returns {Promise<boolean>}
-   */
   async validateExistingEmbeddingTableSchema(pgClient, tableName) {
-    const result = await pgClient.query(this.getEmbeddingTableSchemaSql, [
-      tableName,
-    ]);
-
-    // Minimum expected schema for an embedding table.
-    // Extra columns are allowed but the minimum exact columns are required
-    // to be present in the table.
-    const expectedSchema = [
-      {
-        column_name: "id",
-        expected: "uuid",
-        validation: function (dataType) {
-          return dataType.toLowerCase() === this.expected;
-        },
-      },
-      {
-        column_name: "namespace",
-        expected: "text",
-        validation: function (dataType) {
-          return dataType.toLowerCase() === this.expected;
-        },
-      },
-      {
-        column_name: "embedding",
-        expected: "vector",
-        validation: function (dataType) {
-          return !!dataType;
-        },
-      }, // just check if it exists
-      {
-        column_name: "metadata",
-        expected: "jsonb",
-        validation: function (dataType) {
-          return dataType.toLowerCase() === this.expected;
-        },
-      },
-      {
-        column_name: "created_at",
-        expected: "timestamp",
-        validation: function (dataType) {
-          return dataType.toLowerCase().includes(this.expected);
-        },
-      },
-    ];
-
-    if (result.rows.length === 0)
-      throw new Error(
-        `The table '${tableName}' was found but does not contain any columns or cannot be accessed by role. It cannot be used as an embedding table in AnythingLLM.`
-      );
-
-    for (const rowDef of expectedSchema) {
-      const column = result.rows.find(
-        (c) => c.column_name === rowDef.column_name
-      );
-      if (!column)
-        throw new Error(
-          `The column '${rowDef.column_name}' was expected but not found in the table '${tableName}'.`
-        );
-      if (!rowDef.validation(column.data_type))
-        throw new Error(
-          `Invalid data type for column: '${column.column_name}'. Got '${column.data_type}' but expected '${rowDef.expected}'`
-        );
-    }
-
-    this.logger(
-      `✅ The pgvector table '${tableName}' was found and meets the minimum expected schema for an embedding table.`
+    return Schema.validateExistingEmbeddingTableSchema(
+      this,
+      pgClient,
+      tableName
     );
-    return true;
   }
 
   /**
@@ -354,667 +200,69 @@ class PGVector extends VectorDatabase {
    * @returns {{error: string | null, success: boolean}}
    */
   async testConnectionToDB() {
-    try {
-      const pgClient = await this.connect();
-      await pgClient.query(this.getTablesSql);
-      await pgClient.end();
-      return { error: null, success: true };
-    } catch (err) {
-      return { error: err.message, success: false };
-    }
+    return Schema.testConnectionToDB(this);
   }
 
-  /**
-   * Connect to the database.
-   * - Throws an error if the connection string or table name is not provided.
-   * @returns {Promise<pgsql.Client>}
-   */
   async connect() {
-    if (!PGVector.connectionString())
-      throw new Error("No connection string provided");
-    if (!PGVector.tableName()) throw new Error("No table name provided");
-
-    const client = this.client();
-    await client.connect();
-    return client;
+    return Schema.connect(this);
   }
 
-  /**
-   * Test the connection to the database with already set credentials via ENV
-   * @returns {{error: string | null, success: boolean}}
-   */
   async heartbeat() {
-    return this.testConnectionToDB();
+    return Schema.heartbeat(this);
   }
 
-  /**
-   * Check if the anythingllm embedding table exists in the database
-   * @returns {Promise<boolean>}
-   */
   async dbTableExists() {
-    let connection = null;
-    try {
-      connection = await this.connect();
-      const tables = await connection.query(this.getTablesSql);
-      if (tables.rows.length === 0) return false;
-      const tableExists = tables.rows.some(
-        (row) => row.tablename === PGVector.tableName()
-      );
-      return !!tableExists;
-    } catch {
-      return false;
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.dbTableExists(this);
   }
 
   async totalVectors() {
-    if (!(await this.dbTableExists())) return 0;
-    let connection = null;
-    try {
-      connection = await this.connect();
-      const result = await connection.query(
-        `SELECT COUNT(id) FROM "${PGVector.tableName()}"`
-      );
-      return result.rows[0].count;
-    } catch {
-      return 0;
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.totalVectors(this);
   }
 
-  // Cosine distance from pgvector's `<=>` is `1 - cosine_similarity`, range [0, 2].
-  // similarity = 1 - distance, clamped to [0, 1]. (The previous `distance >= 1 -> 1`
-  // branch was inverted: it scored unrelated/opposite vectors as a perfect match.)
   distanceToSimilarity(distance = null) {
-    if (distance === null || typeof distance !== "number") return 0.0;
-    if (!Number.isFinite(distance)) return 0.0;
-    if (distance <= 0) return 1.0;
-    if (distance >= 2) return 0.0;
-    return Math.max(0, Math.min(1, 1 - distance));
-  }
-
-  /**
-   * Extract useful words for the database fallback search. Dense embeddings
-   * are the primary retrieval path, but an exact product/document name should
-   * still be found when the local embedding model is unavailable or returns no
-   * candidates. Korean case particles are removed so queries such as
-   * "우리동네GS 실적은?" match chunks containing "우리동네GS" and "실적".
-   */
-  static lexicalSearchTerms(input = "") {
-    const stopWords = new Set([
-      "그리고",
-      "그런데",
-      "대해",
-      "대한",
-      "무엇",
-      "어떤",
-      "알려줘",
-      "알려주세요",
-      "해주세요",
-      "해줘",
-      "the",
-      "and",
-      "what",
-      "which",
-      "how",
-      "about",
-      "please",
-    ]);
-    const particles = [
-      "으로부터",
-      "로부터",
-      "에서는",
-      "에게서",
-      "으로는",
-      "이라는",
-      "이라고",
-      "까지는",
-      "부터는",
-      "에서는",
-      "에게",
-      "에서",
-      "으로",
-      "까지",
-      "부터",
-      "처럼",
-      "보다",
-      "마다",
-      "조차",
-      "은",
-      "는",
-      "이",
-      "가",
-      "을",
-      "를",
-      "에",
-      "의",
-      "도",
-      "만",
-      "로",
-      "와",
-      "과",
-      "요",
-    ];
-
-    return String(input)
-      .toLocaleLowerCase("ko-KR")
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .split(/\s+/)
-      .map((term) => {
-        for (const particle of particles) {
-          if (term.endsWith(particle) && term.length - particle.length >= 2)
-            return term.slice(0, -particle.length);
-        }
-        return term;
-      })
-      .filter(
-        (term, index, terms) =>
-          term.length >= 2 &&
-          !stopWords.has(term) &&
-          terms.indexOf(term) === index
-      );
-  }
-
-  /** Fraction (0..1) of `terms` that appear literally in `text`. */
-  static termMatchRatio(terms = [], text = "") {
-    if (!terms.length) return 0;
-    const searchable = String(text || "").toLocaleLowerCase("ko-KR");
-    return (
-      terms.filter((term) => searchable.includes(term)).length / terms.length
-    );
-  }
-
-  /** Fraction (0..1) of `terms` that appear literally among a document's
-   * classification tags. */
-  static termTagOverlap(terms = [], tags = []) {
-    if (!terms.length || !Array.isArray(tags) || !tags.length) return 0;
-    const tagText = tags.join(" ").toLocaleLowerCase("ko-KR");
-    return terms.filter((term) => tagText.includes(term)).length / terms.length;
-  }
-
-  /** [auto-docu 복합질문] 문서 제목에서 4자리 연도를 전부 뽑아 Set으로 반환 —
-   * "GS리테일 2026년 반기보고서" -> {"2026"}. 하이브리드 리랭크/섹션 확장에서
-   * 질문의 연도와 비교해 기간이 명백히 다른 문서를 걸러내는 데 쓴다. */
-  static docYearTokens(title = "") {
-    const years = String(title || "").match(/\b(19|20)\d{2}\b/g) || [];
-    return new Set(years);
-  }
-
-  /** [auto-docu 복합질문] 이 코퍼스 제목 컨벤션 — "[회사명]사업보고서...",
-   * "[BGF리테일][정정]반기보고서..." — 맨 앞 "[...]" 안의 회사명만 뽑는다
-   * (두 번째 이후 괄호는 "정정" 같은 상태 태그라 무시). 브래킷이 없는 제목
-   * (내부 md/hwp 등)은 null — 회사 정보가 없다는 뜻이니 게이트에서 그냥
-   * 통과시킨다(오탐 방지, 확실한 불일치만 걸러낸다). */
-  static docCompanyTag(title = "") {
-    const m = String(title || "").match(/^\[([^\]]+)\]/);
-    return m ? m[1].trim() : null;
-  }
-
-  /** [auto-docu v18] How much the hybrid rerank (performSimilaritySearch step
-   * 2b) trusts keyword-overlap and classification-tag matches relative to
-   * raw cosine similarity. Both are expressed as % of a similarity point so
-   * they can be tuned via env without touching the scoring formula. */
-  static hybridWeights() {
-    return {
-      keyword:
-        PGVector.integerSetting("HYBRID_KEYWORD_WEIGHT_PCT", 12, 0, 100) / 100,
-      tag: PGVector.integerSetting("HYBRID_TAG_WEIGHT_PCT", 15, 0, 100) / 100,
-      // [auto-docu 문서 연계성 학습] affinityBoostFor()가 돌려주는 0~1 가산점에
-      // 곱해지는 가중치. **기본 0 = 랭킹에 반영하지 않음(기록만 계속 쌓음).**
-      // 밀집 점수가 0.91~0.94로 거의 평평한 이 코퍼스에서 +0.10 은 이력이 있는
-      // 문서가 순위를 통째로 덮어(실측: "GS리테일 2026년 매출 실적"에서 정답
-      // 문서가 밀려남) 데이터가 충분히 쌓이기 전에는 켜지 않는다. 다시 켜려면
-      // HYBRID_AFFINITY_WEIGHT_PCT=2~3 처럼 작게 시작해 eval 로 확인할 것.
-      affinity:
-        PGVector.integerSetting("HYBRID_AFFINITY_WEIGHT_PCT", 0, 0, 100) / 100,
-      // [auto-docu 복합질문] 질문에 연도가 있는데 후보 문서 제목의 연도와 전혀
-      // 겹치지 않으면 이 점수만큼 깎는다. 이 코퍼스 밀집 점수가 0.91~0.94로 거의
-      // 평평해서(위 affinity 주석 참고) 순위를 확실히 뒤집으려면 이 정도 크기가
-      // 필요하다 — 실측: "2026년 매출 실적" 질문에서 2024년에 제출된 FY2023
-      // 정정 사업보고서가 리드 문서로 잘못 뽑힌 사례.
-      yearMismatchPenalty:
-        PGVector.integerSetting("HYBRID_YEAR_MISMATCH_PENALTY_PCT", 20, 0, 100) /
-        100,
-      // [auto-docu 복합질문] 질문이 겨냥한 회사와 제목의 "[회사명]" 접두사가
-      // 다르면 이 점수만큼 깎는다 — 실측: "GS리테일 2026년 매출 실적 + 2023~
-      // 2025년 추이"에서 경쟁사 "[BGF리테일][정정]반기보고서"가 "매출/실적"
-      // 같은 범용 키워드만으로 상위권에 끼어들어(연도도 2026이라 연도 페널티도
-      // 안 걸림) otherBudget을 넉넉히 늘린 뒤 whole-doc 확장까지 타면서 22개
-      // 청크로 불어난 사례. 연도 페널티보다 크게 잡는다 — 회사가 다르면 거의
-      // 항상 무관한 문서이지 "참고할 만한 다른 관점"이 아니다.
-      companyMismatchPenalty:
-        PGVector.integerSetting(
-          "HYBRID_COMPANY_MISMATCH_PENALTY_PCT",
-          35,
-          0,
-          100
-        ) / 100,
-    };
-  }
-
-  /**
-   * Search indexed text/title fields without requiring an embedding model.
-   * This is intentionally a fallback: it protects exact Korean names and
-   * numbers from becoming an empty-context answer during local ONNX pressure.
-   */
-  async lexicalSearchResponse({
-    client,
-    namespace,
-    input,
-    similarityThreshold = 0.25,
-    topN = 4,
-    filterIdentifiers = [],
-    filterDocIds = null,
-  }) {
-    const terms = PGVector.lexicalSearchTerms(input);
-    const empty = { contextTexts: [], sourceDocuments: [], scores: [] };
-    if (!terms.length) return empty;
-
-    const patterns = terms.map((term) => `%${term}%`);
-    const limit = Math.max(50, Math.min(500, Number(topN) * 25));
-    const docIds =
-      Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
-    const params = [namespace, patterns, limit];
-    if (docIds) params.push(docIds);
-    const response = await client.query(
-      `SELECT metadata FROM "${PGVector.tableName()}"
-       WHERE namespace = $1
-         AND concat_ws(' ',
-           metadata->>'text',
-           metadata->>'title',
-           metadata->>'sourceDocument',
-           metadata->>'chunkSource'
-         ) ILIKE ANY($2::text[])
-         ${docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""}
-       LIMIT $3`,
-      params
-    );
-
-    const ranked = response.rows
-      .map(({ metadata }) => {
-        const searchable = [
-          metadata?.text,
-          metadata?.title,
-          metadata?.sourceDocument,
-          metadata?.chunkSource,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase("ko-KR");
-        const textSearchable = String(metadata?.text || "").toLocaleLowerCase(
-          "ko-KR"
-        );
-        const matchedTerms = terms.filter((term) => searchable.includes(term));
-        const matchedTextTerms = terms.filter((term) =>
-          textSearchable.includes(term)
-        );
-        if (!matchedTerms.length) return null;
-
-        const title =
-          `${metadata?.title || ""} ${metadata?.sourceDocument || ""}`.toLocaleLowerCase(
-            "ko-KR"
-          );
-        const matchRatio = matchedTerms.length / terms.length;
-        const textMatchRatio = matchedTextTerms.length / terms.length;
-        const titleBonus = matchedTerms.some((term) => title.includes(term))
-          ? 0.15
-          : 0;
-        const score = Math.min(
-          0.99,
-          0.35 + matchRatio * 0.3 + textMatchRatio * 0.35 + titleBonus
-        );
-        return {
-          metadata,
-          score,
-          matchedTerms: matchedTerms.length,
-          matchedTextTerms: matchedTextTerms.length,
-        };
-      })
-      .filter(
-        (item) =>
-          item &&
-          item.score >= similarityThreshold &&
-          !filterIdentifiers.includes(sourceIdentifier(item.metadata))
-      )
-      .sort(
-        (a, b) =>
-          b.matchedTextTerms - a.matchedTextTerms ||
-          b.matchedTerms - a.matchedTerms ||
-          b.score - a.score ||
-          (a.metadata?.chunk_index ?? 0) - (b.metadata?.chunk_index ?? 0)
-      )
-      .slice(0, topN);
-
-    return {
-      contextTexts: ranked.map(({ metadata }) => metadata.text),
-      sourceDocuments: ranked.map(({ metadata, score }) => ({
-        ...metadata,
-        score,
-      })),
-      scores: ranked.map(({ score }) => score),
-    };
-  }
-
-  /**
-   * [auto-docu v18] Map chunk-level doc_id -> classification tags, for the
-   * hybrid rerank's tag boost. A chunk's metadata only carries doc_id (not
-   * content_hash), so this joins workspace_documents (docId -> content_hash)
-   * with document_classifications (content_hash -> tags, the same tags a
-   * reviewer confirms during ingestion). Best-effort: any DB hiccup returns
-   * an empty map — the tag boost is an enhancement, never a hard dependency
-   * for retrieval to keep working.
-   */
-  async tagsForDocIds(docIds = []) {
-    const empty = new Map();
-    if (!Array.isArray(docIds) || !docIds.length) return empty;
-
-    try {
-      const prisma = require("../../prisma");
-      const { safeJsonParse } = require("../../http");
-      const documents = await prisma.workspace_documents.findMany({
-        where: { docId: { in: docIds } },
-        select: { docId: true, metadata: true },
-      });
-
-      const hashByDocId = new Map();
-      for (const doc of documents) {
-        const hash = safeJsonParse(doc.metadata, {})?.content_hash;
-        if (hash) hashByDocId.set(doc.docId, hash);
-      }
-      if (!hashByDocId.size) return empty;
-
-      const classifications = await prisma.document_classifications.findMany({
-        where: { contentHash: { in: [...new Set(hashByDocId.values())] } },
-        select: { contentHash: true, tags: true },
-      });
-      const tagsByHash = new Map(
-        classifications.map((c) => [c.contentHash, safeJsonParse(c.tags, [])])
-      );
-
-      const result = new Map();
-      for (const [docId, hash] of hashByDocId)
-        result.set(docId, tagsByHash.get(hash) || []);
-      return result;
-    } catch (err) {
-      this.logger(`tagsForDocIds failed: ${err.message}`);
-      return empty;
-    }
+    return Schema.distanceToSimilarity(this, distance);
   }
 
   async namespaceCount(namespace = null) {
-    if (!(await this.dbTableExists())) return 0;
-    let connection = null;
-    try {
-      connection = await this.connect();
-      const result = await connection.query(
-        `SELECT COUNT(id) FROM "${PGVector.tableName()}" WHERE namespace = $1`,
-        [namespace]
-      );
-      return result.rows[0].count;
-    } catch {
-      return 0;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /**
-   * Performs a SimilaritySearch on a given PGVector namespace.
-   * @param {Object} params
-   * @param {pgsql.Client} params.client
-   * @param {string} params.namespace
-   * @param {number[]} params.queryVector
-   * @param {number} params.similarityThreshold
-   * @param {number} params.topN
-   * @param {string[]} params.filterIdentifiers
-   * @returns
-   */
-  async similarityResponse({
-    client,
-    namespace,
-    queryVector,
-    similarityThreshold = 0.25,
-    topN = 4,
-    filterIdentifiers = [],
-    filterDocIds = null,
-  }) {
-    const result = {
-      contextTexts: [],
-      sourceDocuments: [],
-      scores: [],
-    };
-
-    await this.configureVectorSearch(client);
-    const embedding = `[${queryVector.map(Number).join(",")}]`;
-    const docIds =
-      Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
-    const params = [embedding, namespace, topN];
-    if (docIds) params.push(docIds);
-    const response = await client.query(
-      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ${
-        docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""
-      } ORDER BY _distance ASC LIMIT $3`,
-      params
-    );
-    response.rows.forEach((item) => {
-      const distance = Number(item._distance);
-      if (!Number.isFinite(distance)) return;
-      const score = this.distanceToSimilarity(distance);
-      if (score < similarityThreshold) return;
-      if (filterIdentifiers.includes(sourceIdentifier(item.metadata))) {
-        this.logger(
-          "A source was filtered from context as it's parent document is pinned."
-        );
-        return;
-      }
-
-      result.contextTexts.push(item.metadata.text);
-      result.sourceDocuments.push({
-        ...item.metadata,
-        score,
-      });
-      result.scores.push(score);
-    });
-
-    return result;
-  }
-
-  /** Retrieve a wider dense candidate set, then apply the local multilingual
-   * reranker. This mirrors the LanceDB path so changing vector stores does not
-   * silently lower Korean retrieval quality.
-   */
-  async rerankedSimilarityResponse({
-    client,
-    namespace,
-    query,
-    queryVector,
-    similarityThreshold = 0.25,
-    topN = 4,
-    filterIdentifiers = [],
-    filterDocIds = null,
-  }) {
-    const totalEmbeddings = await this.namespaceCount(namespace);
-    const searchLimit = PGVector.rerankCandidateLimit(totalEmbeddings, topN);
-    await this.configureVectorSearch(client);
-    const embedding = `[${queryVector.map(Number).join(",")}]`;
-    const docIds =
-      Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
-    const params = [embedding, namespace, searchLimit];
-    if (docIds) params.push(docIds);
-    const response = await client.query(
-      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ${
-        docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""
-      } ORDER BY _distance ASC LIMIT $3`,
-      params
-    );
-    const candidates = response.rows.map((item) => ({
-      ...item.metadata,
-      _distance: Number(item._distance),
-    }));
-    const result = { contextTexts: [], sourceDocuments: [], scores: [] };
-    const reranker = new NativeEmbeddingReranker();
-
-    try {
-      const reranked = await reranker.rerank(query, candidates, { topK: topN });
-      for (const item of reranked) {
-        if (this.distanceToSimilarity(item._distance) < similarityThreshold)
-          continue;
-        const { vector: _vector, ...rest } = item;
-        if (filterIdentifiers.includes(sourceIdentifier(rest))) {
-          this.logger(
-            "A source was filtered from context as it's parent document is pinned."
-          );
-          continue;
-        }
-        const score =
-          item.rerank_score || this.distanceToSimilarity(item._distance);
-        result.contextTexts.push(rest.text);
-        result.sourceDocuments.push({ ...rest, score });
-        result.scores.push(score);
-      }
-    } catch (err) {
-      this.logger("rerankedSimilarityResponse", err.message);
-      this.logger("Falling back to dense similarity search.");
-      return await this.similarityResponse({
-        client,
-        namespace,
-        queryVector,
-        similarityThreshold,
-        topN,
-        filterIdentifiers,
-        filterDocIds,
-      });
-    }
-    return result;
+    return Schema.namespaceCount(this, namespace);
   }
 
   normalizeVector(vector) {
-    const magnitude = Math.sqrt(
-      vector.reduce((sum, val) => sum + val * val, 0)
-    );
-    if (magnitude === 0) return vector; // Avoid division by zero
-    return vector.map((val) => val / magnitude);
+    return Schema.normalizeVector(this, vector);
   }
 
-  /**
-   * Update or create a collection in the database
-   * @param {Object} params
-   * @param {pgsql.Connection} params.connection
-   * @param {{id: number, vector: number[], metadata: Object}[]} params.submissions
-   * @param {string} params.namespace
-   * @param {number} params.dimensions
-   * @returns {Promise<boolean>}
-   */
   async updateOrCreateCollection({
     connection,
     submissions,
     namespace,
     dimensions = 384,
   }) {
-    await this.createTableIfNotExists(connection, dimensions);
-    this.logger(`Updating or creating collection ${namespace}`);
-
-    try {
-      // Create a transaction of all inserts
-      await connection.query(`BEGIN`);
-      for (const submission of submissions) {
-        const embedding = `[${submission.vector.map(Number).join(",")}]`; // stringify the vector for pgvector
-        const sanitizedMetadata = this.sanitizeForJsonb(submission.metadata);
-        await connection.query(
-          `INSERT INTO "${PGVector.tableName()}" (id, namespace, embedding, metadata) VALUES ($1, $2, $3, $4)`,
-          [submission.id, namespace, embedding, sanitizedMetadata]
-        );
-      }
-      this.logger(`Committing ${submissions.length} vectors to ${namespace}`);
-      await connection.query(`COMMIT`);
-    } catch (err) {
-      this.logger(
-        `Rolling back ${submissions.length} vectors to ${namespace}`,
-        err
-      );
-      await connection.query(`ROLLBACK`);
-    }
-    return true;
+    return Schema.updateOrCreateCollection(this, {
+      connection,
+      submissions,
+      namespace,
+      dimensions,
+    });
   }
 
-  /**
-   * create a table if it doesn't exist
-   * @param {pgsql.Client} connection
-   * @param {number} dimensions
-   * @returns
-   */
   async createTableIfNotExists(connection, dimensions = 384) {
-    this.logger(`Creating embedding table with ${dimensions} dimensions`);
-    await connection.query(this.createExtensionSql);
-    await connection.query(this.createTableSql(dimensions));
-    for (const statement of this.createIndexSql())
-      await connection.query(statement);
-    return true;
+    return Schema.createTableIfNotExists(this, connection, dimensions);
   }
 
-  /**
-   * Get the namespace from the database
-   * @param {pgsql.Client} connection
-   * @param {string} namespace
-   * @returns {Promise<{name: string, vectorCount: number}>}
-   */
   async namespace(connection, namespace = null) {
-    if (!namespace) throw new Error("No namespace provided");
-    const result = await connection.query(
-      `SELECT COUNT(id) FROM "${PGVector.tableName()}" WHERE namespace = $1`,
-      [namespace]
-    );
-    return { name: namespace, vectorCount: result.rows[0].count };
+    return Schema.namespace(this, connection, namespace);
   }
 
-  /**
-   * Check if the namespace exists in the database
-   * @param {string} namespace
-   * @returns {Promise<boolean>}
-   */
   async hasNamespace(namespace = null) {
-    if (!namespace) throw new Error("No namespace provided");
-    let connection = null;
-    try {
-      connection = await this.connect();
-      return await this.namespaceExists(connection, namespace);
-    } catch {
-      return false;
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.hasNamespace(this, namespace);
   }
 
-  /**
-   * Check if the namespace exists in the database
-   * @param {pgsql.Client} connection
-   * @param {string} namespace
-   * @returns {Promise<boolean>}
-   */
   async namespaceExists(connection, namespace = null) {
-    if (!namespace) throw new Error("No namespace provided");
-    const result = await connection.query(
-      `SELECT COUNT(id) FROM "${PGVector.tableName()}" WHERE namespace = $1 LIMIT 1`,
-      [namespace]
-    );
-    return result.rows[0].count > 0;
+    return Schema.namespaceExists(this, connection, namespace);
   }
 
-  /**
-   * Delete all vectors in the namespace
-   * @param {pgsql.Client} connection
-   * @param {string} namespace
-   * @returns {Promise<boolean>}
-   */
   async deleteVectorsInNamespace(connection, namespace = null) {
-    if (!namespace) throw new Error("No namespace provided");
-    await connection.query(
-      `DELETE FROM "${PGVector.tableName()}" WHERE namespace = $1`,
-      [namespace]
-    );
-    return true;
+    return Schema.deleteVectorsInNamespace(this, connection, namespace);
   }
 
   async addDocumentToNamespace(
@@ -1023,925 +271,62 @@ class PGVector extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
-    const {
-      storeVectorResult,
-      cachedVectorInformation,
-    } = require("../../files");
-    let connection = null;
-
-    try {
-      const { pageContent, docId, blocks, metadata } =
-        this.prepareDocumentData(documentData);
-      if (!pageContent || pageContent.length == 0) return false;
-      connection = await this.connect();
-
-      this.logger("Adding new vectorized document into namespace", namespace);
-      if (!skipCache) {
-        const cacheResult = await cachedVectorInformation(fullFilePath);
-        let vectorDimensions;
-        if (cacheResult.exists) {
-          const { chunks } = cacheResult;
-          const documentVectors = [];
-          const submissions = [];
-
-          for (const chunk of chunks.flat()) {
-            if (!vectorDimensions) vectorDimensions = chunk.values.length;
-            const id = uuidv4();
-            const { id: _id, ...metadata } = chunk.metadata;
-            documentVectors.push({ docId, vectorId: id });
-            submissions.push({ id: id, vector: chunk.values, metadata });
-          }
-
-          await this.updateOrCreateCollection({
-            connection,
-            submissions,
-            namespace,
-            dimensions: vectorDimensions,
-          });
-          await DocumentVectors.bulkInsert(documentVectors);
-          return { vectorized: true, error: null };
-        }
-      }
-
-      // If we are here then we are going to embed and store a novel document.
-      // We have to do this manually as opposed to using LangChains `xyz.fromDocuments`
-      // because we then cannot atomically control our namespace to granularly find/remove documents
-      // from vectordb.
-      const { SystemSettings } = require("../../../models/systemSettings");
-      const EmbedderEngine = getEmbeddingEngineSelection();
-      const textSplitter = new TextSplitter({
-        chunkSize: TextSplitter.determineMaxChunkSize(
-          await SystemSettings.getValueOrFallback({
-            label: "text_splitter_chunk_size",
-          }),
-          EmbedderEngine?.embeddingMaxChunkLength
-        ),
-        chunkOverlap: await SystemSettings.getValueOrFallback(
-          { label: "text_splitter_chunk_overlap" },
-          20
-        ),
-        chunkHeaderMeta: TextSplitter.buildHeaderMeta(metadata),
-        chunkPrefix: EmbedderEngine?.embeddingPrefix,
-      });
-      const { chunks: textChunks, metas: chunkMetas } =
-        await textSplitter.splitDocument({ pageContent, blocks });
-
-      this.logger("Snippets created from document:", textChunks.length);
-      const documentVectors = [];
-      const vectors = [];
-      const submissions = [];
-      const vectorValues = await EmbedderEngine.embedChunks(textChunks);
-      let vectorDimensions;
-
-      if (!!vectorValues && vectorValues.length > 0) {
-        for (const [i, vector] of vectorValues.entries()) {
-          if (!vectorDimensions) vectorDimensions = vector.length;
-          const vectorRecord = {
-            id: uuidv4(),
-            values: vector,
-            metadata: {
-              ...metadata,
-              ...(chunkMetas[i] || {}),
-              text: textChunks[i],
-            },
-          };
-
-          vectors.push(vectorRecord);
-          submissions.push({
-            id: vectorRecord.id,
-            vector: vectorRecord.values,
-            metadata: vectorRecord.metadata,
-          });
-          documentVectors.push({ docId, vectorId: vectorRecord.id });
-        }
-      } else {
-        throw new Error(
-          "Could not embed document chunks! This document will not be recorded."
-        );
-      }
-
-      if (vectors.length > 0) {
-        const chunks = [];
-        for (const chunk of toChunks(vectors, 500)) chunks.push(chunk);
-
-        this.logger("Inserting vectorized chunks into PGVector collection.");
-        await this.updateOrCreateCollection({
-          connection,
-          submissions,
-          namespace,
-          dimensions: vectorDimensions,
-        });
-        await storeVectorResult(chunks, fullFilePath);
-      }
-
-      await DocumentVectors.bulkInsert(documentVectors);
-      return { vectorized: true, error: null };
-    } catch (err) {
-      this.logger("addDocumentToNamespace", err.message);
-      return { vectorized: false, error: err.message };
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.addDocumentToNamespace(
+      this,
+      namespace,
+      documentData,
+      fullFilePath,
+      skipCache
+    );
   }
 
-  /**
-   * Delete a document from the namespace.
-   * [auto-docu v14 P2] Deletes by the tracked document_vectors rows AND by a
-   * direct `metadata->>'doc_id'` sweep. The sweep is the backstop that finally
-   * clears orphan vectors when document_vectors has drifted from the table
-   * (the "I deleted it but search still returns it" bug).
-   * @param {string} namespace
-   * @param {string} docId
-   * @returns {Promise<boolean>}
-   */
   async deleteDocumentFromNamespace(namespace, docId) {
-    if (!namespace) throw new Error("No namespace provided");
-    if (!docId) throw new Error("No docId provided");
+    return Schema.deleteDocumentFromNamespace(this, namespace, docId);
+  }
 
-    let connection = null;
-    try {
-      connection = await this.connect();
-      if (!(await this.dbTableExists())) return true;
+  async lexicalSearchResponse(params) {
+    return Retrieval.lexicalSearchResponse(this, params);
+  }
 
-      const { DocumentVectors } = require("../../../models/vectors");
-      const vectorIds = (await DocumentVectors.where({ docId })).map(
-        (record) => record.vectorId
-      );
+  async tagsForDocIds(docIds = []) {
+    return Retrieval.tagsForDocIds(this, docIds);
+  }
 
-      try {
-        await connection.query(`BEGIN`);
-        for (const vectorId of vectorIds)
-          await connection.query(
-            `DELETE FROM "${PGVector.tableName()}" WHERE id = $1`,
-            [vectorId]
-          );
-        const sweep = await connection.query(
-          `DELETE FROM "${PGVector.tableName()}" WHERE namespace = $1 AND metadata->>'doc_id' = $2`,
-          [namespace, docId]
-        );
-        await connection.query(`COMMIT`);
-        this.logger(
-          `Deleted vectors for doc ${docId} from ${namespace} (tracked: ${vectorIds.length}, swept: ${sweep.rowCount ?? 0}).`
-        );
-      } catch (err) {
-        await connection.query(`ROLLBACK`);
-        throw err;
-      }
-      return true;
-    } catch (err) {
-      this.logger(
-        `Error deleting document from namespace ${namespace}: ${err.message}`
-      );
-      return false;
-    } finally {
-      if (connection) await connection.end();
-    }
+  async similarityResponse(params) {
+    return Retrieval.similarityResponse(this, params);
+  }
+
+  async rerankedSimilarityResponse(params) {
+    return Retrieval.rerankedSimilarityResponse(this, params);
+  }
+
+  async expandSections(params) {
+    return Retrieval.expandSections(this, params);
   }
 
   /**
-   * Expand repeated hits in one top-level section into the section's remaining
-   * chunks. Location-aware metadata and chunk_index make this deterministic.
+   * [auto-docu v14 P1] Retrieval pipeline entry point — see retrieval.js for
+   * the full rationale (dense candidate pull, per-document cap, additive
+   * lexical merge, hybrid rerank, conservative whole-section expansion).
    */
-  async expandSections({
-    client,
-    namespace,
-    result,
-    queryYears = new Set(),
-    queryCompanies = new Set(),
-  }) {
-    const { contextTexts, sourceDocuments, scores } = result;
-    if (process.env.SECTION_EXPANSION === "off" || sourceDocuments.length === 0)
-      return result;
-
-    const minHits = Number(process.env.SECTION_EXPANSION_MIN_HITS) || 2;
-    // [auto-docu v14 P5] budgets raised — a "전부 알려줘" question is answered by
-    // one whole 지침 section (판단기준 ≈ 34 chunks / ~34k chars) and the LLM is
-    // claudecli (large window). The old 16k cap skipped exactly these sections.
-    const sectionMaxChars =
-      Number(process.env.SECTION_EXPANSION_SECTION_MAX_CHARS) || 40_000;
-    const budgetMax =
-      Number(process.env.SECTION_EXPANSION_BUDGET_CHARS) || 50_000;
-    const topSegment = (sectionPath) =>
-      String(sectionPath || "")
-        .split(">")
-        .at(0)
-        .trim();
-    const rowKey = (docId, value) => JSON.stringify([docId || "", value]);
-
-    const groups = new Map();
-    sourceDocuments.forEach((source, index) => {
-      const segment = topSegment(source.section_path);
-      if (!source.doc_id || !segment) return;
-      const key = rowKey(source.doc_id, segment);
-      if (!groups.has(key))
-        groups.set(key, { docId: source.doc_id, segment, hits: [] });
-      groups.get(key).hits.push(index);
-    });
-
-    const seen = new Set(
-      sourceDocuments.map((source) => rowKey(source.doc_id, source.chunk_index))
-    );
-    const additions = [];
-    let budget = budgetMax;
-
-    for (const group of groups.values()) {
-      if (group.hits.length < minHits) continue;
-      const groupScore = Math.min(
-        ...group.hits.map((index) => scores[index] ?? 0)
-      );
-      let rows = [];
-      try {
-        const response = await client.query(
-          `SELECT metadata FROM "${PGVector.tableName()}" WHERE namespace = $1 AND metadata->>'doc_id' = $2 LIMIT 5000`,
-          [namespace, group.docId]
-        );
-        rows = response.rows.map((row) => row.metadata);
-      } catch (err) {
-        this.logger(`expandSections: query failed - ${err.message}`);
-        continue;
-      }
-
-      // [auto-docu 복합질문] 질문에 연도가 있는데 이 문서 제목의 연도와 전혀
-      // 겹치지 않으면 확장하지 않는다 — 실측: "2026년" 질문에서 FY2023 정정
-      // 보고서의 무관한 절이 라벨링 오류로 61개 청크째 통째로 딸려온 사례.
-      if (queryYears.size) {
-        const docYears = PGVector.docYearTokens(rows[0]?.title);
-        if (
-          docYears.size &&
-          ![...docYears].some((year) => queryYears.has(year))
-        )
-          continue;
-      }
-      if (queryCompanies.size) {
-        const docCompany = PGVector.docCompanyTag(rows[0]?.title);
-        if (docCompany && !queryCompanies.has(docCompany)) continue;
-      }
-
-      const section = rows
-        .filter((row) => topSegment(row.section_path) === group.segment)
-        .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0));
-      const sectionChars = section.reduce(
-        (total, row) => total + (row.text?.length || 0),
-        0
-      );
-      if (!section.length || sectionChars > sectionMaxChars) continue;
-
-      // 절 라벨링이 잘못 뭉쳐져(예: 무관한 여러 장이 한 top-level segment 아래로
-      // 묶임) 글자수 캡은 통과하면서 개수만 폭증하는 경우의 2차 방어선 — 히트
-      // 수에 비례한 캡(기본 히트당 10개, 최소 20개)을 넘으면 그만 추가한다.
-      const groupCap = Math.max(
-        group.hits.length * 10,
-        Number(process.env.SECTION_EXPANSION_MAX_GROUP_ADDITIONS) || 20
-      );
-      let groupAdditions = 0;
-      for (const row of section) {
-        if (groupAdditions >= groupCap) break;
-        const key = rowKey(row.doc_id, row.chunk_index);
-        if (seen.has(key)) continue;
-        const length = row.text?.length || 0;
-        if (length > budget) continue;
-        additions.push({ metadata: row, text: row.text, score: groupScore });
-        seen.add(key);
-        budget -= length;
-        groupAdditions += 1;
-      }
-    }
-
-    // [auto-docu v14 P5] Whole small document: when a document is clearly THE
-    // answer (>=minHits chunks retrieved) and the entire document is short, its
-    // facts are often spread across several sections (a 유통혁신 report, not a
-    // hierarchical 지침) — section-by-section expansion misses them. Pull the
-    // whole doc so nothing is dropped.
-    const wholeDocMaxChars =
-      Number(process.env.SECTION_EXPANSION_WHOLE_DOC_MAX_CHARS) || 28_000;
-    const hitsByDoc = new Map();
-    sourceDocuments.forEach((source, index) => {
-      if (!source.doc_id) return;
-      const e = hitsByDoc.get(source.doc_id) || { hits: 0, best: 0 };
-      e.hits += 1;
-      e.best = Math.max(e.best, scores[index] ?? 0);
-      hitsByDoc.set(source.doc_id, e);
-    });
-    for (const [docId, e] of hitsByDoc) {
-      if (e.hits < minHits) continue;
-      let rows = [];
-      try {
-        const response = await client.query(
-          `SELECT metadata FROM "${PGVector.tableName()}" WHERE namespace = $1 AND metadata->>'doc_id' = $2 LIMIT 5000`,
-          [namespace, docId]
-        );
-        rows = response.rows.map((row) => row.metadata);
-      } catch {
-        continue;
-      }
-      // [auto-docu 복합질문] 위 섹션 확장과 같은 연도 게이트 — 실측: 연도가 다른
-      // (FY2025 연간) XBRL 문서가 "매출/영업이익" 같은 범용 키워드만으로 히트
-      // 조건을 넘겨 통째로(18/18) 덤프된 사례("2026년 반기" 질문).
-      if (queryYears.size) {
-        const docYears = PGVector.docYearTokens(rows[0]?.title);
-        if (
-          docYears.size &&
-          ![...docYears].some((year) => queryYears.has(year))
-        )
-          continue;
-      }
-      // [auto-docu 복합질문] 회사 게이트 — 실측: 경쟁사 "[BGF리테일][정정]
-      // 반기보고서"가 연도(2026)는 겹치는데 회사가 달라 whole-doc 확장에서
-      // 22개 청크로 불어난 사례. 하이브리드 리랭크 페널티만으로는 이미
-      // otherBudget 안에 들어온 청크를 막지 못하므로 확장 단계에서도 막는다.
-      if (queryCompanies.size) {
-        const docCompany = PGVector.docCompanyTag(rows[0]?.title);
-        if (docCompany && !queryCompanies.has(docCompany)) continue;
-      }
-      const docChars = rows.reduce((t, r) => t + (r.text?.length || 0), 0);
-      if (!rows.length || docChars > wholeDocMaxChars || docChars > budget)
-        continue;
-      rows
-        .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
-        .forEach((row) => {
-          const key = rowKey(row.doc_id, row.chunk_index);
-          if (seen.has(key)) return;
-          additions.push({ metadata: row, text: row.text, score: e.best });
-          seen.add(key);
-          budget -= row.text?.length || 0;
-        });
-    }
-
-    if (!additions.length) return result;
-    this.logger(
-      `expandSections: +${additions.length} chunks from ${
-        new Set(additions.map((item) => item.metadata.doc_id)).size
-      } section(s).`
-    );
-    const rows = [
-      ...sourceDocuments.map((source, index) => ({
-        metadata: source,
-        text: contextTexts[index],
-        score: scores[index] ?? 0,
-      })),
-      ...additions,
-    ];
-    const bestByDocument = {};
-    for (const row of rows) {
-      const docId = row.metadata.doc_id || "";
-      bestByDocument[docId] = Math.max(
-        bestByDocument[docId] ?? -Infinity,
-        row.score
-      );
-    }
-    rows.sort((a, b) => {
-      const aDoc = a.metadata.doc_id || "";
-      const bDoc = b.metadata.doc_id || "";
-      if (aDoc !== bDoc)
-        return (bestByDocument[bDoc] ?? 0) - (bestByDocument[aDoc] ?? 0);
-      return (a.metadata.chunk_index ?? 0) - (b.metadata.chunk_index ?? 0);
-    });
-
-    return {
-      contextTexts: rows.map((row) => row.text),
-      sourceDocuments: rows.map((row) => ({
-        ...row.metadata,
-        score: row.score,
-      })),
-      scores: rows.map((row) => row.score),
-    };
-  }
-
-  /**
-   * [auto-docu v14 P1] Retrieval pipeline — rebuilt from stock AnythingLLM's
-   * `embed -> cosine top-N` with the minimum on top:
-   *   1. embed the query — a failure is a real fault, surfaced as an abort
-   *      message (NOT a silent degrade to keyword-only search)
-   *   2. wide dense candidate pull (rank, not threshold, does the work —
-   *      multilingual-e5 similarities sit in a compressed high band)
-   *   3. per-document cap so results span multiple source documents
-   *   4. additive lexical merge — lexical only *adds* documents dense missed,
-   *      it never reorders dense results
-   *   5. truncate to the workspace topN
-   *   6. conservative whole-section expansion (budget-capped, no re-truncate)
-   *
-   * @param {object} params
-   * @param {string[]|null} [params.filterDocIds] - restrict the search to these
-   *   doc_ids (the "업무별 뷰" tag filter, resolved by the caller). null = all.
-   */
-  async performSimilaritySearch({
-    namespace = null,
-    input = "",
-    LLMConnector = null,
-    similarityThreshold = 0.25,
-    topN = 4,
-    filterIdentifiers = [],
-    filterDocIds = null,
-    rerank = false,
-  }) {
-    let connection = null;
-    if (!namespace || !input || !LLMConnector)
-      throw new Error("Invalid request to performSimilaritySearch.");
-
-    try {
-      connection = await this.connect();
-      const exists = await this.namespaceExists(connection, namespace);
-      if (!exists) {
-        this.logger(
-          `The namespace ${namespace} does not exist or has no vectors. Returning empty results.`
-        );
-        return { contextTexts: [], sources: [], message: null };
-      }
-
-      const docIdFilter =
-        Array.isArray(filterDocIds) && filterDocIds.length
-          ? filterDocIds
-          : null;
-
-      // 1. Embed the query. No silent fallback — if this fails the search aborts
-      //    with a visible reason so the operator notices a broken embedder.
-      let queryVector;
-      try {
-        queryVector = await LLMConnector.embedTextInput(input);
-        if (!Array.isArray(queryVector) || queryVector.length === 0)
-          throw new Error("the embedder returned an empty vector");
-      } catch (err) {
-        this.logger(`Query embedding failed: ${err.message}`);
-        return {
-          contextTexts: [],
-          sources: [],
-          message: `검색어 임베딩 생성에 실패했습니다 (${err.message}). 임베딩 모델 상태를 확인하세요.`,
-          error: err.message,
-          success: false,
-        };
-      }
-
-      // 2. Wide dense candidate pull.
-      const candidateK = Math.min(200, Math.max(Number(topN) * 5, 60));
-      let rawDense = rerank
-        ? await this.rerankedSimilarityResponse({
-            client: connection,
-            namespace,
-            query: input,
-            queryVector,
-            similarityThreshold,
-            topN,
-            filterIdentifiers,
-            filterDocIds: docIdFilter,
-          })
-        : await this.similarityResponse({
-            client: connection,
-            namespace,
-            queryVector,
-            similarityThreshold,
-            topN: candidateK,
-            filterIdentifiers,
-            filterDocIds: docIdFilter,
-          });
-
-      // [auto-docu 검색 재현율] 질문 용어 확장 — "매출 실적" → +"재무정보 매출액
-      // 영업이익 연결". 확장 질문의 후보를 원래 후보에 청크별 최고 점수로 합친다
-      // (원 질문의 순위 신호는 유지, 어휘 차이로 후보 풀에서 빠진 표 청크를 구제).
-      if (!rerank) {
-        const expandedInput = expandQuery(input);
-        if (expandedInput) {
-          try {
-            const expandedVector =
-              await LLMConnector.embedTextInput(expandedInput);
-            if (Array.isArray(expandedVector) && expandedVector.length) {
-              const expandedDense = await this.similarityResponse({
-                client: connection,
-                namespace,
-                queryVector: expandedVector,
-                similarityThreshold,
-                topN: candidateK,
-                filterIdentifiers,
-                filterDocIds: docIdFilter,
-              });
-              rawDense = mergeDenseCandidates(rawDense, expandedDense);
-            }
-          } catch (err) {
-            this.logger(`Query expansion skipped: ${err.message}`);
-          }
-        }
-      }
-
-      // [auto-docu 내부생성자료] 다운로드 시점에 자동 아카이빙된 초안/전사문서
-      // 결과물은, 사람이 분류 검수에서 확정(승인)하기 전까지는 검색에서 아예
-      // 빠져야 한다 — 이 목록에 해당하는 문서가 없으면 아무 영향도 없다.
-      const {
-        resolveUnapprovedGeneratedDocIds,
-      } = require("../../classification/generatedDocs");
-      const unapprovedGenerated = new Set(
-        await resolveUnapprovedGeneratedDocIds().catch(() => [])
-      );
-      const dense = unapprovedGenerated.size
-        ? this.#excludeDocIds(rawDense, unapprovedGenerated)
-        : rawDense;
-
-      // 2b. Hybrid rerank — blend a modest keyword-overlap and classification
-      //    -tag boost into the dense candidate order before capping/truncating.
-      //    Keyword overlap rescues chunks (e.g. a contract's item table) that
-      //    embed poorly against the query's literal wording; tag overlap
-      //    rescues them further using the human-confirmed ingestion tags — a
-      //    file tagged "필수품목"/"구입강제" should out-rank generic boilerplate
-      //    for a matching question even when raw cosine similarity ranks it
-      //    far down the candidate list.
-      // 키워드 중첩 점수는 확장 용어("재무정보·매출액·영업이익·연결")까지 포함해
-      // 계산한다 — 표 청크는 이 용어를 절 제목/본문에 갖고 있어, 어휘 차이로 밀린
-      // 정답 청크가 무관한 청크보다 높은 키워드 점수를 받는다.
-      const hybridTerms = PGVector.lexicalSearchTerms(
-        expandQuery(input) || input
-      );
-      // [auto-docu 복합질문] 질문에 들어있는 4자리 연도 — 하이브리드 리랭크의
-      // 연도 불일치 페널티와 expandSections()의 연도 게이트가 함께 쓴다.
-      // hybridTerms(파티클 제거 토큰)에서 뽑으면 "2026년"처럼 한글 조사/단위가
-      // 안 떨어져 나간 토큰이 섞여 정규식이 매칭 안 되므로, 원문에 직접 적용.
-      const queryYears = PGVector.docYearTokens(expandQuery(input) || input);
-      // [auto-docu 복합질문] 후보 풀 제목들의 "[회사명]" 태그 중 질문 원문에
-      // 그대로 들어있는 것만 추린다 — 이 코퍼스는 회사명을 별도 태그로 분류
-      // 하지 않아서(business_unit은 내부 조직 축, 회사 축이 아님), DB 추가
-      // 조회 없이 이미 가져온 후보들의 제목 컨벤션에서 역추출한다. 질문이
-      // 여러 회사를 실제로 비교하면(둘 다 원문에 들어있음) 페널티가 둘 다에
-      // 안 걸려 정상 동작한다.
-      const candidateCompanyTags = new Set(
-        dense.sourceDocuments
-          .map((src) => PGVector.docCompanyTag(src.title))
-          .filter(Boolean)
-      );
-      const queryCompanies = new Set(
-        [...candidateCompanyTags].filter((c) => input.includes(c))
-      );
-      let scored = dense;
-      if (hybridTerms.length && dense.sourceDocuments.length) {
-        const docIds = [
-          ...new Set(
-            dense.sourceDocuments.map((src) => src.doc_id).filter(Boolean)
-          ),
-        ];
-        const tagsByDoc = await this.tagsForDocIds(docIds);
-        const weights = PGVector.hybridWeights();
-        const ranked = dense.sourceDocuments
-          .map((src, i) => {
-            const keywordScore = PGVector.termMatchRatio(
-              hybridTerms,
-              dense.contextTexts[i]
-            );
-            const tagScore = PGVector.termTagOverlap(
-              hybridTerms,
-              tagsByDoc.get(src.doc_id) || []
-            );
-            let yearPenalty = 0;
-            if (queryYears.size) {
-              const docYears = PGVector.docYearTokens(src.title);
-              if (
-                docYears.size &&
-                ![...docYears].some((year) => queryYears.has(year))
-              )
-                yearPenalty = weights.yearMismatchPenalty;
-            }
-            let companyPenalty = 0;
-            if (queryCompanies.size) {
-              const docCompany = PGVector.docCompanyTag(src.title);
-              if (docCompany && !queryCompanies.has(docCompany))
-                companyPenalty = weights.companyMismatchPenalty;
-            }
-            const hybridScore =
-              (dense.scores[i] ?? 0) +
-              keywordScore * weights.keyword +
-              tagScore * weights.tag -
-              yearPenalty -
-              companyPenalty;
-            return { i, hybridScore };
-          })
-          .sort((a, b) => b.hybridScore - a.hybridScore);
-        scored = {
-          contextTexts: ranked.map(({ i }) => dense.contextTexts[i]),
-          sourceDocuments: ranked.map(({ i }) => dense.sourceDocuments[i]),
-          scores: ranked.map(({ i }) => dense.scores[i]),
-        };
-      }
-
-      // 2c. 연계성(affinity) 가산점 — 지금 상위권인 문서와 역사적으로
-      //    자주 "같이 쓰인" 다른 문서를 추가로 밀어올린다(§문서 연계성 학습).
-      //    이력이 없으면(occurrences 미달 포함) 0점이라 아무 영향 없음 —
-      //    기존 랭킹을 건드리지 않는 안전한 추가 항목.
-      const affinityWeight = PGVector.hybridWeights().affinity;
-      if (affinityWeight > 0 && scored.sourceDocuments.length > 1) {
-        const scoredDocIds = scored.sourceDocuments.map((src) => src.doc_id);
-        const uniqueDocIds = [...new Set(scoredDocIds.filter(Boolean))];
-        if (uniqueDocIds.length > 1) {
-          const prisma = require("../../prisma");
-          const workspaceRow = await prisma.workspaces
-            .findUnique({ where: { slug: namespace }, select: { id: true } })
-            .catch(() => null);
-          if (workspaceRow?.id) {
-            const {
-              affinityBoostFor,
-            } = require("../../classification/documentAffinity");
-            const anchorDocIds = uniqueDocIds.slice(
-              0,
-              Math.min(3, uniqueDocIds.length)
-            );
-            const boosts = await affinityBoostFor({
-              workspaceId: workspaceRow.id,
-              anchorDocIds,
-              candidateDocIds: uniqueDocIds,
-            }).catch(() => new Map());
-            if (boosts.size) {
-              const reranked = scored.sourceDocuments
-                .map((src, i) => ({
-                  i,
-                  score:
-                    (scored.scores[i] ?? 0) +
-                    (boosts.get(src.doc_id) || 0) * affinityWeight,
-                }))
-                .sort((a, b) => b.score - a.score);
-              scored = {
-                contextTexts: reranked.map(({ i }) => scored.contextTexts[i]),
-                sourceDocuments: reranked.map(
-                  ({ i }) => scored.sourceDocuments[i]
-                ),
-                scores: reranked.map(({ i }) => scored.scores[i]),
-              };
-            }
-          }
-        }
-      }
-
-      // 3. Per-document cap — keep an answer able to synthesize across the
-      //    archive instead of drowning in one file's chunks.
-      const perDocCap = Math.max(
-        1,
-        Number(process.env.SEARCH_PER_DOC_CAP) || 3
-      );
-      let picked = this.#capPerDocument(scored, perDocCap);
-
-      // 4. Additive lexical merge — recall safety net for exact names/numbers
-      //    that embed poorly. Only appends documents dense did not return.
-      const rawLexical = await this.lexicalSearchResponse({
-        client: connection,
-        namespace,
-        input,
-        similarityThreshold: 0,
-        topN: Math.max(Number(topN), 10),
-        filterIdentifiers,
-        filterDocIds: docIdFilter,
-      });
-      const lexical = unapprovedGenerated.size
-        ? this.#excludeDocIds(rawLexical, unapprovedGenerated)
-        : rawLexical;
-      picked = this.#mergeLexicalAdditions(picked, lexical, Number(topN));
-
-      // 5. Truncate to the workspace topN — but a document that is clearly
-      //    THE answer (the lead document #capPerDocument left uncapped) keeps
-      //    every chunk it was allotted; only the OTHER documents' chunks are
-      //    trimmed to fit the remaining budget. A flat slice(0, topN) here was
-      //    quietly discarding a lead document's own later-ranked-but-still-
-      //    correct chunks (e.g. a contract's item table, or any "이 문서 안에
-      //    서 ~" question naming a specific file) once earlier chunks from
-      //    that SAME document had already filled the topN budget first.
-      const leadKey =
-        picked.sourceDocuments[0]?.doc_id ||
-        picked.sourceDocuments[0]?.title ||
-        null;
-      const leadIdx = [];
-      const otherIdx = [];
-      picked.sourceDocuments.forEach((src, i) => {
-        const key = src?.doc_id || src?.title || null;
-        (leadKey !== null && key === leadKey ? leadIdx : otherIdx).push(i);
-      });
-      // The lead's allowance is generous (it may legitimately need more than
-      // topN chunks — a contract's item table, a whole 지침 section) but is
-      // NOT unlimited: a document that dense-matches nearly everything (an
-      // embedding-model quirk for a particular phrasing, not a real answer —
-      // confirmed to happen for real, not just theoretical) must never be
-      // able to crowd out EVERY other candidate, including the lexical
-      // merge's exact-name rescues.
-      const leadCeiling = Math.max(Number(topN), 30);
-      const leadKeep = leadIdx.slice(0, leadCeiling);
-      // [auto-docu 검색 재현율] 실측 회귀 — 리드 문서가 topN 이상의 청크를 가져가면
-      // (전형적: 30-청크 확장) 다른 모든 문서를 합쳐 "3개" 바닥으로 눌렀다. 정답이
-      // 다른 문서(예: XBRL 재무제표, 별도 공시)에 있고 원시 유사도로는 상위권(예:
-      // 13위)인데도 그 3자리를 다른 후보들과 다투다 밀려 최종 결과에서 빠지는 걸
-      // 확인했다(사업보고서 PDF 대 반기 XBRL 재무제표, "GS리테일 2026년 매출 실적").
-      // 바닥을 올려 여러 개의 좋은 비-리드 후보가 함께 생존할 여지를 둔다 — 여전히
-      // 상한(SEARCH_OTHER_MAX_SLOTS)으로 컨텍스트가 무한히 커지는 건 막는다.
-      // [auto-docu 복합질문] 여러 연도를 명시한 추이/비교 질문("2023~2025년 추이")은
-      // 리드 문서(보통 최신 연차보고서) 하나가 leadCeiling(30)까지 차지해버려서
-      // otherBudget이 바닥(minOtherSlots)까지 눌리는데, 그 바닥이 8개뿐이면 질문이
-      // 언급한 연도마다 있는 보고서/XBRL 문서(연도별로 최대 perDocCap개씩)가 전부
-      // 들어갈 자리가 없다 — 실측: "GS리테일 2026년 매출 실적 + 2023~2025년 추이"에서
-      // 정답인 2026 반기 XBRL 문서의 청크 3개가 딱 이 컷에 걸려 전부 탈락했다.
-      // 연도 하나당 "본문 보고서 + XBRL" 두 종류 문서가 각각 perDocCap까지 살 수
-      // 있게 바닥을 올린다(질문이 연도 2개 이상을 언급할 때만 — 일반 질문은 그대로).
-      const multiYearFloor =
-        queryYears.size > 1 ? queryYears.size * perDocCap * 2 : 0;
-      const minOtherSlots = Math.min(
-        otherIdx.length,
-        Math.max(
-          PGVector.integerSetting("SEARCH_OTHER_MIN_SLOTS", 8, 0, 200),
-          Math.ceil(Number(topN) * 0.3),
-          multiYearFloor
-        )
-      );
-      const otherBudget = Math.min(
-        Math.max(minOtherSlots, Number(topN) - leadKeep.length),
-        PGVector.integerSetting("SEARCH_OTHER_MAX_SLOTS", 20, 1, 200)
-      );
-      const keepIdx = [...leadKeep, ...otherIdx.slice(0, otherBudget)];
-      let result = {
-        contextTexts: keepIdx.map((i) => picked.contextTexts[i]),
-        sourceDocuments: keepIdx.map((i) => picked.sourceDocuments[i]),
-        scores: keepIdx.map((i) => picked.scores[i]),
-      };
-
-      // 6. Conservative whole-section expansion. Runs on the final set and its
-      //    additions are NOT re-truncated (that self-defeat is why sections
-      //    never actually expanded before).
-      result = await this.expandSections({
-        client: connection,
-        namespace,
-        result,
-        queryYears,
-        queryCompanies,
-      });
-
-      const { contextTexts, sourceDocuments } = result;
-      const sources = sourceDocuments.map((metadata, i) => ({
-        metadata: { ...metadata, text: contextTexts[i] },
-      }));
-      return {
-        contextTexts,
-        sources: this.curateSources(sources),
-        message: false,
-      };
-    } catch (err) {
-      this.logger(`Similarity search failed: ${err.message}`);
-      return {
-        contextTexts: [],
-        sources: [],
-        message: null,
-        error: err.message,
-        success: false,
-      };
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /** [auto-docu 내부생성자료] Drop every row whose doc_id is in `excludeSet` —
-   * used to keep an unapproved auto-archived draft/전사문서작성tool result out
-   * of every stage of ranking, not just the final truncation. */
-  #excludeDocIds(
-    { contextTexts = [], sourceDocuments = [], scores = [] },
-    excludeSet
-  ) {
-    const out = { contextTexts: [], sourceDocuments: [], scores: [] };
-    for (let i = 0; i < sourceDocuments.length; i++) {
-      if (excludeSet.has(sourceDocuments[i]?.doc_id)) continue;
-      out.contextTexts.push(contextTexts[i]);
-      out.sourceDocuments.push(sourceDocuments[i]);
-      out.scores.push(scores[i]);
-    }
-    return out;
-  }
-
-  /**
-   * Cap chunks per document to keep results spanning the archive — BUT the
-   * single top-ranked document is left uncapped (up to `topLimit`). A question
-   * like "판단기준을 전부 알려줘" is answered by one document's whole section;
-   * capping its best doc to 3 chunks was starving the answer (completeness).
-   * Documents #2+ are still capped at `cap`.
-   */
-  #capPerDocument(
-    { contextTexts = [], sourceDocuments = [], scores = [] },
-    cap,
-    topLimit = 40
-  ) {
-    const perDoc = new Map();
-    const out = { contextTexts: [], sourceDocuments: [], scores: [] };
-    let leadKey = null;
-    for (let i = 0; i < sourceDocuments.length; i++) {
-      const src = sourceDocuments[i] || {};
-      const key = src.doc_id || src.title || `_row_${i}`;
-      if (leadKey === null) leadKey = key;
-      const limit = key === leadKey ? topLimit : cap;
-      const seen = perDoc.get(key) || 0;
-      if (seen >= limit) continue;
-      perDoc.set(key, seen + 1);
-      out.contextTexts.push(contextTexts[i]);
-      out.sourceDocuments.push(src);
-      out.scores.push(scores[i] ?? src.score ?? 0);
-    }
-    return out;
-  }
-
-  /**
-   * Append lexical hits for documents the dense result did not include at all.
-   * Dense ordering is untouched; lexical is a recall net, not a re-ranker.
-   */
-  #mergeLexicalAdditions(dense, lexical, topN) {
-    if (!lexical?.sourceDocuments?.length) return dense;
-    const docKey = (s = {}) => s.doc_id || s.title || "";
-    const seenDocs = new Set(dense.sourceDocuments.map(docKey));
-    const out = {
-      contextTexts: [...dense.contextTexts],
-      sourceDocuments: [...dense.sourceDocuments],
-      scores: [...dense.scores],
-    };
-    const room = Math.max(0, topN - out.sourceDocuments.length) + 3;
-    let added = 0;
-    for (let i = 0; i < lexical.sourceDocuments.length && added < room; i++) {
-      const src = lexical.sourceDocuments[i];
-      const key = docKey(src);
-      if (!key || seenDocs.has(key)) continue;
-      out.contextTexts.push(lexical.contextTexts[i]);
-      out.sourceDocuments.push(src);
-      out.scores.push(src.score ?? 0);
-      seenDocs.add(key);
-      added++;
-    }
-    return out;
+  async performSimilaritySearch(params) {
+    return Retrieval.performSimilaritySearch(this, params);
   }
 
   async "namespace-stats"(reqBody = {}) {
-    const { namespace = null } = reqBody;
-    if (!namespace) throw new Error("namespace required");
-    if (!(await this.dbTableExists()))
-      return { message: "No table found in database" };
-
-    let connection = null;
-    try {
-      connection = await this.connect();
-      if (!(await this.namespaceExists(connection, namespace)))
-        throw new Error("Namespace by that name does not exist.");
-      const stats = await this.namespace(connection, namespace);
-      return stats
-        ? stats
-        : { message: "No stats were able to be fetched from DB for namespace" };
-    } catch (err) {
-      return {
-        message: `Error fetching stats for namespace ${namespace}: ${err.message}`,
-      };
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.namespaceStats(this, reqBody);
   }
 
   async "delete-namespace"(reqBody = {}) {
-    const { namespace = null } = reqBody;
-    if (!namespace) throw new Error("No namespace provided");
-
-    let connection = null;
-    try {
-      const existingCount = await this.namespaceCount(namespace);
-      if (existingCount === 0)
-        return {
-          message: `Namespace ${namespace} does not exist or has no vectors.`,
-        };
-
-      connection = await this.connect();
-      await this.deleteVectorsInNamespace(connection, namespace);
-      return {
-        message: `Namespace ${namespace} was deleted along with ${existingCount} vectors.`,
-      };
-    } catch (err) {
-      return {
-        message: `Error deleting namespace ${namespace}: ${err.message}`,
-      };
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.deleteNamespace(this, reqBody);
   }
 
-  /**
-   * Reset the entire vector database table associated with anythingllm
-   * @returns {Promise<{reset: boolean}>}
-   */
   async reset() {
-    let connection = null;
-    try {
-      connection = await this.connect();
-      await connection.query(`DROP TABLE IF EXISTS "${PGVector.tableName()}"`);
-      return { reset: true };
-    } catch {
-      return { reset: false };
-    } finally {
-      if (connection) await connection.end();
-    }
+    return Schema.reset(this);
   }
 
   curateSources(sources = []) {
-    const documents = [];
-    for (const source of sources) {
-      const { text, vector: _v, _distance: _d, ...rest } = source;
-      const metadata = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
-      if (Object.keys(metadata).length > 0) {
-        documents.push({
-          ...metadata,
-          ...(text ? { text } : {}),
-        });
-      }
-    }
-
-    return documents;
+    return Schema.curateSources(this, sources);
   }
 }
 
