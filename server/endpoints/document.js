@@ -34,6 +34,14 @@ const RAW_MIME = {
 function documentEndpoints(app) {
   if (!app) return;
 
+  // 재임베딩 도중 끊긴 문서가 있으면 인덱스에 되돌린다(DB/벡터 준비 후).
+  if (process.env.NODE_ENV !== "test")
+    setTimeout(() => {
+      require("../utils/pdfConvert")
+        .recoverPendingReembeds()
+        .catch((err) => console.error("[pdfConvert] recover:", err.message));
+    }, 15000).unref();
+
   // [auto-docu P2] Stream the ORIGINAL file for a document so the citation viewer
   // can render it (page + bbox highlight). Text/data files have no kept original
   // and return 404 — the viewer falls back to showing the chunk text.
@@ -185,6 +193,58 @@ function documentEndpoints(app) {
         response
           .status(500)
           .json({ success: false, message: "Failed to move files." });
+      }
+    }
+  );
+  // [auto-docu] 이미 적재된 PDF/PPT 를 Docling 으로 다시 읽고 재임베딩.
+  // Docling 이 꺼져 있거나 Docling 으로 읽지 못하면 기존 내용을 건드리지 않는다.
+  app.post(
+    "/document/reparse-docling",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { docpath } = reqBody(request);
+        if (!docpath || typeof docpath !== "string")
+          return response
+            .status(400)
+            .json({ success: false, error: "문서 경로가 없습니다." });
+        const { convertDocumentToPdf } = require("../utils/pdfConvert");
+        const userId = response.locals?.user?.id ?? null;
+        const result = await convertDocumentToPdf(docpath, {
+          userId,
+          requireDocling: true,
+        });
+        return response.status(200).json({ success: true, ...result });
+      } catch (err) {
+        console.error("[document/reparse-docling]", err.message);
+        return response
+          .status(500)
+          .json({ success: false, error: err.message || "다시 읽기 실패" });
+      }
+    }
+  );
+
+  // [auto-docu] PPTX/PPT/ODP → PDF 변환 후 다시 읽기. 문서함 버튼이 문서 하나씩
+  // 호출한다(LibreOffice 변환 + 파싱 + 재임베딩이라 수십 초 걸릴 수 있음).
+  app.post(
+    "/document/convert-to-pdf",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const { docpath } = reqBody(request);
+        if (!docpath || typeof docpath !== "string")
+          return response
+            .status(400)
+            .json({ success: false, error: "문서 경로가 없습니다." });
+        const { convertDocumentToPdf } = require("../utils/pdfConvert");
+        const userId = response.locals?.user?.id ?? null;
+        const result = await convertDocumentToPdf(docpath, { userId });
+        return response.status(200).json({ success: true, ...result });
+      } catch (e) {
+        console.error("[document/convert-to-pdf]", e.message);
+        return response
+          .status(500)
+          .json({ success: false, error: e.message || "PDF 변환 실패" });
       }
     }
   );

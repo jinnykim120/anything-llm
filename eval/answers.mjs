@@ -6,6 +6,7 @@
 //   node eval/answers.mjs                     # all items, workspace "archive-test"
 //   node eval/answers.mjs --workspace eval    # a different workspace
 //   node eval/answers.mjs --id jangryeo-axes  # one item
+//   node eval/answers.mjs --golden eval/ab    # a separate golden folder
 //   node eval/answers.mjs --limit 3
 //
 // Needs: server running, eval/.key present (node eval/setup-key.mjs), the target
@@ -28,13 +29,14 @@ const args = process.argv.slice(2);
 const arg = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const WS = arg("--workspace") || "archive-test";
 const ONLY_ID = arg("--id");
+const GOLDEN_DIR = arg("--golden"); // optional: a separate golden folder (e.g. eval/ab)
 const LIMIT = arg("--limit") ? Number(arg("--limit")) : Infinity;
 
 const AXES = ["faithfulness", "completeness", "citation_accuracy"];
 const PASS = { faithfulness: 0.8, completeness: 0.7, citation_accuracy: 0.8 };
 
 async function loadGolden() {
-  const dir = join(here, "golden");
+  const dir = GOLDEN_DIR ? join(process.cwd(), GOLDEN_DIR) : join(here, "golden");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".answers.jsonl"));
   const items = [];
   for (const f of files) {

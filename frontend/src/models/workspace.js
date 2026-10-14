@@ -817,6 +817,48 @@ const Workspace = {
     const data = await response.json();
     return { response, data };
   },
+  // PPTX/PPT/ODP를 PDF로 변환해 다시 읽고 재임베딩 (관리자/매니저).
+  convertDocumentToPdf: async function (docpath) {
+    return await fetch(`${API_BASE}/document/convert-to-pdf`, {
+      method: "POST",
+      body: JSON.stringify({ docpath }),
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+  // 이미 적재된 PDF/PPT 를 Docling 으로 다시 읽고 재임베딩 (Docling 이 켜져 있어야 함).
+  reparseWithDocling: async function (docpath) {
+    return await fetch(`${API_BASE}/document/reparse-docling`, {
+      method: "POST",
+      body: JSON.stringify({ docpath }),
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+  doclingStatus: async function () {
+    return await fetch(`${API_BASE}/docling/status`, { headers: baseHeaders() })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  doclingStart: async function (force = false) {
+    return await fetch(`${API_BASE}/docling/start`, {
+      method: "POST",
+      body: JSON.stringify({ force }),
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+  doclingStop: async function () {
+    return await fetch(`${API_BASE}/docling/stop`, {
+      method: "POST",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
   deleteDocuments: async function (slug, documentLocations = []) {
     return await fetch(
       `${API_BASE}/workspace/${slug}/remove-and-unembed-bulk`,

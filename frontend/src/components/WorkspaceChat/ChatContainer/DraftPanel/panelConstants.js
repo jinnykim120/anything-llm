@@ -60,6 +60,11 @@ export const REPORT_TYPES = {
       label: "분석보고서",
       desc: "위 내용에 시사점 · 검토의견 · 향후조치(건의)를 덧붙입니다.",
     },
+    {
+      key: "press",
+      label: "보도자료",
+      desc: "소제목 없이 헤드라인 · 리드 · 본문이 이어지는 언론 배포용 기사체로 작성합니다.",
+    },
     STATS_REPORT_TYPE,
   ],
   answer_plus_web: [
@@ -73,12 +78,18 @@ export const REPORT_TYPES = {
       label: "분석보고서",
       desc: "위 내용에 관련 동향 · 문제점 및 리스크 파악을 덧붙입니다.",
     },
+    {
+      key: "press",
+      label: "보도자료",
+      desc: "위 형식에 외부 자료를 배경 문맥으로 보강합니다 · 핵심 사실은 내부 근거만 사용",
+    },
     STATS_REPORT_TYPE,
   ],
 };
 export const REPORT_TYPE_LABEL = {
   basic: "기본보고서",
   analysis: "분석보고서",
+  press: "보도자료",
   stats: "통계분석",
 };
 

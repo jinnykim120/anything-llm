@@ -1,3 +1,4 @@
+import DoclingToggle from "@/components/DoclingToggle";
 import {
   ArrowLeft,
   CaretDown,
@@ -243,8 +244,9 @@ export default function ArchiveManagement() {
                 {selectedMode.description}
               </p>
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-500">
-                문서 파싱은 현재 Docling 수동 실행 정책을 유지합니다.
+                문서 파싱은 Docling을 수동으로 켠 동안에만 정밀 모드로 동작합니다.
               </p>
+              <DoclingToggle className="mt-3 max-w-sm" />
             </div>
           </section>
         </div>

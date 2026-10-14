@@ -1,3 +1,4 @@
+import DoclingToggle from "@/components/DoclingToggle";
 import { useEffect, useRef, useState } from "react";
 import {
   CheckCircle,
@@ -233,7 +234,9 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
               </button>
             </div>
 
-            <label className="mt-5 block text-xs font-medium text-zinc-300 light:text-slate-700">
+            <DoclingToggle variant="modal" className="mt-4" />
+
+            <label className="mt-4 block text-xs font-medium text-zinc-300 light:text-slate-700">
               업로드한 팀명 <span className="text-red-400">*</span>
               <input
                 type="text"

@@ -315,6 +315,40 @@ describe("buildMessages — archiveDocs", () => {
   });
 });
 
+describe("press (보도자료) 유형", () => {
+  it("uses the press structure and not the report base structure", () => {
+    const g = buildGuidance("answer_only", "press").join("\n");
+    expect(g).toMatch(/소제목/);
+    expect(g).toMatch(/보도자료/);
+    expect(g).not.toMatch(/## 목적/);
+    expect(g).not.toMatch(/## 배경/);
+    expect(g).not.toMatch(/시사점/);
+  });
+
+  it("forbids fabricated quotes and adds web-context rules only with web scope", () => {
+    const only = buildGuidance("answer_only", "press").join("\n");
+    expect(only).toMatch(/지어내지 말고/);
+    expect(only).not.toMatch(/외부 참고자료/);
+    const web = buildGuidance("answer_plus_web", "press").join("\n");
+    expect(web).toMatch(/\(외부 자료\)/);
+    expect(web).toMatch(/외부 참고자료/);
+  });
+
+  it("labels the combo and reaches the user prompt", () => {
+    expect(comboLabel("answer_only", "press")).toBe("답변 내용만 · 보도자료");
+    const user = buildMessages({
+      sourceText: "본문",
+      citations: [],
+      dataScope: "answer_only",
+      reportType: "press",
+      instructions: "",
+      webSources: [],
+    })[1].content;
+    expect(user).toMatch(/## 작성 유형\n답변 내용만 · 보도자료/);
+    expect(user).toMatch(/소제목/);
+  });
+});
+
 describe("extractTitle", () => {
   it("reads the first '# ' heading", () => {
     expect(extractTitle("# 제목입니다\n본문")).toBe("제목입니다");
