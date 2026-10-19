@@ -511,7 +511,7 @@ function getBaseLLMProviderModel({ provider = null } = {}) {
     case "ollama":
       return process.env.OLLAMA_MODEL_PREF;
     case "claudecli":
-      return process.env.CLAUDE_CLI_MODEL || "claude-sonnet-5";
+      return process.env.CLAUDE_CLI_MODEL || "claude-sonnet-5-5";
     case "togetherai":
       return process.env.TOGETHER_AI_MODEL_PREF;
     case "fireworksai":

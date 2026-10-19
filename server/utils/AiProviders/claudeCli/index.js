@@ -5,7 +5,7 @@
 //
 //   .env:  LLM_PROVIDER='claudecli'
 //          CLAUDE_CLI_BIN=claude                  (path to the CLI)
-//          CLAUDE_CLI_MODEL=claude-sonnet-5       (or an alias)
+//          CLAUDE_CLI_MODEL=claude-sonnet-5-5     (or an alias)
 //          CLAUDE_CLI_TIMEOUT_MS=180000
 //          CLAUDE_CLI_TOKEN_LIMIT=200000
 const { spawn } = require("child_process");
@@ -29,7 +29,7 @@ class ClaudeCliLLM {
     this.className = "ClaudeCliLLM";
     this.bin = process.env.CLAUDE_CLI_BIN || "claude";
     this.model =
-      modelPreference || process.env.CLAUDE_CLI_MODEL || "claude-sonnet-5";
+      modelPreference || process.env.CLAUDE_CLI_MODEL || "claude-sonnet-5-5";
     this.timeout = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 180_000;
     this.embedder = embedder ?? new NativeEmbedder();
     this.defaultTemp = 0.7; // `claude -p` has no temperature knob; kept for the interface

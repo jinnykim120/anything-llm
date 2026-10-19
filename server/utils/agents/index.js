@@ -390,7 +390,7 @@ class AgentHandler {
       case "cerebras":
         return process.env.CEREBRAS_MODEL_PREF ?? "gpt-oss-120b";
       case "claudecli":
-        return process.env.CLAUDE_CLI_MODEL ?? "claude-sonnet-5";
+        return process.env.CLAUDE_CLI_MODEL ?? "claude-sonnet-5-5";
       default:
         return null;
     }
