@@ -242,6 +242,32 @@ export default function DocumentRoom() {
   }
 
   const documents = workspace?.documents || [];
+  // [NEXUS 문서 요약] 문서 내용을 한두 문장으로 요약한 문구 (content_hash 기준)
+  const summaryByHash = useMemo(
+    () =>
+      new Map(
+        classifications
+          .filter((item) => item?.contentHash && item.summary)
+          .map((item) => [item.contentHash, item.summary])
+      ),
+    [classifications]
+  );
+  const [summarizing, setSummarizing] = useState(null);
+  async function makeSummary(hash) {
+    if (!hash || summarizing) return;
+    setSummarizing(hash);
+    const result = await Classification.summarize(hash);
+    setSummarizing(null);
+    if (result?.error) return window.alert(`요약 실패: ${result.error}`);
+    setClassifications((previous) =>
+      previous.map((item) =>
+        item.contentHash === hash
+          ? { ...item, summary: result.summary || "" }
+          : item
+      )
+    );
+  }
+
   const classificationsByHash = useMemo(
     () =>
       new Map(
@@ -876,6 +902,33 @@ export default function DocumentRoom() {
                             ? ` · ${metadata.title}`
                             : ""}
                         </span>
+                        {summaryByHash.get(contentHash(document)) ? (
+                          <span className="mt-1 block text-[11px] leading-snug text-slate-500 line-clamp-2 dark:text-zinc-400">
+                            {summaryByHash.get(contentHash(document))}
+                          </span>
+                        ) : (
+                          active && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                makeSummary(contentHash(document));
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.stopPropagation();
+                                  makeSummary(contentHash(document));
+                                }
+                              }}
+                              className="mt-1 inline-block text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {summarizing === contentHash(document)
+                                ? "요약 만드는 중…"
+                                : "요약 만들기"}
+                            </span>
+                          )
+                        )}
                       </button>
                       {parserInfo(document) && (
                         <span

@@ -591,3 +591,15 @@ model access_admins {
   expiresAt DateTime
   createdAt DateTime @default(now())
 }
+
+// [NEXUS 문서 요약] 문서(content_hash)별 한두 문장 요약. 문서함·검색 결과에서 내용을 바로 알 수 있게 한다.
+// sourceChars = 요약에 실제로 읽은 본문 글자 수 (0 이면 본문이 너무 짧아 건너뜀).
+model document_summaries {
+  id          Int      @id @default(autoincrement())
+  contentHash String   @unique
+  summary     String
+  sourceChars Int      @default(0)
+  model       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+}

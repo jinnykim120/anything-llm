@@ -7,6 +7,7 @@
 //   POST /classification/:contentHash/dedupe      collapse same-workspace duplicate rows to one
 const prisma = require("../utils/prisma");
 const FolderAccess = require("../utils/folderAccess");
+const { ensureSummary, summariesByHash } = require("../utils/summaries");
 const { reqBody, safeJsonParse } = require("../utils/http");
 const { fileData } = require("../utils/files");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
@@ -406,6 +407,28 @@ function classificationEndpoints(app) {
     }
   );
 
+  // [NEXUS 문서 요약] 요약이 없는 문서를 열 수 있는 사람이 요청하면 그 자리에서 만든다
+  // (잠긴 폴더 문서는 백그라운드에서 만들지 않으므로 이 경로를 쓴다).
+  app.post(
+    "/classification/summary",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    async (request, response) => {
+      try {
+        const contentHash = String(reqBody(request).contentHash || "").trim();
+        if (!contentHash)
+          return response
+            .status(400)
+            .json({ error: "contentHash가 필요합니다." });
+        const row = await ensureSummary(contentHash);
+        response.status(200).json({ summary: row?.summary || "" });
+      } catch (e) {
+        console.error("POST /classification/summary", e);
+        const status = /잠긴/.test(e.message) ? 403 : 500;
+        response.status(status).json({ error: e.message });
+      }
+    }
+  );
+
   // 문서함 사이드바용: 분류 폴더(업무 분류·사업부) 값과 각 값을 쓰는 문서 수.
   // 문서가 0건인 사용자 추가 폴더는 화면에서 "빈 폴더"로 보여 삭제할 수 있다.
   app.get(
@@ -490,6 +513,10 @@ function classificationEndpoints(app) {
             })
           : [];
         const uploaderById = new Map(uploaders.map((u) => [u.id, u]));
+        // [NEXUS 문서 요약] 열 수 있는 문서(위 archiveDocuments 가 이미 걸러 줌)의 요약만 붙인다.
+        const summaryByHash = await summariesByHash(
+          docs.map((d) => d.contentHash)
+        );
         const out = docs.map((d) => {
           const cls = byHash[d.contentHash] || null;
           const wsList = [];
@@ -514,6 +541,7 @@ function classificationEndpoints(app) {
           return {
             contentHash: d.contentHash,
             title: d.title,
+            summary: summaryByHash.get(d.contentHash) || "",
             docSource: d.docSource,
             parsePath: d.parsePath,
             parseConfidence: d.parseConfidence,

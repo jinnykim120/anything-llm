@@ -48,6 +48,17 @@ const Classification = {
       .catch((e) => ({ error: e.message }));
   },
 
+  // [NEXUS 문서 요약] 요약이 없는 문서를 그 자리에서 만든다 (열 수 있는 문서만).
+  summarize: async (contentHash) => {
+    return await fetch(`${API_BASE}/classification/summary`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ contentHash }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ error: e.message }));
+  },
+
   folders: async () => {
     return await fetch(`${API_BASE}/classification/folders`, {
       headers: baseHeaders(),

@@ -41,6 +41,12 @@ class BackgroundService {
       timeout: "6m",
       interval: "9hr",
     },
+    // [NEXUS 문서 요약] 새로 올라온 문서의 요약을 몇 건씩 따라잡는다.
+    {
+      name: "summarize-documents",
+      timeout: "3m",
+      interval: "15m",
+    },
   ];
 
   #memoryJobs = [
