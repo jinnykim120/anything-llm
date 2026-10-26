@@ -168,13 +168,6 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
       const r = await NexusAccess.unlock(category, unlockPassword);
       if (!r.ok) return setFolderError(r.message || "폴더를 열지 못했습니다.");
     }
-    if (targetFolder !== "전체")
-      try {
-        window.localStorage.setItem("archive-scope", targetFolder);
-      } catch {
-        /* non-fatal */
-      }
-
     setIsUploading(true);
     const queue = selectedFiles.map((file) => ({
       file,
