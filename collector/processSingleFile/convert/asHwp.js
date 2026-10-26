@@ -27,7 +27,12 @@ const {
 const { parseWithDocling } = require("./asDoclingDoc");
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
-const VENV = path.join(REPO_ROOT, ".local-cache/docling-venv/Scripts");
+const VENV = path.join(
+  REPO_ROOT,
+  process.platform === "win32"
+    ? ".local-cache/docling-venv/Scripts"
+    : ".local-cache/docling-venv/bin"
+);
 const EXE = process.platform === "win32" ? ".exe" : "";
 const bin = (name, envKey) =>
   process.env[envKey] || path.join(VENV, `${name}${EXE}`);
@@ -39,6 +44,9 @@ function findSoffice() {
     process.env.SOFFICE_BIN,
     "D:\\LibreOffice\\program\\soffice.com",
     "C:\\Program Files\\LibreOffice\\program\\soffice.com",
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/local/bin/soffice",
     "/usr/bin/soffice",
     "soffice",
   ].filter(Boolean);
@@ -287,7 +295,7 @@ async function hwpViaRender(hwpPath) {
       "--headless",
       "--norestore",
       "--nolockcheck",
-      `-env:UserInstallation=file:///${tmp.replace(/\\/g, "/")}/prof`,
+      `-env:UserInstallation=${require("url").pathToFileURL(path.join(tmp, "prof")).href}`,
       "--convert-to",
       "pdf",
       "--outdir",

@@ -28,7 +28,7 @@ class NativeEmbedder {
     const minimumMb = Number.isFinite(configured) ? configured : 2_560;
     if (minimumMb <= 0) return;
 
-    const freeMb = Math.floor(os.freemem() / 1024 / 1024);
+    const freeMb = require("../../helpers/availableMemory").availableMemoryMb();
     if (freeMb >= minimumMb) return;
     throw new Error(
       `Insufficient free memory to load ${model} (${freeMb}MB available; ${minimumMb}MB required).`

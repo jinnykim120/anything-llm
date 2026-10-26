@@ -10,7 +10,12 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
-const VENV = path.join(REPO_ROOT, ".local-cache/docling-venv/Scripts");
+const VENV = path.join(
+  REPO_ROOT,
+  process.platform === "win32"
+    ? ".local-cache/docling-venv/Scripts"
+    : ".local-cache/docling-venv/bin"
+);
 const EXE = process.platform === "win32" ? ".exe" : "";
 const PYTHON_BIN =
   process.env.STATS_PYTHON_BIN || path.join(VENV, `python${EXE}`);

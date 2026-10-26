@@ -1,0 +1,22 @@
+# 맥용 Docling / 분석 / 한글(HWP) 파이썬 환경.
+# 윈도 PC 의 .local-cache/docling-venv (Python 3.12) 에서 쓰는 핵심 패키지의 같은 버전이다.
+# torch 는 윈도에서 CPU 빌드(+cpu)를 썼지만 맥 PyPI 휠(Metal 가속 포함)을 쓴다.
+# 이 버전으로 설치가 안 되면 setup-mac.sh 가 requirements-docling.loose.txt 로 다시 시도한다.
+docling-serve==1.31.0
+docling-slim==2.123.0
+rapidocr==3.9.2
+torch==2.13.0
+torchvision==0.28.0
+numpy==2.5.2
+scipy==1.18.1
+pandas==2.3.3
+scikit-learn==1.9.1
+statsmodels==0.15.0
+openpyxl==3.1.5
+python-docx==1.2.0
+pyhwp==0.1b15
+hwp-hwpx-parser==1.0.0
+hwpkit==1.0.0
+olefile==0.47
+lxml==6.1.2
+pillow==12.3.0

@@ -38,7 +38,7 @@ class NativeEmbeddingReranker {
     const configured = Number(process.env.RERANKER_MIN_FREE_MEMORY_MB);
     const minimumMb = Number.isFinite(configured) ? configured : 3_200;
     if (minimumMb <= 0 || NativeEmbeddingReranker.#model) return;
-    const freeMb = Math.floor(os.freemem() / 1024 / 1024);
+    const freeMb = require("../../helpers/availableMemory").availableMemoryMb();
     if (freeMb >= minimumMb) return;
     throw new Error(
       `Insufficient free memory to load the native reranker (${freeMb}MB available; ${minimumMb}MB required).`

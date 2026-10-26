@@ -52,7 +52,7 @@ function lastActivityMs() {
   return latest || null;
 }
 
-const freeGb = () => os.freemem() / 1024 ** 3;
+const freeGb = () => require("../helpers/availableMemory").availableMemoryGb();
 
 async function status() {
   const running = await isHealthy();
@@ -71,19 +71,26 @@ async function status() {
   };
 }
 
-function runScript(name) {
-  return new Promise((resolve) => {
-    const child = spawn(
-      "powershell.exe",
-      [
+// name 은 "start-docling" / "stop-docling" — 플랫폼별 확장자(.ps1 / .sh)는 여기서 붙인다.
+function scriptCommand(name, platform = process.platform) {
+  if (platform === "win32")
+    return {
+      cmd: "powershell.exe",
+      args: [
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        path.join(REPO_ROOT, name),
+        path.join(REPO_ROOT, `${name}.ps1`),
       ],
-      { cwd: REPO_ROOT, windowsHide: true }
-    );
+    };
+  return { cmd: "bash", args: [path.join(REPO_ROOT, `${name}.sh`)] };
+}
+
+function runScript(name) {
+  return new Promise((resolve) => {
+    const { cmd, args } = scriptCommand(name);
+    const child = spawn(cmd, args, { cwd: REPO_ROOT, windowsHide: true });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (out += d));
@@ -106,7 +113,7 @@ async function start({ force = false } = {}) {
   lastStartError = null;
   // 모델 로딩은 첫 파싱 때 일어나므로 보통 수 초~수십 초면 끝난다. 완료는
   // 화면이 status 를 폴링해서 확인한다 — 여기서는 기다리지 않고 바로 반환.
-  runScript("start-docling.ps1").then(({ code, out }) => {
+  runScript("start-docling").then(({ code, out }) => {
     if (code === 0) startedAt = Date.now();
     else lastStartError = out.split("\n").pop() || "시작 실패";
     starting = null;
@@ -115,7 +122,7 @@ async function start({ force = false } = {}) {
 }
 
 async function stop() {
-  const { code, out } = await runScript("stop-docling.ps1");
+  const { code, out } = await runScript("stop-docling");
   startedAt = null;
   if (code !== 0)
     return { ok: false, message: out.split("\n").pop() || "끄기 실패" };
@@ -142,4 +149,4 @@ function startIdleWatcher() {
   timer.unref();
 }
 
-module.exports = { status, start, stop, startIdleWatcher };
+module.exports = { status, start, stop, startIdleWatcher, scriptCommand };

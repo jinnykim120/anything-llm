@@ -31,6 +31,9 @@ function findSoffice() {
     process.env.SOFFICE_BIN,
     "D:\\LibreOffice\\program\\soffice.com",
     "C:\\Program Files\\LibreOffice\\program\\soffice.com",
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/local/bin/soffice",
     "/usr/bin/soffice",
     "soffice",
   ].filter(Boolean);
@@ -60,7 +63,7 @@ function convertToPdf(srcPath, { timeoutMs = 240000 } = {}) {
       "--headless",
       "--norestore",
       "--nolockcheck",
-      `-env:UserInstallation=file:///${tmp.replace(/\\/g, "/")}/prof`,
+      `-env:UserInstallation=${require("url").pathToFileURL(path.join(tmp, "prof")).href}`,
       "--convert-to",
       "pdf",
       "--outdir",

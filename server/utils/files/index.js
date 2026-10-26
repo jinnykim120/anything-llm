@@ -382,8 +382,12 @@ function isWithin(outer, inner) {
 }
 
 function normalizePath(filepath = "") {
+  // 윈도에서 저장된 docpath("실적\\x.json")를 macOS/Linux 에서도 읽을 수 있게
+  // 역슬래시를 폴더 구분자로 취급한다. (윈도에서는 path.normalize 가 이미 처리)
+  const input =
+    path.sep === "/" ? String(filepath).replace(/\\/g, "/") : filepath;
   const result = path
-    .normalize(filepath.trim())
+    .normalize(input.trim())
     .replace(/^(\.\.(\/|\\|$))+/, "")
     .trim();
   if (["..", ".", "/"].includes(result)) throw new Error("Invalid path.");
