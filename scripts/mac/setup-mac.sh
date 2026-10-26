@@ -63,7 +63,7 @@ ok "저장소: $ROOT"
 if [ -f "$DATA/config/corp-root-ca.pem" ] && [ ! -f "$CACHE/corp-root-ca.pem" ]; then
   cp "$DATA/config/corp-root-ca.pem" "$CACHE/corp-root-ca.pem"
 fi
-if [ -f "$CACHE/corp-root-ca.pem" ]; then
+if [ "${NEXUS_SKIP_CORP_CA:-0}" != 1 ] && [ -f "$CACHE/corp-root-ca.pem" ]; then
   export SSL_CERT_FILE="$CACHE/corp-root-ca.pem"
   export NODE_EXTRA_CA_CERTS="$CACHE/corp-root-ca.pem"
   export REQUESTS_CA_BUNDLE="$CACHE/corp-root-ca.pem"
