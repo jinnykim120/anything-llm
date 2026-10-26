@@ -10,7 +10,7 @@
 
 | 경로 | 내용 |
 |---|---|
-| `app/` | 소스 코드(git 저장소, GitHub `jinnykim120/anything-llm` · 브랜치 `feat/archive-qa`) |
+| `app/` | 소스 코드(git 저장소, GitHub `jinnykim120/anything-llm` · 브랜치 `nexus_linux`) |
 | `data/config/` | 설정 파일(`.env` 비밀키 포함!) · 사내 프록시 CA |
 | `data/storage/` | SQLite DB · 업로드한 문서(원본 PDF + 파싱 결과) · 임베딩/리랭커 모델 |
 | `data/pg/` | pgvector 벡터 DB 덤프(검색 인덱스) |
@@ -77,3 +77,12 @@ bash 3-verify.sh --llm
 - Docling의 맥(MPS) 동작·속도, 메모리 사용
 - Apple Silicon에서 `claude` CLI 로그인과 모델 `claude-sonnet-5-5` 사용 가능 여부(윈도 PC에서는 정상)
 - 로그인 시 자동 시작(LaunchAgent)
+
+## 저장소와 브랜치 (맥이 기준)
+
+- **기준 브랜치는 `nexus_linux`** 입니다. 앞으로의 개발·수정은 맥에서 하고 여기에 저장합니다.
+  (`git push origin nexus_linux`)
+- **윈도 PC 시절의 마지막 상태는 그대로 보존**돼 있습니다 — 태그 `windows-final`(= 브랜치 `feat/archive-qa` 의 v27).
+  이 둘은 더 이상 고치지 않습니다. 필요하면 `git checkout windows-final` 로 그 시점을 볼 수 있습니다.
+- 윈도 PC는 **읽기 전용 보관용**으로 두세요. 같은 데이터를 맥과 윈도에서 동시에 쓰면 서로 합쳐지지 않습니다.
+- 윈도 전용 스크립트(`*.ps1`, `open-computer/`)는 저장소에 남아 있지만 맥에서는 쓰지 않습니다.
