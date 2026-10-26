@@ -41,7 +41,7 @@ export default function AdminBadge() {
       type="button"
       onClick={() => navigate(ADMIN_LOGIN_PATH)}
       title={state.adminAuthed ? "관리자 콘솔 (로그인됨)" : "관리자 콘솔"}
-      className={`fixed bottom-3 left-3 z-40 flex h-8 w-8 items-center justify-center rounded-full border text-sm shadow ${
+      className={`fixed bottom-4 right-28 z-40 flex h-8 w-8 items-center justify-center rounded-full border text-sm shadow ${
         state.adminAuthed
           ? "border-emerald-500 bg-emerald-600/20 text-emerald-400"
           : "border-zinc-700 bg-zinc-900/80 text-zinc-400 hover:text-zinc-100 light:border-slate-300 light:bg-white light:text-slate-500"
