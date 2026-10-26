@@ -1,0 +1,19 @@
+# requirements-win.txt 의 버전 고정 없는 판 — 정확한 버전을 못 구할 때의 대체 설치용(핵심 패키지만).
+--extra-index-url https://download.pytorch.org/whl/cpu
+docling-serve
+rapidocr
+torch
+torchvision
+numpy
+scipy
+pandas
+scikit-learn
+statsmodels
+openpyxl
+python-docx
+pyhwp
+hwp-hwpx-parser
+hwpkit
+olefile
+lxml
+pillow
