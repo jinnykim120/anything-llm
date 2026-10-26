@@ -299,6 +299,9 @@ function classificationEndpoints(app) {
     settingLabel,
     suggested,
     value,
+    // true 면 이 값을 쓰는 문서가 상태와 무관하게 하나도 없을 때만 지운다
+    // (문서함의 "빈 폴더 삭제" 용).
+    onlyEmpty = false,
   }) {
     const v = String(value || "")
       .replace(/\s+/g, " ")
@@ -309,6 +312,17 @@ function classificationEndpoints(app) {
         status: 400,
         error: `"${v}"은(는) 기본 분류 항목이라 삭제할 수 없습니다.`,
       };
+
+    if (onlyEmpty) {
+      const usedCount = await prisma.document_classifications
+        .count({ where: { [field]: v } })
+        .catch(() => 0);
+      if (usedCount > 0)
+        return {
+          status: 409,
+          error: `"${v}" 폴더에 문서가 ${usedCount}건 있어 삭제할 수 없습니다. 빈 폴더만 삭제할 수 있습니다.`,
+        };
+    }
 
     const confirmedCount = await prisma.document_classifications
       .count({ where: { [field]: v, status: "confirmed" } })
@@ -378,6 +392,7 @@ function classificationEndpoints(app) {
           settingLabel,
           suggested: AXIS_SUGGESTED[axis],
           value,
+          onlyEmpty: !!reqBody(request).onlyEmpty,
         });
         if (result.error)
           return response.status(result.status).json({ error: result.error });
@@ -386,6 +401,50 @@ function classificationEndpoints(app) {
           .json({ taxonomy: await taxonomyWithDocumentTypes() });
       } catch (e) {
         console.error("DELETE /classification/taxonomy/axis", e);
+        response.status(500).json({ error: e.message });
+      }
+    }
+  );
+
+  // 문서함 사이드바용: 분류 폴더(업무 분류·사업부) 값과 각 값을 쓰는 문서 수.
+  // 문서가 0건인 사용자 추가 폴더는 화면에서 "빈 폴더"로 보여 삭제할 수 있다.
+  app.get(
+    "/classification/folders",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    async (_request, response) => {
+      try {
+        const rows = await prisma.document_classifications.findMany({
+          select: { workType: true, businessUnit: true },
+        });
+        const tally = (field) => {
+          const counts = new Map();
+          for (const row of rows) {
+            if (row[field])
+              counts.set(row[field], (counts.get(row[field]) || 0) + 1);
+          }
+          return counts;
+        };
+        const build = async (field, axis, suggested) => {
+          const counts = tally(field);
+          const stored = await storedAxisValues(CUSTOM_AXIS_SETTINGS[axis]);
+          return [...new Set([...suggested, ...stored, ...counts.keys()])].map(
+            (value) => ({
+              value,
+              isDefault: suggested.includes(value),
+              docCount: counts.get(value) || 0,
+            })
+          );
+        };
+        response.status(200).json({
+          workTypes: await build("workType", "workType", WORK_TYPE.suggested),
+          businessUnits: await build(
+            "businessUnit",
+            "businessUnit",
+            BUSINESS_UNIT.suggested
+          ),
+        });
+      } catch (e) {
+        console.error("GET /classification/folders", e);
         response.status(500).json({ error: e.message });
       }
     }

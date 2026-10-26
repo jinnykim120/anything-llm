@@ -48,11 +48,23 @@ const Classification = {
       .catch((e) => ({ error: e.message }));
   },
 
-  deleteAxisValue: async (axis, value) => {
+  folders: async () => {
+    return await fetch(`${API_BASE}/classification/folders`, {
+      headers: baseHeaders(),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+  },
+
+  deleteAxisValue: async (axis, value, { onlyEmpty = false } = {}) => {
     return await fetch(`${API_BASE}/classification/taxonomy/axis`, {
       method: "DELETE",
       headers: baseHeaders(),
-      body: JSON.stringify({ axis, value }),
+      body: JSON.stringify({
+        axis,
+        value,
+        ...(onlyEmpty ? { onlyEmpty } : {}),
+      }),
     })
       .then((res) => res.json())
       .catch((e) => ({ error: e.message }));

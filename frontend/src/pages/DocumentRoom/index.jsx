@@ -8,6 +8,7 @@ import {
   Folder,
   FolderOpen,
   MagnifyingGlass,
+  Trash,
 } from "@phosphor-icons/react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import ArchiveSidebar from "@/components/ArchiveSidebar";
@@ -152,6 +153,9 @@ export default function DocumentRoom() {
   const [onlyUnconverted, setOnlyUnconverted] = useState(false);
   const [parserFilter, setParserFilter] = useState(null); // PARSER_CHIPS key
   const [showParserGuide, setShowParserGuide] = useState(false);
+  // 분류 폴더(업무 분류·사업부) 값과 문서 수 — 문서가 없는 사용자 추가 폴더를 "빈 폴더"로 보여 준다.
+  const [folderValues, setFolderValues] = useState(null);
+  const [deletingFolder, setDeletingFolder] = useState(null);
 
   async function reloadDocuments() {
     setLoading(true);
@@ -159,6 +163,7 @@ export default function DocumentRoom() {
     setWorkspace(result);
     const classificationResult = await Classification.documents();
     setClassifications(classificationResult || []);
+    setFolderValues(await Classification.folders());
     setSelected(
       (result?.documents || []).find(
         (document) => contentHash(document) === requestedHash
@@ -172,37 +177,69 @@ export default function DocumentRoom() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([Workspace.bySlug(slug), Classification.documents()]).then(
-      ([result, classificationResult]) => {
-        if (cancelled) return;
-        setWorkspace(result);
-        setClassifications(classificationResult || []);
-        const workspaceDocuments = result?.documents || [];
-        const linked = requestedHash
-          ? workspaceDocuments.find(
-              (document) => contentHash(document) === requestedHash
-            )
-          : null;
-        setSelected(linked || workspaceDocuments[0] || null);
-        const requestedFolder = requestedWork
-          ? requestedUnit
-            ? `unit:${requestedWork}:${requestedUnit}`
-            : `work:${requestedWork}`
-          : "전체 문서";
-        setSelectedFolder(requestedFolder);
-        if (requestedWork) {
-          setExpanded((previous) => ({
-            ...previous,
-            [`work:${requestedWork}`]: true,
-          }));
-        }
-        setLoading(false);
+    Promise.all([
+      Workspace.bySlug(slug),
+      Classification.documents(),
+      Classification.folders(),
+    ]).then(([result, classificationResult, folders]) => {
+      if (cancelled) return;
+      setFolderValues(folders);
+      setWorkspace(result);
+      setClassifications(classificationResult || []);
+      const workspaceDocuments = result?.documents || [];
+      const linked = requestedHash
+        ? workspaceDocuments.find(
+            (document) => contentHash(document) === requestedHash
+          )
+        : null;
+      setSelected(linked || workspaceDocuments[0] || null);
+      const requestedFolder = requestedWork
+        ? requestedUnit
+          ? `unit:${requestedWork}:${requestedUnit}`
+          : `work:${requestedWork}`
+        : "전체 문서";
+      setSelectedFolder(requestedFolder);
+      if (requestedWork) {
+        setExpanded((previous) => ({
+          ...previous,
+          [`work:${requestedWork}`]: true,
+        }));
       }
-    );
+      setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
   }, [requestedHash, requestedUnit, requestedWork, slug]);
+
+  // 기본 항목이 아니고 문서가 하나도 없는 폴더만 "빈 폴더"로 보인다 — 삭제 대상이다.
+  const emptyFolders = [
+    ...(folderValues?.workTypes || []).map((f) => ({ ...f, axis: "workType" })),
+    ...(folderValues?.businessUnits || []).map((f) => ({
+      ...f,
+      axis: "businessUnit",
+    })),
+  ].filter((f) => !f.isDefault && f.docCount === 0);
+
+  async function deleteEmptyFolder(folder) {
+    const label = folder.axis === "workType" ? "업무 분류" : "사업부";
+    if (
+      !window.confirm(
+        `${label} 폴더 “${folder.value}”을(를) 삭제할까요?\n문서가 없는 빈 폴더만 삭제됩니다.`
+      )
+    )
+      return;
+    const key = `${folder.axis}:${folder.value}`;
+    setDeletingFolder(key);
+    const result = await Classification.deleteAxisValue(
+      folder.axis,
+      folder.value,
+      { onlyEmpty: true }
+    );
+    setDeletingFolder(null);
+    if (result?.error) return window.alert(`삭제 실패: ${result.error}`);
+    setFolderValues(await Classification.folders());
+  }
 
   const documents = workspace?.documents || [];
   const classificationsByHash = useMemo(
@@ -569,6 +606,43 @@ export default function DocumentRoom() {
                   </div>
                 );
               })}
+              <p className="px-2 pt-2 text-[10px] leading-snug text-slate-400 dark:text-zinc-600">
+                문서가 없는 빈 폴더만 삭제할 수 있습니다. 문서가 있는 폴더는
+                문서를 다른 폴더로 옮긴 뒤 삭제하세요.
+              </p>
+              {emptyFolders.length > 0 && (
+                <div className="mt-3 border-t border-slate-200 pt-2 dark:border-zinc-800">
+                  <p className="px-2 pb-1 text-[11px] font-semibold text-slate-400 dark:text-zinc-600">
+                    빈 폴더
+                  </p>
+                  {emptyFolders.map((folder) => {
+                    const key = `${folder.axis}:${folder.value}`;
+                    return (
+                      <div
+                        key={key}
+                        className="mb-1 flex items-center gap-1.5 rounded px-2 py-1.5 text-[11px] text-slate-500 dark:text-zinc-500"
+                      >
+                        <Folder size={14} />
+                        <span className="min-w-0 flex-1 truncate">
+                          {folder.value}
+                        </span>
+                        <span className="text-[10px] text-slate-400 dark:text-zinc-600">
+                          {folder.axis === "workType" ? "업무 분류" : "사업부"}
+                        </span>
+                        <button
+                          type="button"
+                          title={`빈 폴더 “${folder.value}” 삭제`}
+                          disabled={deletingFolder === key}
+                          onClick={() => deleteEmptyFolder(folder)}
+                          className="shrink-0 rounded p-1 text-slate-400 hover:text-red-500 disabled:opacity-40 dark:text-zinc-500"
+                        >
+                          <Trash size={13} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </aside>
 
             <section className="min-h-0 overflow-y-auto border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
