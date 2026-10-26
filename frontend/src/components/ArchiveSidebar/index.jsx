@@ -1,3 +1,4 @@
+import SearchScopeBadge from "@/components/NexusAccess/SearchScopeBadge";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -329,6 +330,7 @@ function WorkspaceArchiveSidebar({ slug }) {
               ` · 문서 ${workspace.documents.length}개`}{" "}
             · {searchMode === "rerank" ? "정밀 검색 · ONNX" : "기본 검색"}
           </p>
+          <SearchScopeBadge variant="line" />
         </div>
 
         {!isDocRegen && (

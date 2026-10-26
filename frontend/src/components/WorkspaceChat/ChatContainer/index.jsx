@@ -42,6 +42,7 @@ import ActiveGenerationGuard from "./ActiveGenerationGuard";
 import DraftPanel, { ARCHIVE_DRAFT_EVENT } from "./DraftPanel";
 import ExtractDataModal from "./ExtractDataModal";
 import PrioritySourcesBar from "./PrioritySourcesBar";
+import SearchScopeBadge from "@/components/NexusAccess/SearchScopeBadge";
 
 function archiveScopeLabel(scope) {
   return scope === "전체" ? "전체 문서" : `${scope} 아카이브`;
@@ -572,6 +573,11 @@ export default function ChatContainer({
                       {archiveSearchMode === "rerank"
                         ? "정밀 검색 · ONNX"
                         : "기본 검색"}
+                    </div>
+                  )}
+                  {isArchive && (
+                    <div className="-mt-2 mb-5">
+                      <SearchScopeBadge variant="pill" />
                     </div>
                   )}
                   <h1 className="text-white text-xl md:text-2xl mb-11 text-center">

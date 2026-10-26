@@ -11,6 +11,7 @@ import Modal, {
 } from "@/components/lib/Modal";
 import NexusAccess from "@/models/nexusAccess";
 import showToast from "@/utils/toast";
+import { notifyNexusAccessChanged } from "./events";
 
 /**
  * 연 잠금 폴더의 보안 설정 — 이 브라우저에서 다시 잠그기, 비밀번호 변경,
@@ -35,6 +36,7 @@ export default function FolderSecurityModal({
     setBusy(false);
     if (!r.ok) return setError(r.message || "처리하지 못했습니다.");
     showToast(doneMessage, "success", { clear: true });
+    notifyNexusAccessChanged();
     onChanged?.();
     onClose();
   }

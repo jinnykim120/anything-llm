@@ -25,7 +25,7 @@ import useUploadQueue from "../hooks/useUploadQueue";
 import { getFilesFromUploadEvent } from "@/utils/folderUpload";
 import UnlockFolderModal from "@/components/NexusAccess/UnlockFolderModal";
 import FolderSecurityModal from "@/components/NexusAccess/FolderSecurityModal";
-import { NEXUS_ACCESS_CHANGED_EVENT } from "@/components/NexusAccess/AdminBadge";
+import { NEXUS_ACCESS_CHANGED_EVENT } from "@/components/NexusAccess/events";
 import NexusAccess from "@/models/nexusAccess";
 
 const NO_FILES = [];

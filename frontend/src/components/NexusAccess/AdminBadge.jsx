@@ -12,7 +12,9 @@ import Modal, {
 import NexusAccess from "@/models/nexusAccess";
 import showToast from "@/utils/toast";
 
-export const NEXUS_ACCESS_CHANGED_EVENT = "nexus-access-changed";
+import { NEXUS_ACCESS_CHANGED_EVENT, notifyNexusAccessChanged } from "./events";
+
+export { NEXUS_ACCESS_CHANGED_EVENT };
 
 /**
  * 화면 한쪽 구석의 작은 관리자 버튼. 관리자로 로그인한 브라우저는 모든 폴더를
@@ -39,10 +41,6 @@ export default function AdminBadge() {
     load();
   }, [load]);
 
-  function notifyChanged() {
-    window.dispatchEvent(new Event(NEXUS_ACCESS_CHANGED_EVENT));
-  }
-
   async function login(e) {
     e.preventDefault();
     if (!password || busy) return;
@@ -54,7 +52,7 @@ export default function AdminBadge() {
     setPassword("");
     setOpen(false);
     await load();
-    notifyChanged();
+    notifyNexusAccessChanged();
     showToast(
       "관리자로 로그인했습니다. 모든 폴더를 볼 수 있습니다.",
       "success",
@@ -68,7 +66,7 @@ export default function AdminBadge() {
     await NexusAccess.adminLogout();
     setOpen(false);
     await load();
-    notifyChanged();
+    notifyNexusAccessChanged();
     showToast("관리자 로그아웃했습니다.", "info", { clear: true });
   }
 

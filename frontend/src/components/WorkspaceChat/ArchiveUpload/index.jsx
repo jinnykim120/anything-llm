@@ -11,6 +11,7 @@ import {
 import Workspace from "@/models/workspace";
 import Document from "@/models/document";
 import NexusAccess from "@/models/nexusAccess";
+import { notifyNexusAccessChanged } from "@/components/NexusAccess/events";
 import showToast from "@/utils/toast";
 
 // "자료 구분" 목록의 특수 값: 새 폴더를 만들면서 올린다.
@@ -168,6 +169,8 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
       const r = await NexusAccess.unlock(category, unlockPassword);
       if (!r.ok) return setFolderError(r.message || "폴더를 열지 못했습니다.");
     }
+    if (category === NEW_FOLDER || needsUnlock) notifyNexusAccessChanged();
+
     setIsUploading(true);
     const queue = selectedFiles.map((file) => ({
       file,

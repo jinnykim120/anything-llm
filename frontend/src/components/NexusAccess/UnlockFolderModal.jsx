@@ -9,6 +9,7 @@ import Modal, {
   ModalSecondaryButton,
 } from "@/components/lib/Modal";
 import NexusAccess from "@/models/nexusAccess";
+import { notifyNexusAccessChanged } from "./events";
 
 /** 잠긴 폴더를 비밀번호로 연다. 이 브라우저에서만, 일정 시간 동안 열린다. */
 export default function UnlockFolderModal({ folder, onClose, onUnlocked }) {
@@ -24,6 +25,7 @@ export default function UnlockFolderModal({ folder, onClose, onUnlocked }) {
     const r = await NexusAccess.unlock(folder, password);
     setBusy(false);
     if (!r.ok) return setError(r.message || "폴더를 열지 못했습니다.");
+    notifyNexusAccessChanged();
     onUnlocked?.(folder);
   }
 
