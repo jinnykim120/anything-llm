@@ -10,6 +10,7 @@
 //   분류 검수에서 사람이 "확인"을 눌러야만(=confirmed) 검색에 포함된다.
 // - 파일명은 문서 제목 그대로 쓴다(호출부가 이미 그렇게 이름 붙여 보냄).
 const { reqBody } = require("../utils/http");
+const FolderAccess = require("../utils/folderAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
   flexUserRoleValid,
@@ -50,22 +51,40 @@ function generatedArchiveEndpoints(app) {
         const { kind = "", sourceDocIds = "" } = reqBody(request);
         const docType = DOC_TYPE_BY_KIND[kind] || "생성문서";
 
-        const { title, contentHash, pageContent } = await parseAndArchiveUpload({
-          workspace,
-          originalname: request.file.originalname,
-          // classification을 안 넘긴다 — 그냥 임베딩만 하고, 분류는 아래에서
-          // "제안" 상태로만 직접 만든다(확정 아님 — 검색 게이트가 여길 본다).
-          userId: response.locals?.user?.id,
+        // [NEXUS 폴더 잠금] 잠긴 폴더 자료로 만든 결과는 그 폴더에만 보관한다.
+        let parsedSources = [];
+        try {
+          const v = JSON.parse(sourceDocIds || "[]");
+          if (Array.isArray(v)) parsedSources = v;
+        } catch {}
+        const restriction = await FolderAccess.restrictionForSources({
+          workspaceId: workspace.id,
+          sourceDocIds: parsedSources,
         });
+        if (restriction.skip) {
+          return response.status(200).json({
+            success: true,
+            archived: false,
+            reason: restriction.reason,
+            title: null,
+            contentHash: null,
+          });
+        }
+
+        const { title, contentHash, pageContent } = await parseAndArchiveUpload(
+          {
+            workspace,
+            originalname: request.file.originalname,
+            // classification을 안 넘긴다 — 그냥 임베딩만 하고, 분류는 아래에서
+            // "제안" 상태로만 직접 만든다(확정 아님 — 검색 게이트가 여길 본다).
+            userId: response.locals?.user?.id,
+            folderName: restriction.folder,
+          }
+        );
 
         if (contentHash) {
           // 원본 문서(인용/추가 선택)에서 사업부·분야를 물려받고, 원본 파일명과
           // 핵심 키워드를 태그로 남긴다 — LLM 호출 없음.
-          let parsedSources = [];
-          try {
-            const v = JSON.parse(sourceDocIds || "[]");
-            if (Array.isArray(v)) parsedSources = v;
-          } catch {}
           const meta = await buildGeneratedMeta({
             workspaceId: workspace.id,
             sourceDocIds: parsedSources,

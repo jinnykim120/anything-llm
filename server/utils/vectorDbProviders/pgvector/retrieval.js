@@ -10,6 +10,21 @@ const { expandQuery, mergeDenseCandidates } = require("../queryExpansion");
 const { sourceIdentifier } = require("../../chats");
 const { NativeEmbeddingReranker } = require("../../EmbeddingRerankers/native");
 const SearchTuning = require("./searchTuning");
+const FolderAccess = require("../../folderAccess");
+
+/**
+ * [NEXUS 폴더 잠금] 이 요청이 볼 수 없는 문서(잠긴 폴더)를 SQL 단계에서 먼저
+ * 뺀다. 상위 K개를 뽑은 뒤 지우면 잠긴 문서가 상위권을 차지한 질문에서 결과가
+ * 비어 버리므로, 후보를 뽑기 전에 조건으로 건다. `params` 에 목록을 추가하고
+ * WHERE 에 붙일 조각을 돌려준다 (막을 문서가 없으면 빈 문자열).
+ * @param {unknown[]} params
+ */
+async function deniedClause(params) {
+  const denied = await FolderAccess.deniedDocIds();
+  if (!denied.length) return "";
+  params.push(denied);
+  return `AND COALESCE(metadata->>'doc_id', '') <> ALL($${params.length}::text[])`;
+}
 
 /**
  * Search indexed text/title fields without requiring an embedding model.
@@ -38,6 +53,7 @@ async function lexicalSearchResponse(
     Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
   const params = [namespace, patterns, limit];
   if (docIds) params.push(docIds);
+  const deniedSql = await deniedClause(params);
   const response = await client.query(
     `SELECT metadata FROM "${SearchTuning.tableName()}"
      WHERE namespace = $1
@@ -48,6 +64,7 @@ async function lexicalSearchResponse(
          metadata->>'chunkSource'
        ) ILIKE ANY($2::text[])
        ${docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""}
+       ${deniedSql}
      LIMIT $3`,
     params
   );
@@ -198,10 +215,11 @@ async function similarityResponse(
     Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
   const params = [embedding, namespace, topN];
   if (docIds) params.push(docIds);
+  const deniedSql = await deniedClause(params);
   const response = await client.query(
     `SELECT embedding ${self.operator.cosine} $1 AS _distance, metadata FROM "${SearchTuning.tableName()}" WHERE namespace = $2 ${
       docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""
-    } ORDER BY _distance ASC LIMIT $3`,
+    } ${deniedSql} ORDER BY _distance ASC LIMIT $3`,
     params
   );
   response.rows.forEach((item) => {
@@ -252,10 +270,11 @@ async function rerankedSimilarityResponse(
     Array.isArray(filterDocIds) && filterDocIds.length ? filterDocIds : null;
   const params = [embedding, namespace, searchLimit];
   if (docIds) params.push(docIds);
+  const deniedSql = await deniedClause(params);
   const response = await client.query(
     `SELECT embedding ${self.operator.cosine} $1 AS _distance, metadata FROM "${SearchTuning.tableName()}" WHERE namespace = $2 ${
       docIds ? "AND metadata->>'doc_id' = ANY($4::text[])" : ""
-    } ORDER BY _distance ASC LIMIT $3`,
+    } ${deniedSql} ORDER BY _distance ASC LIMIT $3`,
     params
   );
   const candidates = response.rows.map((item) => ({
@@ -738,9 +757,13 @@ async function performSimilaritySearch(
     const {
       resolveUnapprovedGeneratedDocIds,
     } = require("../../classification/generatedDocs");
-    const unapprovedGenerated = new Set(
-      await resolveUnapprovedGeneratedDocIds().catch(() => [])
-    );
+    // [NEXUS 폴더 잠금] 잠긴 폴더 문서도 같은 집합에 합쳐, SQL 사전 필터를 거친
+    // 뒤에도 한 번 더(검색 단계마다) 걸러낸다.
+    const deniedByFolder = await FolderAccess.deniedDocIds();
+    const unapprovedGenerated = new Set([
+      ...(await resolveUnapprovedGeneratedDocIds().catch(() => [])),
+      ...deniedByFolder,
+    ]);
     const dense = unapprovedGenerated.size
       ? excludeDocIds(rawDense, unapprovedGenerated)
       : rawDense;
@@ -965,6 +988,11 @@ async function performSimilaritySearch(
       queryYears,
       queryCompanies,
     });
+
+    // [NEXUS 폴더 잠금] 마지막 안전망 — 구간 확장 등으로 늘어난 결과까지 포함해
+    // 잠긴 폴더 문서가 하나라도 남아 있으면 제거한다.
+    if (deniedByFolder.length)
+      result = excludeDocIds(result, new Set(deniedByFolder));
 
     const { contextTexts, sourceDocuments } = result;
     const sources = sourceDocuments.map((metadata, i) => ({

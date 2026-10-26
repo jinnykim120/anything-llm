@@ -15,6 +15,7 @@ import DoclingToggle from "@/components/DoclingToggle";
 import Workspace from "@/models/workspace";
 import Classification from "@/models/classification";
 import { API_BASE } from "@/utils/constants";
+import { withClientParam } from "@/utils/nexusClient";
 import paths from "@/utils/paths";
 
 function safeMetadata(value) {
@@ -861,7 +862,7 @@ function DocumentDetail({
       </aside>
     );
   const rawHref = document.docId
-    ? `${API_BASE}/document/raw/${document.docId}`
+    ? withClientParam(`${API_BASE}/document/raw/${document.docId}`)
     : null;
   return (
     <aside className="min-h-0 overflow-y-auto border border-slate-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

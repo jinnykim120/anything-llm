@@ -4,6 +4,7 @@ const { spawn } = require("child_process");
 const { v5: uuidv5, v4: uuidv4 } = require("uuid");
 const { Document } = require("../../models/documents");
 const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
+const FolderAccess = require("../folderAccess");
 const documentsPath =
   process.env.NODE_ENV === "development"
     ? path.resolve(__dirname, `../../storage/documents`)
@@ -46,10 +47,31 @@ function listFolders() {
     const folderPath = path.resolve(documentsPath, file);
     if (!fs.lstatSync(folderPath).isDirectory()) continue;
 
+    // [NEXUS 폴더 잠금] 잠긴 폴더도 이름·잠금 표시는 보이되, 열 수 없으면
+    // 문서 수도 알려주지 않는다.
+    const scope = FolderAccess.currentScope();
+    const locked = !!scope?.locked.has(file);
+    if (locked && !FolderAccess.canAccessFolder(scope, file)) {
+      folders.push({
+        name: file,
+        type: "folder",
+        fileCount: null,
+        locked: true,
+        open: false,
+        items: [],
+      });
+      continue;
+    }
     const fileCount = fs
       .readdirSync(folderPath)
       .filter((f) => path.extname(f) === ".json").length;
-    folders.push({ name: file, type: "folder", fileCount, items: [] });
+    folders.push({
+      name: file,
+      type: "folder",
+      fileCount,
+      items: [],
+      ...(locked ? { locked: true, open: true } : {}),
+    });
   }
 
   folders.sort((a, b) => {
@@ -91,6 +113,12 @@ async function viewLocalFiles() {
         type: "folder",
         items: [],
       };
+      // [NEXUS 폴더 잠금] 열 수 없는 폴더는 이름만 돌려주고 내용은 읽지 않는다.
+      if (!(await FolderAccess.canAccessFolderAsync(file))) {
+        subdocs.locked = true;
+        directory.items.push(subdocs);
+        continue;
+      }
 
       const subfiles = fs.readdirSync(folderPath);
       const filenames = {};
@@ -207,6 +235,23 @@ async function getDocumentsByFolder(folderName = "", pagination = {}) {
       hasMore: false,
       code: 404,
       error: `Folder "${folderName}" does not exist.`,
+    };
+  }
+
+  // [NEXUS 폴더 잠금] 비밀번호로 열지 않은 폴더의 문서 목록은 내주지 않는다.
+  if (
+    !(await FolderAccess.canAccessFolderAsync(
+      FolderAccess.folderOfDocpath(`${normalizePath(folderName)}/x`)
+    ))
+  ) {
+    return {
+      folder: folderName,
+      documents: [],
+      totalCount: 0,
+      hasMore: false,
+      locked: true,
+      code: 403,
+      error: `Folder "${folderName}" is locked.`,
     };
   }
 
@@ -490,6 +535,8 @@ async function getWatchedDocumentFilenames(filenames = []) {
  * @returns {Promise<Array<object & {docpath: string}>>}
  */
 async function getDocumentsByDocPaths(docpaths = []) {
+  // [NEXUS 폴더 잠금] 잠긴 폴더의 문서는 요청해도 돌려주지 않는다.
+  docpaths = await FolderAccess.filterDocpaths(docpaths);
   if (!docpaths.length) return [];
   const liveSyncAvailable = await DocumentSyncQueue.enabled();
   const results = [];
@@ -638,7 +685,14 @@ async function searchDocuments(searchTerm = "") {
     _rgContentSearch(rgPath, term),
   ]);
 
+  // [NEXUS 폴더 잠금] 본문 검색(ripgrep)은 잠긴 폴더의 내용까지 맞히므로,
+  // 개수 제한을 걸기 전에 열 수 없는 폴더의 결과부터 뺀다.
+  const lockedHere = new Set(await FolderAccess.inaccessibleFolders());
   const hits = [...new Set([...fileHits, ...contentHits])]
+    .filter(
+      (absPath) =>
+        !lockedHere.has(path.basename(path.dirname(String(absPath))))
+    )
     .sort()
     .slice(0, SEARCH_MAX_RESULTS);
   if (hits.length === 0) return [];

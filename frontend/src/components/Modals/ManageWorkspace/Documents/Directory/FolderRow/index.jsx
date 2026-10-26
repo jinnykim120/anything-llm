@@ -1,6 +1,12 @@
 import { useState } from "react";
 import FileRow from "../FileRow";
-import { CaretDown, FolderNotch, CircleNotch } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  FolderNotch,
+  CircleNotch,
+  Lock,
+  LockOpen,
+} from "@phosphor-icons/react";
 import { middleTruncate } from "@/utils/directories";
 import { useTranslation } from "react-i18next";
 
@@ -43,11 +49,15 @@ export default function FolderRow({
   onLoadMore,
   acceptsDrops = false,
   onDropFiles,
+  onRequestUnlock,
+  onOpenSecurity,
 }) {
   const { t } = useTranslation();
   const [isDropTarget, setIsDropTarget] = useState(false);
   const selected = selectionState === "all";
   const partial = selectionState === "some";
+  // [NEXUS 폴더 잠금] 잠겨 있고 아직 열지 않은 폴더: 이름만 보이고 내용은 못 연다.
+  const lockedClosed = !!item.locked && !item.open;
 
   // Only react to drags carrying files - dragging text or a link over the
   // picker should not light every folder up.
@@ -87,8 +97,12 @@ export default function FolderRow({
           a whole-row click is too easy to hit by accident for something that
           can stage hundreds of files for embedding. */}
       <tr
-        onClick={() => onToggleExpanded(item.name)}
-        onMouseEnter={() => onPrefetch(item.name)}
+        onClick={() =>
+          lockedClosed
+            ? onRequestUnlock?.(item.name)
+            : onToggleExpanded(item.name)
+        }
+        onMouseEnter={() => !lockedClosed && onPrefetch(item.name)}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -116,6 +130,7 @@ export default function FolderRow({
             tabIndex={0}
             onClick={(event) => {
               event.stopPropagation();
+              if (lockedClosed) return onRequestUnlock?.(item.name);
               onToggleFolder(item);
             }}
           >
@@ -137,7 +152,28 @@ export default function FolderRow({
           <p className="whitespace-nowrap overflow-show max-w-[400px]">
             {middleTruncate(item.name, 35)}
           </p>
-          {displayCount > 0 && (
+          {item.locked &&
+            (lockedClosed ? (
+              <Lock
+                size={14}
+                weight="fill"
+                className="ml-1.5 shrink-0 text-amber-400"
+                title="비밀번호로 잠긴 폴더 - 눌러서 열기"
+              />
+            ) : (
+              <button
+                type="button"
+                title="폴더 보안 설정"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenSecurity?.(item.name);
+                }}
+                className="ml-1.5 shrink-0 border-none bg-transparent p-0 text-emerald-400"
+              >
+                <LockOpen size={14} weight="fill" />
+              </button>
+            ))}
+          {!lockedClosed && displayCount > 0 && (
             <span
               className={`text-theme-text-secondary text-[10px] font-medium ml-1.5 shrink-0 ${
                 selected || partial ? "light:!text-white" : ""

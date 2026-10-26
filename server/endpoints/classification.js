@@ -6,6 +6,7 @@
 //   POST /classification/:contentHash/confirm     human accepts / edits
 //   POST /classification/:contentHash/dedupe      collapse same-workspace duplicate rows to one
 const prisma = require("../utils/prisma");
+const FolderAccess = require("../utils/folderAccess");
 const { reqBody, safeJsonParse } = require("../utils/http");
 const { fileData } = require("../utils/files");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
@@ -103,10 +104,15 @@ async function taxonomyWithDocumentTypes() {
  * JSON for the hash (metadata lives there, not on a column).
  */
 async function archiveDocuments(workspaceSlug = null) {
-  const rows = await prisma.workspace_documents.findMany({
+  const allRows = await prisma.workspace_documents.findMany({
     ...(workspaceSlug ? { where: { workspace: { slug: workspaceSlug } } } : {}),
     include: { workspace: { select: { slug: true, name: true, tier: true } } },
   });
+  // [NEXUS 폴더 잠금] 열 수 없는 폴더의 문서는 분류 검수 목록에도 나오지 않는다.
+  const visible = new Set(
+    await FolderAccess.filterDocpaths(allRows.map((r) => r.docpath))
+  );
+  const rows = allRows.filter((r) => visible.has(r.docpath));
   const byHash = new Map();
   for (const wd of rows) {
     let meta = {};
@@ -175,7 +181,11 @@ async function orphanedWorkspaceDocuments(workspaceSlug = null) {
     where: workspaceSlug ? { workspace: { slug: workspaceSlug } } : {},
     include: { workspace: { select: { slug: true } } },
   });
+  const visibleDocpaths = new Set(
+    await FolderAccess.filterDocpaths(rows.map((r) => r.docpath))
+  );
   return rows
+    .filter((row) => visibleDocpaths.has(row.docpath))
     .map((row) => {
       const metadata = safeJsonParse(row.metadata, {});
       return {

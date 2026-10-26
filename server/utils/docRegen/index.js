@@ -9,6 +9,7 @@
 // 지어내지 않고 본문에 "[자료 필요: ...]" 로 표시한다 — 이 마커는 프론트의
 // linkifyCitationMarkers 와 같은 패턴으로 클릭 가능한 버튼이 된다.
 const prisma = require("../prisma");
+const FolderAccess = require("../folderAccess");
 const { getVectorDbClass } = require("../helpers");
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,9 @@ async function loadBaseDocument(workspaceDocId) {
     where: { id: Number(workspaceDocId) },
   });
   if (!row) throw new Error(`문서를 찾을 수 없습니다 (id=${workspaceDocId}).`);
+  // [NEXUS 폴더 잠금] 잠긴 폴더의 문서는 비밀번호로 열기 전에는 읽지 못한다.
+  if (!(await FolderAccess.canAccessDocpath(row.docpath)))
+    throw new Error("잠긴 폴더의 문서입니다.");
 
   const rel = String(row.docpath).split(/[\\/]/).slice(-2).join("/");
   const doc = await fileData(rel);

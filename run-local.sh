@@ -74,6 +74,16 @@ start_service() {
   printf "%-10s started (log: .local-cache/%s.run.log)\n" "$name" "$name"
 }
 
+# [NEXUS 폴더 잠금] 새 테이블/컬럼이 필요한 코드를 옛 DB(윈도 내보내기본 등) 위에서
+# 켜도 깨지지 않게, 서버를 새로 띄우기 전에 마이그레이션을 적용한다(멱등).
+if ! http_ok "http://localhost:3001/api/ping" && ! listening 3001; then
+  if (cd "$ROOT/server" && npx prisma migrate deploy >"$CACHE/migrate.run.log" 2>&1); then
+    printf "%-10s ok\n" "migrate"
+  else
+    printf "%-10s FAILED (see .local-cache/migrate.run.log)\n" "migrate"
+  fi
+fi
+
 start_service server 3001 "http://localhost:3001/api/ping" "$ROOT/server" node --trace-warnings index.js
 start_service collector 8888 "http://localhost:8888/health" "$ROOT/collector" node --trace-warnings index.js
 start_service frontend 3000 "http://localhost:3000/index.html" "$ROOT/frontend" yarn dev

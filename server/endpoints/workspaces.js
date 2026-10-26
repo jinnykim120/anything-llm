@@ -4,7 +4,10 @@ const {
   userFromSession,
   safeJsonParse,
 } = require("../utils/http");
-const { moveProcessedDocsToFolder } = require("../utils/files");
+const FolderAccess = require("../utils/folderAccess");
+const fs = require("fs");
+const path = require("path");
+const { moveProcessedDocsToFolder, documentsPath } = require("../utils/files");
 const { Workspace } = require("../models/workspace");
 const { Document } = require("../models/documents");
 const { DocumentVectors } = require("../models/vectors");
@@ -123,6 +126,19 @@ function workspaceEndpoints(app) {
         // must append folderName/metadata first. See FileUploadProgress.
         const { folderName = null, metadata: _metadata = "{}" } =
           reqBody(request);
+        // [NEXUS 폴더 잠금] 열지 않은 잠긴 폴더에는 올릴 수 없다.
+        if (
+          folderName &&
+          !(await FolderAccess.canAccessFolderAsync(
+            FolderAccess.normalizeFolderName(folderName)
+          ))
+        ) {
+          response.status(403).json({
+            success: false,
+            error: "잠긴 폴더입니다. 비밀번호로 먼저 여세요.",
+          });
+          return;
+        }
 
         const metadata =
           typeof _metadata === "string"
@@ -225,7 +241,10 @@ function workspaceEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const { slug = null } = request.params;
-        const { adds = [], deletes = [] } = reqBody(request);
+        const body = reqBody(request);
+        // [NEXUS 폴더 잠금] 열지 않은 잠긴 폴더의 문서는 추가·삭제할 수 없다.
+        const adds = await FolderAccess.filterDocpaths(body.adds || []);
+        const deletes = await FolderAccess.filterDocpaths(body.deletes || []);
         const currWorkspace = multiUserMode(response)
           ? await Workspace.getWithUser(user, { slug })
           : await Workspace.get({ slug });
@@ -260,9 +279,11 @@ function workspaceEndpoints(app) {
           const updatedWorkspace = await Workspace.get({
             id: currWorkspace.id,
           });
-          response
-            .status(200)
-            .json({ workspace: updatedWorkspace, message: null });
+          response.status(200).json({
+            workspace:
+              await FolderAccess.maskWorkspaceDocuments(updatedWorkspace),
+            message: null,
+          });
           return;
         }
 
@@ -290,7 +311,8 @@ function workspaceEndpoints(app) {
               .join(", ")}).`
           );
         response.status(200).json({
-          workspace: updatedWorkspace,
+          workspace:
+            await FolderAccess.maskWorkspaceDocuments(updatedWorkspace),
           skippedDuplicates,
           message: notes.length ? notes.join("\n\n") : null,
         });
@@ -424,7 +446,9 @@ function workspaceEndpoints(app) {
           ? await Workspace.whereWithUser(user)
           : await Workspace.where();
 
-        response.status(200).json({ workspaces });
+        response.status(200).json({
+          workspaces: await FolderAccess.maskWorkspaceDocuments(workspaces),
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -455,7 +479,9 @@ function workspaceEndpoints(app) {
           }
         }
 
-        response.status(200).json({ workspace });
+        response.status(200).json({
+          workspace: await FolderAccess.maskWorkspaceDocuments(workspace),
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -883,6 +909,7 @@ function workspaceEndpoints(app) {
         // on request.body.
         const {
           folderName = null,
+          folderPassword = null,
           metadata: _metadata = "{}",
           orgUnit = null,
         } = reqBody(request);
@@ -890,6 +917,50 @@ function workspaceEndpoints(app) {
           typeof _metadata === "string"
             ? safeJsonParse(_metadata, {})
             : _metadata;
+
+        // [NEXUS 폴더 잠금] 올리는 사람이 새 폴더를 만들며 비밀번호를 정할 수 있다.
+        // 이미 있는 잠긴 폴더에는 비밀번호로 연 사람만 올릴 수 있고,
+        // 이미 있는 공개 폴더에 비밀번호를 거는 것은 여기서 허용하지 않는다.
+        if (folderName) {
+          const lockName = FolderAccess.normalizeFolderName(folderName);
+          const folderExists =
+            !!lockName && fs.existsSync(path.join(documentsPath, lockName));
+          if (!lockName) {
+            response
+              .status(400)
+              .json({
+                success: false,
+                error: "폴더 이름이 올바르지 않습니다.",
+              });
+            return;
+          }
+          if (!(await FolderAccess.canAccessFolderAsync(lockName))) {
+            response.status(403).json({
+              success: false,
+              error: "잠긴 폴더입니다. 비밀번호로 먼저 여세요.",
+            });
+            return;
+          }
+          if (!folderExists && folderPassword) {
+            try {
+              await FolderAccess.createLock({
+                folder: lockName,
+                password: folderPassword,
+                clientId: response.locals.nexusScope?.clientId || null,
+              });
+            } catch (e) {
+              // 같은 브라우저가 여러 파일을 동시에 올리면 첫 요청이 폴더를 만들고
+              // 나머지는 "이미 잠김"을 만난다 — 방금 만든 사람이면 그대로 진행한다.
+              const fresh = await FolderAccess.buildScope(
+                response.locals.nexusScope?.clientId || null
+              );
+              if (!FolderAccess.canAccessFolder(fresh, lockName)) {
+                response.status(400).json({ success: false, error: e.message });
+                return;
+              }
+            }
+          }
+        }
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {

@@ -25,6 +25,8 @@ const { extensionEndpoints } = require("./endpoints/extensions");
 const { bootHTTP, bootSSL } = require("./utils/boot");
 const { workspaceThreadEndpoints } = require("./endpoints/workspaceThreads");
 const { documentEndpoints } = require("./endpoints/document");
+const { folderLockEndpoints } = require("./endpoints/folderLocks");
+const { accessContext } = require("./utils/folderAccess");
 const { doclingEndpoints } = require("./endpoints/docling");
 const { classificationEndpoints } = require("./endpoints/classification");
 const { draftEndpoints } = require("./endpoints/draft");
@@ -77,6 +79,8 @@ if (
   );
 }
 app.use(cors({ origin: true }));
+// [NEXUS 폴더 잠금] 이후 모든 요청에 클라이언트별 접근 범위를 붙인다.
+app.use(accessContext);
 app.use(bodyParser.text({ limit: FILE_LIMIT }));
 app.use(bodyParser.json({ limit: FILE_LIMIT }));
 app.use(
@@ -104,6 +108,7 @@ inviteEndpoints(apiRouter);
 embedManagementEndpoints(apiRouter);
 utilEndpoints(apiRouter);
 documentEndpoints(apiRouter);
+folderLockEndpoints(apiRouter);
 doclingEndpoints(apiRouter);
 classificationEndpoints(apiRouter);
 draftEndpoints(apiRouter);

@@ -6,6 +6,7 @@ const {
   fileData,
 } = require("../utils/files");
 const { reqBody } = require("../utils/http");
+const FolderAccess = require("../utils/folderAccess");
 const {
   flexUserRoleValid,
   ROLES,
@@ -53,6 +54,9 @@ function documentEndpoints(app) {
         const { docId } = request.params;
         const doc = await Document.get({ docId: String(docId) });
         if (!doc) return response.sendStatus(404);
+        // [NEXUS 폴더 잠금] 열지 않은 잠긴 폴더의 원본은 내려주지 않는다.
+        if (!(await FolderAccess.canAccessDocpath(doc.docpath)))
+          return response.sendStatus(403);
 
         const parsed = await fileData(doc.docpath);
         // Prefer a PDF render (HWP→PDF) so the viewer can page + highlight it;
@@ -106,7 +110,7 @@ function documentEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
     async (request, response) => {
       try {
-        const { name } = reqBody(request);
+        const { name, password = null } = reqBody(request);
         const storagePath = path.join(documentsPath, normalizePath(name));
         if (!isWithin(path.resolve(documentsPath), path.resolve(storagePath)))
           throw new Error("Invalid folder name.");
@@ -119,6 +123,14 @@ function documentEndpoints(app) {
           return;
         }
 
+        // [NEXUS 폴더 잠금] 비밀번호를 주면 폴더를 만들면서 잠근다 (만든 사람은 열린 상태).
+        if (password) {
+          await FolderAccess.createLock({
+            folder: name,
+            password,
+            clientId: response.locals.nexusScope?.clientId || null,
+          });
+        }
         fs.mkdirSync(storagePath, { recursive: true });
         response.status(200).json({ success: true, message: null });
       } catch (e) {
@@ -136,7 +148,16 @@ function documentEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
     async (request, response) => {
       try {
-        const { files } = reqBody(request);
+        const body = reqBody(request);
+        // [NEXUS 폴더 잠금] 출발·도착 폴더를 모두 열 수 있어야 옮길 수 있다.
+        const files = [];
+        for (const f of body.files || []) {
+          if (
+            (await FolderAccess.canAccessDocpath(f.from)) &&
+            (await FolderAccess.canAccessDocpath(f.to))
+          )
+            files.push(f);
+        }
         const docpaths = files.map(({ from }) => from);
         const documents = await Document.where({ docpath: { in: docpaths } });
 
@@ -208,6 +229,11 @@ function documentEndpoints(app) {
           return response
             .status(400)
             .json({ success: false, error: "문서 경로가 없습니다." });
+        // [NEXUS 폴더 잠금] 열지 않은 잠긴 폴더의 문서는 다시 처리할 수 없다.
+        if (!(await FolderAccess.canAccessDocpath(docpath)))
+          return response
+            .status(403)
+            .json({ success: false, error: "잠긴 폴더의 문서입니다." });
         const { convertDocumentToPdf } = require("../utils/pdfConvert");
         const userId = response.locals?.user?.id ?? null;
         const result = await convertDocumentToPdf(docpath, {
@@ -236,6 +262,11 @@ function documentEndpoints(app) {
           return response
             .status(400)
             .json({ success: false, error: "문서 경로가 없습니다." });
+        // [NEXUS 폴더 잠금] 열지 않은 잠긴 폴더의 문서는 다시 처리할 수 없다.
+        if (!(await FolderAccess.canAccessDocpath(docpath)))
+          return response
+            .status(403)
+            .json({ success: false, error: "잠긴 폴더의 문서입니다." });
         const { convertDocumentToPdf } = require("../utils/pdfConvert");
         const userId = response.locals?.user?.id ?? null;
         const result = await convertDocumentToPdf(docpath, { userId });

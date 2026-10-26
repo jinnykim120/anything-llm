@@ -8,6 +8,7 @@ const {
   getDocumentsByFolder,
   searchDocuments,
   getDocumentsByDocPaths,
+  documentsPath,
 } = require("../utils/files");
 const { purgeDocument, purgeFolder } = require("../utils/files/purgeDocument");
 const { getVectorDbClass } = require("../utils/helpers");
@@ -19,6 +20,7 @@ const {
   multiUserMode,
   queryParams,
 } = require("../utils/http");
+const FolderAccess = require("../utils/folderAccess");
 const {
   handleAssetUpload,
   handlePfpUpload,
@@ -462,6 +464,9 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const { name } = reqBody(request);
+        // [NEXUS 폴더 잠금] 열지 않은 잠긴 폴더의 문서는 지울 수 없다.
+        if (!(await FolderAccess.canAccessDocpath(name)))
+          return response.sendStatus(403).end();
         await purgeDocument(name);
         response.sendStatus(200).end();
       } catch (e) {
@@ -477,7 +482,9 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const { names } = reqBody(request);
-        for await (const name of names) await purgeDocument(name);
+        // [NEXUS 폴더 잠금]
+        for await (const name of await FolderAccess.filterDocpaths(names || []))
+          await purgeDocument(name);
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
@@ -492,7 +499,25 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const { name } = reqBody(request);
+        // [NEXUS 폴더 잠금] 잠긴 폴더는 열어야만 삭제할 수 있고, 삭제하면 잠금도 사라진다.
+        if (
+          !(await FolderAccess.canAccessFolderAsync(
+            FolderAccess.normalizeFolderName(name)
+          ))
+        )
+          return response.sendStatus(403).end();
         await purgeFolder(name);
+        // purgeFolder 는 지울 수 없는 폴더(custom-documents 등)면 아무것도 하지 않고
+        // 돌아오므로, 실제로 사라졌는지 확인해 화면에 이유를 알려준다.
+        const folderDir = path.join(documentsPath, normalizePath(name));
+        if (fs.existsSync(folderDir)) {
+          return response.status(400).json({
+            success: false,
+            error:
+              "이 폴더는 삭제할 수 없습니다 (기본 폴더이거나 삭제에 실패했습니다).",
+          });
+        }
+        await FolderAccess.dropLockRow(name);
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
@@ -1016,29 +1041,33 @@ function systemEndpoints(app) {
     }
   );
 
-  app.get("/system/api-keys", [validatedRequest], async (_, response) => {
-    try {
-      if (response.locals.multiUserMode) {
-        return response.sendStatus(401).end();
-      }
+  app.get(
+    "/system/api-keys",
+    [validatedRequest, FolderAccess.requireAdminIfEnabled],
+    async (_, response) => {
+      try {
+        if (response.locals.multiUserMode) {
+          return response.sendStatus(401).end();
+        }
 
-      const apiKeys = await ApiKey.where({});
-      return response.status(200).json({
-        apiKeys,
-        error: null,
-      });
-    } catch (error) {
-      console.error(error);
-      response.status(500).json({
-        apiKey: null,
-        error: "Could not find an API Key.",
-      });
+        const apiKeys = await ApiKey.where({});
+        return response.status(200).json({
+          apiKeys,
+          error: null,
+        });
+      } catch (error) {
+        console.error(error);
+        response.status(500).json({
+          apiKey: null,
+          error: "Could not find an API Key.",
+        });
+      }
     }
-  });
+  );
 
   app.post(
     "/system/generate-api-key",
-    [validatedRequest],
+    [validatedRequest, FolderAccess.requireAdminIfEnabled],
     async (request, response) => {
       try {
         if (response.locals.multiUserMode) {
@@ -1070,7 +1099,7 @@ function systemEndpoints(app) {
   // and should be consolidated to be a single endpoint with flexible role protection.
   app.delete(
     "/system/api-key/:id",
-    [validatedRequest],
+    [validatedRequest, FolderAccess.requireAdminIfEnabled],
     async (request, response) => {
       try {
         if (response.locals.multiUserMode)

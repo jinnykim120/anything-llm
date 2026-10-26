@@ -23,6 +23,10 @@ import { Tooltip } from "react-tooltip";
 import { safeJsonParse } from "@/utils/request";
 import useUploadQueue from "../hooks/useUploadQueue";
 import { getFilesFromUploadEvent } from "@/utils/folderUpload";
+import UnlockFolderModal from "@/components/NexusAccess/UnlockFolderModal";
+import FolderSecurityModal from "@/components/NexusAccess/FolderSecurityModal";
+import { NEXUS_ACCESS_CHANGED_EVENT } from "@/components/NexusAccess/AdminBadge";
+import NexusAccess from "@/models/nexusAccess";
 
 const NO_FILES = [];
 
@@ -35,6 +39,10 @@ export default function Directory({
 }) {
   const { t } = useTranslation();
   const [showFolderSelection, setShowFolderSelection] = useState(false);
+  // [NEXUS 폴더 잠금] 잠긴 폴더를 열 때 / 연 폴더의 보안 설정을 바꿀 때
+  const [unlockTarget, setUnlockTarget] = useState(null);
+  const [securityTarget, setSecurityTarget] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [contextMenu, setContextMenu] = useState({
     visible: false,
     x: 0,
@@ -73,6 +81,20 @@ export default function Directory({
     addFolder,
     setBusy,
   } = picker;
+
+  // 관리자 로그인/로그아웃, 잠금 해제가 일어나면 목록을 다시 불러온다.
+  useEffect(() => {
+    const onChanged = () => refresh();
+    window.addEventListener(NEXUS_ACCESS_CHANGED_EVENT, onChanged);
+    return () =>
+      window.removeEventListener(NEXUS_ACCESS_CHANGED_EVENT, onChanged);
+  }, [refresh]);
+
+  const openSecurity = async (name) => {
+    const r = await NexusAccess.access();
+    setIsAdmin(!!r.data?.isAdmin);
+    setSecurityTarget(name);
+  };
 
   /**
    * One flattened view model per visible folder. Search replaces the folder
@@ -352,6 +374,8 @@ export default function Directory({
                     onLoadMore={loadMore}
                     acceptsDrops={uploadQueue.ready}
                     onDropFiles={handleFolderDrop}
+                    onRequestUnlock={setUnlockTarget}
+                    onOpenSecurity={openSecurity}
                   />
                 ))
               ) : (
@@ -420,6 +444,20 @@ export default function Directory({
             onLinkScraped={syncAfterUpload}
           />
         </div>
+        <UnlockFolderModal
+          folder={unlockTarget}
+          onClose={() => setUnlockTarget(null)}
+          onUnlocked={async () => {
+            setUnlockTarget(null);
+            await refresh();
+          }}
+        />
+        <FolderSecurityModal
+          folder={securityTarget}
+          isAdmin={isAdmin}
+          onClose={() => setSecurityTarget(null)}
+          onChanged={() => refresh()}
+        />
         <Modal isOpen={isFolderModalOpen} onClose={closeFolderModal} noPortal>
           <NewFolderModal
             closeModal={closeFolderModal}

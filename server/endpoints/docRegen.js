@@ -44,6 +44,7 @@ const {
 } = require("../utils/classification/documentAffinity");
 const { resolveFolderDocIds } = require("../utils/classification/folderFilter");
 const prisma = require("../utils/prisma");
+const FolderAccess = require("../utils/folderAccess");
 const { PPT_TEMPLATES, generateSlideSpec } = require("./pptDraft");
 
 // [auto-docu PPT 생성 Phase 2] 지정한 문서함 폴더 안의 문서들에서 PPT 근거로
@@ -298,6 +299,9 @@ function docRegenEndpoints(app) {
 
         const doc = await Document.get({ docId: String(docId) });
         if (!doc) throw new Error("원본 빈양식을 찾지 못했습니다.");
+        // [NEXUS 폴더 잠금]
+        if (!(await FolderAccess.canAccessDocpath(doc.docpath)))
+          throw new Error("잠긴 폴더의 문서입니다.");
 
         const {
           fileData,

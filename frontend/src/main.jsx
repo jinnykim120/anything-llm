@@ -15,6 +15,10 @@ import Login from "@/pages/Login";
 import SimpleSSOPassthrough from "@/pages/Login/SSO/simple";
 import OnboardingFlow from "@/pages/OnboardingFlow";
 import "@/index.css";
+import { installNexusFetch } from "@/utils/nexusClient";
+
+// [NEXUS 폴더 잠금] 이후 모든 API 요청에 브라우저 ID 헤더를 붙인다.
+installNexusFetch();
 
 const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;

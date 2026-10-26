@@ -16,6 +16,7 @@ import ImageLightbox from "@/components/ImageLightbox";
 import { ErrorBoundary } from "react-error-boundary";
 import ErrorBoundaryFallback from "./components/ErrorBoundaryFallback";
 import ThemeToggle from "./components/ThemeToggle";
+import AdminBadge from "@/components/NexusAccess/AdminBadge";
 
 export default function App() {
   const location = useLocation();
@@ -34,6 +35,7 @@ export default function App() {
                   <I18nextProvider i18n={i18n}>
                     <Outlet />
                     <ThemeToggle />
+                    <AdminBadge />
                     <ToastContainer />
                     <KeyboardShortcutsHelp />
                     <ImageLightbox />

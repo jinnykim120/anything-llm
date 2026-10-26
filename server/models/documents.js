@@ -506,11 +506,18 @@ const Document = {
     const document = await this.get({ docId: String(docId) });
     if (!document) throw new Error(`Could not find a document by id ${docId}`);
 
+    // [NEXUS 폴더 잠금] 잠긴 폴더의 문서 본문은 비밀번호로 열기 전에는 읽지 못한다.
+    const FolderAccess = require("../utils/folderAccess");
+    if (!(await FolderAccess.canAccessDocpath(document.docpath)))
+      throw new Error("잠긴 폴더의 문서입니다.");
     const { fileData } = require("../utils/files");
     const data = await fileData(document.docpath);
     return { title: data.title, content: data.pageContent };
   },
   contentByDocPath: async function (docPath) {
+    const FolderAccess = require("../utils/folderAccess");
+    if (!(await FolderAccess.canAccessDocpath(docPath)))
+      throw new Error("잠긴 폴더의 문서입니다.");
     const { fileData } = require("../utils/files");
     const data = await fileData(docPath);
     return { title: data.title, content: data.pageContent };

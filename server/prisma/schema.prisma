@@ -184,6 +184,7 @@ model workspace_threads {
   slug                   String                   @unique
   workspace_id           Int
   user_id                Int?
+  client_id              String? // [NEXUS 폴더 잠금] 브라우저 클라이언트 ID. null = 공개(도입 이전 기록)
   createdAt              DateTime                 @default(now())
   lastUpdatedAt          DateTime                 @default(now())
   workspace              workspaces               @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
@@ -192,6 +193,7 @@ model workspace_threads {
 
   @@index([workspace_id])
   @@index([user_id])
+  @@index([client_id])
 }
 
 // [auto-docu 우선 자료] 스레드에 고정해 "매 답변마다 검색 없이 강제로
@@ -258,6 +260,7 @@ model workspace_chats {
   include        Boolean  @default(true)
   user_id        Int?
   thread_id      Int? // No relation to prevent whole table migration
+  client_id      String? // [NEXUS 폴더 잠금] 브라우저 클라이언트 ID. null = 공개(도입 이전 기록)
   api_session_id String? // String identifier for only the dev API to partition chats in any mode.
   createdAt      DateTime @default(now())
   lastUpdatedAt  DateTime @default(now())
@@ -556,4 +559,35 @@ model model_router_rules {
   @@unique([router_id, title])
   @@index([router_id])
   @@index([router_id, enabled, priority])
+}
+
+// [NEXUS 폴더 잠금] 폴더(= docpath 첫 구간) 단위 비밀번호. 행이 없는 폴더는 공개.
+// 평문 비밀번호는 저장하지 않는다 (scrypt 해시 + 폴더별 salt).
+model folder_locks {
+  id              Int      @id @default(autoincrement())
+  folder          String   @unique
+  passwordHash    String
+  createdByClient String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+}
+
+// [NEXUS 폴더 잠금] 브라우저(clientId)가 비밀번호로 연 폴더. 만료되면 다시 잠긴다.
+model folder_unlocks {
+  id        Int      @id @default(autoincrement())
+  clientId  String
+  folder    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([clientId, folder])
+  @@index([clientId])
+}
+
+// [NEXUS 폴더 잠금] 관리자 비밀번호로 로그인한 브라우저. 모든 폴더 접근 가능.
+model access_admins {
+  id        Int      @id @default(autoincrement())
+  clientId  String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }

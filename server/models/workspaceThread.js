@@ -1,4 +1,5 @@
 const prisma = require("../utils/prisma");
+const FolderAccess = require("../utils/folderAccess");
 const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
 const truncate = require("truncate");
@@ -41,6 +42,7 @@ const WorkspaceThread = {
             ? this.slugify(data.slug, { lowercase: true })
             : uuidv4(),
           user_id: userId ? Number(userId) : null,
+          client_id: FolderAccess.currentClientId(),
           workspace_id: workspace.id,
         },
       });
@@ -79,7 +81,7 @@ const WorkspaceThread = {
   get: async function (clause = {}) {
     try {
       const thread = await prisma.workspace_threads.findFirst({
-        where: clause,
+        where: FolderAccess.scopeChatWhere(clause),
       });
 
       return thread || null;
@@ -93,8 +95,9 @@ const WorkspaceThread = {
     try {
       const { WorkspaceChats } = require("./workspaceChats");
       // thread_id has no FK relation so chats don't cascade-delete with the thread.
+      const scopedClause = FolderAccess.scopeChatWhere(clause);
       const threads = await prisma.workspace_threads.findMany({
-        where: clause,
+        where: scopedClause,
         select: { id: true },
       });
       if (threads.length > 0)
@@ -103,7 +106,7 @@ const WorkspaceThread = {
         });
 
       await prisma.workspace_threads.deleteMany({
-        where: clause,
+        where: scopedClause,
       });
       return true;
     } catch (error) {
@@ -120,7 +123,7 @@ const WorkspaceThread = {
   ) {
     try {
       const results = await prisma.workspace_threads.findMany({
-        where: clause,
+        where: FolderAccess.scopeChatWhere(clause),
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
         ...(include !== null ? { include } : {}),

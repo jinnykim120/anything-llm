@@ -2,11 +2,11 @@ import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 
 const Document = {
-  createFolder: async (name) => {
+  createFolder: async (name, password = null) => {
     return await fetch(`${API_BASE}/document/create-folder`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, ...(password ? { password } : {}) }),
     })
       .then((res) => res.json())
       .catch((e) => {

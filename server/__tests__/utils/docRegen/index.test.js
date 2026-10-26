@@ -7,10 +7,16 @@ jest.mock("../../../utils/helpers", () => ({
 
 const mockFindUnique = jest.fn();
 const mockFindMany = jest.fn();
+// [NEXUS 폴더 잠금] loadBaseDocument 가 잠긴 폴더 여부를 확인한다. 기본은 잠금 없음.
+const mockFolderLock = jest.fn().mockResolvedValue(null);
 jest.mock("../../../utils/prisma", () => ({
   workspace_documents: {
     findUnique: (...args) => mockFindUnique(...args),
     findMany: (...args) => mockFindMany(...args),
+  },
+  folder_locks: {
+    findUnique: (...args) => mockFolderLock(...args),
+    findMany: async () => [],
   },
 }));
 
@@ -50,6 +56,19 @@ describe("loadBaseDocument / loadBaseDocuments", () => {
   beforeEach(() => {
     mockFindUnique.mockReset();
     mockFileData.mockReset();
+    mockFolderLock.mockReset().mockResolvedValue(null);
+  });
+
+  it("refuses to read a document that sits in a locked folder the caller has not opened", async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 9,
+      docpath: "비공개/secret.json",
+      filename: "secret.json",
+      metadata: "{}",
+    });
+    mockFolderLock.mockResolvedValue({ folder: "비공개" });
+    await expect(loadBaseDocument(9)).rejects.toThrow("잠긴 폴더");
+    expect(mockFileData).not.toHaveBeenCalled();
   });
 
   it("loads a single document's title/pageContent/blocks by workspace_documents.id", async () => {
@@ -295,7 +314,10 @@ describe("extractOutlineViaLLM", () => {
 
   it("returns an empty-safe fallback for empty pageContent", async () => {
     const LLMConnector = fakeConnector("[]");
-    const outline = await extractOutlineViaLLM({ pageContent: "", LLMConnector });
+    const outline = await extractOutlineViaLLM({
+      pageContent: "",
+      LLMConnector,
+    });
     expect(outline).toEqual([{ title: "본문", content: "" }]);
   });
 });
@@ -304,7 +326,11 @@ describe("getOutline", () => {
   it("prefers metadata-based extraction when coverage is high", async () => {
     const LLMConnector = fakeConnector("should not be called");
     const blocks = [{ section_path: "1 > 절", text: "내용" }];
-    const outline = await getOutline({ pageContent: "무시됨", blocks, LLMConnector });
+    const outline = await getOutline({
+      pageContent: "무시됨",
+      blocks,
+      LLMConnector,
+    });
     expect(outline).toEqual([{ title: "절", content: "내용" }]);
     expect(LLMConnector.getChatCompletion).not.toHaveBeenCalled();
   });
@@ -333,8 +359,18 @@ describe("diffOutlineAgainstGuidance", () => {
     const LLMConnector = fakeConnector(
       JSON.stringify([
         { title: "목적", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
-        { title: "실적", status: "update", guidanceExcerpt: "새 기준 발췌", outlineIndex: 1 },
-        { title: "리스크", status: "new", guidanceExcerpt: "리스크 요구사항", outlineIndex: null },
+        {
+          title: "실적",
+          status: "update",
+          guidanceExcerpt: "새 기준 발췌",
+          outlineIndex: 1,
+        },
+        {
+          title: "리스크",
+          status: "new",
+          guidanceExcerpt: "리스크 요구사항",
+          outlineIndex: null,
+        },
       ])
     );
     const plan = await diffOutlineAgainstGuidance({
@@ -343,9 +379,24 @@ describe("diffOutlineAgainstGuidance", () => {
       LLMConnector,
     });
     expect(plan).toEqual([
-      { title: "목적", status: "keep", guidanceExcerpt: "", priorContent: "작년 목적 내용" },
-      { title: "실적", status: "update", guidanceExcerpt: "새 기준 발췌", priorContent: "작년 실적 내용" },
-      { title: "리스크", status: "new", guidanceExcerpt: "리스크 요구사항", priorContent: "" },
+      {
+        title: "목적",
+        status: "keep",
+        guidanceExcerpt: "",
+        priorContent: "작년 목적 내용",
+      },
+      {
+        title: "실적",
+        status: "update",
+        guidanceExcerpt: "새 기준 발췌",
+        priorContent: "작년 실적 내용",
+      },
+      {
+        title: "리스크",
+        status: "new",
+        guidanceExcerpt: "리스크 요구사항",
+        priorContent: "",
+      },
     ]);
   });
 
@@ -357,8 +408,18 @@ describe("diffOutlineAgainstGuidance", () => {
       LLMConnector,
     });
     expect(plan).toEqual([
-      { title: "목적", status: "keep", guidanceExcerpt: "", priorContent: "작년 목적 내용" },
-      { title: "실적", status: "keep", guidanceExcerpt: "", priorContent: "작년 실적 내용" },
+      {
+        title: "목적",
+        status: "keep",
+        guidanceExcerpt: "",
+        priorContent: "작년 목적 내용",
+      },
+      {
+        title: "실적",
+        status: "keep",
+        guidanceExcerpt: "",
+        priorContent: "작년 실적 내용",
+      },
     ]);
   });
 
@@ -376,15 +437,30 @@ describe("diffOutlineAgainstGuidance", () => {
 
   it("normalizes an unrecognized status to 'update' rather than dropping the section", async () => {
     const LLMConnector = fakeConnector(
-      JSON.stringify([{ title: "이상함", status: "delete", guidanceExcerpt: "", outlineIndex: null }])
+      JSON.stringify([
+        {
+          title: "이상함",
+          status: "delete",
+          guidanceExcerpt: "",
+          outlineIndex: null,
+        },
+      ])
     );
-    const plan = await diffOutlineAgainstGuidance({ outline, guidanceText: "...", LLMConnector });
+    const plan = await diffOutlineAgainstGuidance({
+      outline,
+      guidanceText: "...",
+      LLMConnector,
+    });
     expect(plan[0].status).toBe("update");
   });
 
   it("returns an empty plan for an empty outline", async () => {
     const LLMConnector = fakeConnector("[]");
-    const plan = await diffOutlineAgainstGuidance({ outline: [], guidanceText: "...", LLMConnector });
+    const plan = await diffOutlineAgainstGuidance({
+      outline: [],
+      guidanceText: "...",
+      LLMConnector,
+    });
     expect(plan).toEqual([]);
     expect(LLMConnector.getChatCompletion).not.toHaveBeenCalled();
   });
@@ -402,8 +478,18 @@ describe("planFromBlankForm", () => {
   it("promotes a 'keep' verdict to 'update' and clears its (blank) priorContent", async () => {
     const LLMConnector = fakeConnector(
       JSON.stringify([
-        { title: "필드1", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
-        { title: "필드2", status: "new", guidanceExcerpt: "새 요구사항", outlineIndex: null },
+        {
+          title: "필드1",
+          status: "keep",
+          guidanceExcerpt: "",
+          outlineIndex: 0,
+        },
+        {
+          title: "필드2",
+          status: "new",
+          guidanceExcerpt: "새 요구사항",
+          outlineIndex: null,
+        },
       ])
     );
     const plan = await planFromBlankForm({
@@ -412,18 +498,37 @@ describe("planFromBlankForm", () => {
       LLMConnector,
     });
     expect(plan).toEqual([
-      { title: "필드1", status: "update", guidanceExcerpt: "", priorContent: "" },
-      { title: "필드2", status: "new", guidanceExcerpt: "새 요구사항", priorContent: "" },
+      {
+        title: "필드1",
+        status: "update",
+        guidanceExcerpt: "",
+        priorContent: "",
+      },
+      {
+        title: "필드2",
+        status: "new",
+        guidanceExcerpt: "새 요구사항",
+        priorContent: "",
+      },
     ]);
   });
 
   it("leaves 'update'/'new' verdicts untouched", async () => {
     const LLMConnector = fakeConnector(
       JSON.stringify([
-        { title: "필드1", status: "update", guidanceExcerpt: "발췌", outlineIndex: 0 },
+        {
+          title: "필드1",
+          status: "update",
+          guidanceExcerpt: "발췌",
+          outlineIndex: 0,
+        },
       ])
     );
-    const plan = await planFromBlankForm({ outline, guidanceText: "...", LLMConnector });
+    const plan = await planFromBlankForm({
+      outline,
+      guidanceText: "...",
+      LLMConnector,
+    });
     expect(plan[0].status).toBe("update");
     expect(plan[0].guidanceExcerpt).toBe("발췌");
   });
@@ -457,7 +562,9 @@ describe("writeSection", () => {
       contextTexts: ["근거1"],
       LLMConnector,
     });
-    expect(result.content).toBe("일부 내용은 여기 있음. [자료 필요: 세부 계약 조건]");
+    expect(result.content).toBe(
+      "일부 내용은 여기 있음. [자료 필요: 세부 계약 조건]"
+    );
     expect(result.needs).toEqual(["세부 계약 조건"]);
   });
 
@@ -520,15 +627,30 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     const LLMConnector = fakeConnector(
       JSON.stringify([
         { title: "목적", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
-        { title: "리스크", status: "update", guidanceExcerpt: "새 리스크 기준", outlineIndex: 1 },
+        {
+          title: "리스크",
+          status: "update",
+          guidanceExcerpt: "새 리스크 기준",
+          outlineIndex: 1,
+        },
       ])
     );
     // update 절의 writeSection 호출에 대한 응답을 diff 호출 이후로 겹치게 mock.
     LLMConnector.getChatCompletion
       .mockResolvedValueOnce({
         textResponse: JSON.stringify([
-          { title: "목적", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
-          { title: "리스크", status: "update", guidanceExcerpt: "새 리스크 기준", outlineIndex: 1 },
+          {
+            title: "목적",
+            status: "keep",
+            guidanceExcerpt: "",
+            outlineIndex: 0,
+          },
+          {
+            title: "리스크",
+            status: "update",
+            guidanceExcerpt: "새 리스크 기준",
+            outlineIndex: 1,
+          },
         ]),
       })
       .mockResolvedValueOnce({ textResponse: "새로 작성된 리스크 절 내용" });
@@ -692,13 +814,23 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     };
     const LLMConnector = fakeConnector(
       JSON.stringify([
-        { title: "필수 품목", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
+        {
+          title: "필수 품목",
+          status: "keep",
+          guidanceExcerpt: "",
+          outlineIndex: 0,
+        },
       ])
     );
     LLMConnector.getChatCompletion
       .mockResolvedValueOnce({
         textResponse: JSON.stringify([
-          { title: "필수 품목", status: "keep", guidanceExcerpt: "", outlineIndex: 0 },
+          {
+            title: "필수 품목",
+            status: "keep",
+            guidanceExcerpt: "",
+            outlineIndex: 0,
+          },
         ]),
       })
       .mockResolvedValueOnce({ textResponse: "채워진 필수 품목 내용" });
@@ -726,7 +858,9 @@ describe("regenerateDocument (전체 파이프라인)", () => {
     // "keep"이 아니므로(update로 승격) 아카이브 검색이 실제로 일어난다.
     expect(mockPerformSimilaritySearch).toHaveBeenCalledTimes(1);
     const done = events.at(-1);
-    expect(done.markdown).toBe("# 제목\n\n## 필수 품목\n\n채워진 필수 품목 내용");
+    expect(done.markdown).toBe(
+      "# 제목\n\n## 필수 품목\n\n채워진 필수 품목 내용"
+    );
   });
 
   it("keeps going and marks a section as needing data when its search call fails", async () => {
@@ -737,12 +871,24 @@ describe("regenerateDocument (전체 파이프라인)", () => {
       blocks: [{ section_path: "1. 실적", text: "작년 실적" }],
     };
     const LLMConnector = fakeConnector(
-      JSON.stringify([{ title: "실적", status: "update", guidanceExcerpt: "", outlineIndex: 0 }])
+      JSON.stringify([
+        {
+          title: "실적",
+          status: "update",
+          guidanceExcerpt: "",
+          outlineIndex: 0,
+        },
+      ])
     );
     LLMConnector.getChatCompletion
       .mockResolvedValueOnce({
         textResponse: JSON.stringify([
-          { title: "실적", status: "update", guidanceExcerpt: "", outlineIndex: 0 },
+          {
+            title: "실적",
+            status: "update",
+            guidanceExcerpt: "",
+            outlineIndex: 0,
+          },
         ]),
       })
       .mockResolvedValueOnce({ textResponse: "[자료 필요: 2026년 실적 수치]" });

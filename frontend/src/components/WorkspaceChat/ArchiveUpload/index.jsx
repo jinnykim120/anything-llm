@@ -9,7 +9,14 @@ import {
   X,
 } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
+import Document from "@/models/document";
+import NexusAccess from "@/models/nexusAccess";
 import showToast from "@/utils/toast";
+
+// "자료 구분" 목록의 특수 값: 새 폴더를 만들면서 올린다.
+const NEW_FOLDER = "__new_folder__";
+// 업로드 대상으로 보여주지 않는 서버 내부 폴더
+const HIDDEN_FOLDERS = new Set(["originals", "custom-documents"]);
 
 export const OPEN_ARCHIVE_UPLOAD_EVENT = "open-archive-upload";
 
@@ -18,7 +25,7 @@ const ARCHIVE_CATEGORIES = ["전체", "실적", "법규", "대외"];
 function getStoredCategory() {
   if (typeof window === "undefined") return "전체";
   const stored = window.localStorage.getItem("archive-scope");
-  return ARCHIVE_CATEGORIES.includes(stored) ? stored : "전체";
+  return stored && stored !== NEW_FOLDER ? stored : "전체";
 }
 
 // [auto-docu] No login exists in this instance, so there's no "who uploaded
@@ -46,6 +53,12 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploads, setUploads] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  // [NEXUS 폴더 잠금] 서버의 폴더 목록(잠금 표시 포함), 새 폴더 이름·비밀번호, 잠긴 폴더 비밀번호
+  const [serverFolders, setServerFolders] = useState([]);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderPassword, setNewFolderPassword] = useState("");
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [folderError, setFolderError] = useState(null);
 
   useEffect(() => {
     function openFromEvent(event) {
@@ -61,6 +74,25 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
     return () =>
       window.removeEventListener(OPEN_ARCHIVE_UPLOAD_EVENT, openFromEvent);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    NexusAccess.folders().then((r) => {
+      if (r.ok) setServerFolders(r.data.folders || []);
+    });
+  }, [isOpen]);
+
+  const folderOptions = [
+    ...new Set([
+      ...ARCHIVE_CATEGORIES.filter((c) => c !== "전체"),
+      ...serverFolders
+        .map((f) => f.name)
+        .filter((name) => !HIDDEN_FOLDERS.has(name)),
+    ]),
+  ];
+  const folderInfo = (name) => serverFolders.find((f) => f.name === name);
+  const selectedFolderInfo = folderInfo(category);
+  const needsUnlock = !!selectedFolderInfo?.locked && !selectedFolderInfo?.open;
 
   function openDialog() {
     setUploads([]);
@@ -114,6 +146,35 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
       /* private window / storage blocked — non-fatal, just won't be remembered */
     }
 
+    // [NEXUS 폴더 잠금] 올리기 전에 폴더를 정한다 — 새 폴더면 만들고(비밀번호 선택),
+    // 잠긴 폴더면 비밀번호로 먼저 연다.
+    setFolderError(null);
+    let targetFolder = category;
+    if (category === NEW_FOLDER) {
+      targetFolder = newFolderName.trim();
+      if (!targetFolder) return setFolderError("새 폴더 이름을 입력하세요.");
+      if (newFolderPassword && newFolderPassword.length < 4)
+        return setFolderError("비밀번호는 4자 이상이어야 합니다.");
+      const created = await Document.createFolder(
+        targetFolder,
+        newFolderPassword || null
+      );
+      if (!created?.success)
+        return setFolderError(
+          created?.message ||
+            "폴더를 만들지 못했습니다. 이미 있는 이름일 수 있습니다."
+        );
+    } else if (needsUnlock) {
+      const r = await NexusAccess.unlock(category, unlockPassword);
+      if (!r.ok) return setFolderError(r.message || "폴더를 열지 못했습니다.");
+    }
+    if (targetFolder !== "전체")
+      try {
+        window.localStorage.setItem("archive-scope", targetFolder);
+      } catch {
+        /* non-fatal */
+      }
+
     setIsUploading(true);
     const queue = selectedFiles.map((file) => ({
       file,
@@ -129,12 +190,13 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
         const metadata = {
           title: file.name,
           docSource: file.name,
-          archiveScope: category,
+          archiveScope: targetFolder,
         };
 
         // Multipart text fields must precede the file field for multer to
         // expose them to the upload-and-embed endpoint.
-        if (category !== "전체") formData.append("folderName", category);
+        if (targetFolder !== "전체")
+          formData.append("folderName", targetFolder);
         formData.append("metadata", JSON.stringify(metadata));
         formData.append("orgUnit", trimmedOrgUnit);
         formData.append("file", file, file.name);
@@ -165,7 +227,7 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
     setIsUploading(false);
     if (results.every(Boolean)) {
       showToast(
-        `${results.length}개 자료를 ${category === "전체" ? "전체" : category} 아카이브에 저장했습니다.`,
+        `${results.length}개 자료를 ${targetFolder === "전체" ? "전체" : targetFolder} 아카이브에 저장했습니다.`,
         "success",
         { clear: true }
       );
@@ -260,13 +322,64 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
                 disabled={isUploading}
                 className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-blue-500 light:border-slate-300 light:bg-slate-50 light:text-slate-800"
               >
-                {ARCHIVE_CATEGORIES.map((option) => (
+                <option value="전체">전체</option>
+                {folderOptions.map((option) => (
                   <option key={option} value={option}>
+                    {folderInfo(option)?.locked ? "🔒 " : ""}
                     {option}
                   </option>
                 ))}
+                <option value={NEW_FOLDER}>+ 새 폴더 만들기…</option>
               </select>
             </label>
+
+            {category === NEW_FOLDER && (
+              <div className="mt-3 grid gap-3">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                  disabled={isUploading}
+                  placeholder="새 폴더 이름"
+                  autoComplete="off"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-blue-500 light:border-slate-300 light:bg-slate-50 light:text-slate-800"
+                />
+                <input
+                  type="password"
+                  value={newFolderPassword}
+                  onChange={(event) => setNewFolderPassword(event.target.value)}
+                  disabled={isUploading}
+                  placeholder="폴더 비밀번호 (선택 · 4자 이상)"
+                  autoComplete="new-password"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-blue-500 light:border-slate-300 light:bg-slate-50 light:text-slate-800"
+                />
+                <span className="text-xs text-zinc-500 light:text-slate-500">
+                  비밀번호를 정하면 이 폴더의 자료는 비밀번호를 아는 사람만
+                  검색하고 볼 수 있습니다. 비워 두면 누구나 볼 수 있습니다.
+                </span>
+              </div>
+            )}
+
+            {needsUnlock && (
+              <div className="mt-3 grid gap-2">
+                <input
+                  type="password"
+                  value={unlockPassword}
+                  onChange={(event) => setUnlockPassword(event.target.value)}
+                  disabled={isUploading}
+                  placeholder={`'${category}' 폴더 비밀번호`}
+                  autoComplete="off"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-blue-500 light:border-slate-300 light:bg-slate-50 light:text-slate-800"
+                />
+                <span className="text-xs text-zinc-500 light:text-slate-500">
+                  잠긴 폴더입니다. 비밀번호를 입력하면 올리기 전에 먼저 엽니다.
+                </span>
+              </div>
+            )}
+
+            {folderError && (
+              <p className="mt-2 text-xs text-red-400">{folderError}</p>
+            )}
 
             <label
               className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-zinc-600 bg-zinc-950/60 px-5 py-7 text-center transition hover:border-blue-500 hover:bg-blue-950/20 light:border-slate-300 light:bg-slate-50 light:hover:border-blue-400 light:hover:bg-blue-50"

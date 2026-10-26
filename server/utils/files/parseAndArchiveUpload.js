@@ -20,6 +20,9 @@ async function parseAndArchiveUpload({
   originalname,
   classification = null,
   userId = null,
+  // [NEXUS 폴더 잠금] 지정하면 처리된 문서를 이 폴더로 옮긴 뒤 임베딩한다
+  // (잠긴 폴더 자료로 만든 생성 문서가 공개 폴더로 새지 않게).
+  folderName = null,
 }) {
   const Collector = new CollectorApi();
   if (!(await Collector.online()))
@@ -31,6 +34,10 @@ async function parseAndArchiveUpload({
   );
   if (!success) throw new Error(reason || "파일 처리에 실패했습니다.");
 
+  if (folderName) {
+    const { moveProcessedDocsToFolder } = require("./index");
+    moveProcessedDocsToFolder(documents, folderName);
+  }
   const location = documents?.[0]?.location;
   if (!location) throw new Error("처리된 문서 위치를 찾지 못했습니다.");
 

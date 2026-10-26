@@ -1,4 +1,5 @@
 const prisma = require("../utils/prisma");
+const FolderAccess = require("../utils/folderAccess");
 const { safeJSONStringify } = require("../utils/helpers/chat/responses");
 
 const WorkspaceChats = {
@@ -20,6 +21,7 @@ const WorkspaceChats = {
           user_id: user?.id || null,
           thread_id: threadId,
           api_session_id: apiSessionId,
+          client_id: FolderAccess.currentClientId(),
           include,
         },
       });
@@ -89,12 +91,12 @@ const WorkspaceChats = {
     if (!workspaceId) return [];
     try {
       const chats = await prisma.workspace_chats.findMany({
-        where: {
+        where: FolderAccess.scopeChatWhere({
           workspaceId,
           thread_id: null, // this function is now only used for the default thread on workspaces
           api_session_id: null, // do not include api-session chats in the frontend for anyone.
           include: true,
-        },
+        }),
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
@@ -138,11 +140,11 @@ const WorkspaceChats = {
     if (!workspaceId || !threadId) return;
     try {
       await prisma.workspace_chats.updateMany({
-        where: {
+        where: FolderAccess.scopeChatWhere({
           workspaceId,
           thread_id: threadId,
           user_id: user?.id,
-        },
+        }),
         data: {
           include: false,
         },
@@ -164,7 +166,7 @@ const WorkspaceChats = {
     if (!whereClause) return;
     try {
       await prisma.workspace_chats.updateMany({
-        where: whereClause,
+        where: FolderAccess.scopeChatWhere(whereClause),
         data: {
           include: false,
         },
@@ -178,7 +180,7 @@ const WorkspaceChats = {
   get: async function (clause = {}, limit = null, orderBy = null) {
     try {
       const chat = await prisma.workspace_chats.findFirst({
-        where: clause,
+        where: FolderAccess.scopeChatWhere(clause),
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
@@ -192,7 +194,7 @@ const WorkspaceChats = {
   delete: async function (clause = {}) {
     try {
       await prisma.workspace_chats.deleteMany({
-        where: clause,
+        where: FolderAccess.scopeChatWhere(clause),
       });
       return true;
     } catch (error) {
@@ -209,7 +211,7 @@ const WorkspaceChats = {
   ) {
     try {
       const chats = await prisma.workspace_chats.findMany({
-        where: clause,
+        where: FolderAccess.scopeChatWhere(clause),
         ...(limit !== null ? { take: limit } : {}),
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
@@ -224,7 +226,7 @@ const WorkspaceChats = {
   count: async function (clause = {}) {
     try {
       const count = await prisma.workspace_chats.count({
-        where: clause,
+        where: FolderAccess.scopeChatWhere(clause),
       });
       return count;
     } catch (error) {
@@ -361,6 +363,7 @@ const WorkspaceChats = {
         user_id: data.user?.id || null,
         thread_id: data.threadId,
         api_session_id: data.apiSessionId,
+        client_id: FolderAccess.currentClientId(),
         include: data.include,
       };
 

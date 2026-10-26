@@ -21,6 +21,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { omitChunkHeader, parseChunkSource } from "../../ChatHistory/Citation";
 import { API_BASE } from "@/utils/constants";
+import { withClientParam } from "@/utils/nexusClient";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -167,7 +168,7 @@ export default function SourceViewer({ source, initialChunkId, onClose }) {
 
   const rawUrl =
     source?.doc_id && source?.has_original
-      ? `${API_BASE}/document/raw/${source.doc_id}`
+      ? withClientParam(`${API_BASE}/document/raw/${source.doc_id}`)
       : null;
 
   useEffect(() => {
