@@ -148,7 +148,7 @@ if ($Target -eq 'windows') {
 Step "8. MANIFEST"
 $docCount = (Get-ChildItem "$Out\data\storage\documents" -Recurse -File -Force | Measure-Object).Count
 $manifest = @(
-  "NEXUS Mac package",
+  "NEXUS migration package ($Target)",
   "created=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
   "source_host=$env:COMPUTERNAME",
   "git_branch=$branch",

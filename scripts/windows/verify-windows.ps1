@@ -53,7 +53,7 @@ if ($LASTEXITCODE -eq 0) {
     if ($n -match '^\d+$') {
       Pass "앱 계정으로 접속 OK — 벡터 ${n}행"
       $mf = Join-Path (Split-Path -Parent $root) 'data\MANIFEST.txt'
-      if (Test-Path $mf) { $want = (Select-String -Path $mf -Pattern '^pgvector_rows=' | Select-Object -First 1).Line -replace '^pgvector_rows=', ''; Write-Host "       내보낼 때: ${want}행" }
+      if (Test-Path $mf) { $want = (Select-String -Path $mf -Encoding UTF8 -Pattern '^pgvector_rows=' | Select-Object -First 1).Line -replace '^pgvector_rows=', ''; Write-Host "       내보낼 때: ${want}행" }
     } else { Fail "앱 계정으로 벡터 테이블을 읽지 못함" }
   } catch { Fail "벡터 행 수 확인 실패: $($_.Exception.Message)" }
 } else { Fail "Postgres 꺼짐 — run-local.ps1 이 WSL 을 깨웁니다" }

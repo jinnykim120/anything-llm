@@ -56,7 +56,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if ($isAdmin) { Ok "관리자 권한" } else { Warn "관리자 권한이 아닙니다 — WSL 을 새로 켜야 하면 관리자 PowerShell 에서 다시 실행하세요" }
 $free = [math]::Round((Get-PSDrive -Name ($root.Substring(0, 1))).Free / 1GB, 1)
 Ok "여유 디스크 ${free}GB (권장 20GB 이상)"
-if (Test-Path "$Data\MANIFEST.txt") { Get-Content "$Data\MANIFEST.txt" | Select-Object -First 8 | ForEach-Object { Write-Host "       $_" } }
+if (Test-Path "$Data\MANIFEST.txt") { Get-Content "$Data\MANIFEST.txt" -Encoding UTF8 | Select-Object -First 8 | ForEach-Object { Write-Host "       $_" } }
 
 # 사내 프록시 CA 를 먼저 적용해 winget/yarn/pip 가 통하게
 $ca = Join-Path $cache 'corp-root-ca.pem'
