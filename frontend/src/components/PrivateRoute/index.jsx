@@ -8,6 +8,7 @@ import { userFromStorage } from "@/utils/request";
 import System from "@/models/system";
 import UserMenu from "../UserMenu";
 import { KeyboardShortcutWrapper } from "@/utils/keyboardShortcuts";
+import AdminGate from "@/components/NexusAccess/AdminGate";
 
 // Used only for Multi-user mode only as we permission specific pages based on auth role.
 // When in single user mode we just bypass any authchecks.
@@ -87,17 +88,19 @@ export function AdminRoute({ Component, hideUserMenu = false }) {
 
   const user = userFromStorage();
   return isAuthd && (user?.role === "admin" || !multiUserMode) ? (
-    hideUserMenu ? (
-      <KeyboardShortcutWrapper>
-        <Component />
-      </KeyboardShortcutWrapper>
-    ) : (
-      <KeyboardShortcutWrapper>
-        <UserMenu>
+    <AdminGate>
+      {hideUserMenu ? (
+        <KeyboardShortcutWrapper>
           <Component />
-        </UserMenu>
-      </KeyboardShortcutWrapper>
-    )
+        </KeyboardShortcutWrapper>
+      ) : (
+        <KeyboardShortcutWrapper>
+          <UserMenu>
+            <Component />
+          </UserMenu>
+        </KeyboardShortcutWrapper>
+      )}
+    </AdminGate>
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -116,11 +119,13 @@ export function ManagerRoute({ Component }) {
 
   const user = userFromStorage();
   return isAuthd && (user?.role !== "default" || !multiUserMode) ? (
-    <KeyboardShortcutWrapper>
-      <UserMenu>
-        <Component />
-      </UserMenu>
-    </KeyboardShortcutWrapper>
+    <AdminGate>
+      <KeyboardShortcutWrapper>
+        <UserMenu>
+          <Component />
+        </UserMenu>
+      </KeyboardShortcutWrapper>
+    </AdminGate>
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -137,9 +142,11 @@ export function SingleUserRoute({ Component }) {
   }
 
   return isAuthd && !multiUserMode ? (
-    <KeyboardShortcutWrapper>
-      <Component />
-    </KeyboardShortcutWrapper>
+    <AdminGate>
+      <KeyboardShortcutWrapper>
+        <Component />
+      </KeyboardShortcutWrapper>
+    </AdminGate>
   ) : (
     <Navigate to={paths.home()} />
   );

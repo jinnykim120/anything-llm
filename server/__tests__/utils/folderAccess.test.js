@@ -65,15 +65,17 @@ jest.mock("../../utils/prisma", () => ({
     },
   },
   workspace_documents: {
-    findMany: async ({ where }) =>
-      mockDb.docs.filter((d) =>
-        where.OR.some((c) =>
-          c.docpath
-            ? d.docpath.startsWith(c.docpath.startsWith)
-            : c.docId
-              ? c.docId.in.includes(d.docId)
-              : c.id.in.includes(d.id)
-        )
+    findMany: async ({ where } = {}) =>
+      mockDb.docs.filter(
+        (d) =>
+          !where ||
+          where.OR.some((c) =>
+            c.docpath
+              ? d.docpath.startsWith(c.docpath.startsWith)
+              : c.docId
+                ? c.docId.in.includes(d.docId)
+                : c.id.in.includes(d.id)
+          )
       ),
   },
 }));
@@ -257,21 +259,45 @@ describe("admin", () => {
       (await FA.adminLogin({ clientId: CLIENT_A, password: "x" })).reason
     ).toBe("disabled");
   });
-  it("admin sees everything; wrong password does not", async () => {
+
+  it("wrong password does not log in; right one does", async () => {
     process.env.NEXUS_ADMIN_PASSWORD = "root-pw";
-    await FA.createLock({ folder: "비공개", password: "pw1234" });
     expect(
       (await FA.adminLogin({ clientId: CLIENT_B, password: "nope" })).ok
     ).toBe(false);
     expect(
       (await FA.adminLogin({ clientId: CLIENT_B, password: "root-pw" })).ok
     ).toBe(true);
-    const s = await FA.buildScope(CLIENT_B);
+  });
+
+  it("an admin browser acts as a normal user outside the console", async () => {
+    process.env.NEXUS_ADMIN_PASSWORD = "root-pw";
+    await FA.createLock({ folder: "비공개", password: "pw1234" });
+    await FA.adminLogin({ clientId: CLIENT_B, password: "root-pw" });
+    const normal = await FA.buildScope(CLIENT_B);
+    expect(normal.adminAuthed).toBe(true);
+    expect(normal.isAdmin).toBe(false);
+    expect((await FA.deniedDocIds(normal)).sort()).toEqual([
+      "d-secret",
+      "d-win",
+    ]);
+    expect(await FA.canAccessDocpath("비공개/a.json", normal)).toBe(false);
+  });
+
+  it("sees everything in console mode, and only after logging in", async () => {
+    process.env.NEXUS_ADMIN_PASSWORD = "root-pw";
+    await FA.createLock({ folder: "비공개", password: "pw1234" });
+    const before = await FA.buildScope(CLIENT_B, { consoleMode: true });
+    expect(before.isAdmin).toBe(false); // 콘솔 헤더만으로는 권한이 생기지 않는다
+    await FA.adminLogin({ clientId: CLIENT_B, password: "root-pw" });
+    const s = await FA.buildScope(CLIENT_B, { consoleMode: true });
     expect(s.isAdmin).toBe(true);
     expect(await FA.deniedDocIds(s)).toEqual([]);
     expect(await FA.canAccessDocpath("비공개/a.json", s)).toBe(true);
     await FA.adminLogout(CLIENT_B);
-    expect((await FA.buildScope(CLIENT_B)).isAdmin).toBe(false);
+    expect((await FA.buildScope(CLIENT_B, { consoleMode: true })).isAdmin).toBe(
+      false
+    );
   });
 });
 
@@ -355,5 +381,48 @@ describe("restrictionForSources (생성 문서 잠금 상속)", () => {
       scope: await scopeOf(CLIENT_B),
     });
     expect(none).toEqual({ folder: null, skip: false });
+  });
+});
+
+describe("한글 폴더 이름의 유니코드 표기 (NFC/NFD)", () => {
+  const NFC = "실적".normalize("NFC");
+  const NFD = "실적".normalize("NFD");
+
+  it("sanity: the two spellings differ as strings", () => {
+    expect(NFC).not.toBe(NFD);
+  });
+
+  it("a lock created with the NFD name still protects NFC docpaths", async () => {
+    mockDb.docs.push({ id: 9, docId: "d-job", docpath: `${NFC}/a.json` });
+    await FA.createLock({
+      folder: NFD,
+      password: "pw1234",
+      clientId: CLIENT_A,
+    });
+    expect(FA.folderOfDocpath(`${NFC}/a.json`)).toBe(
+      FA.folderOfDocpath(`${NFD}/a.json`)
+    );
+    const b = await FA.buildScope(CLIENT_B);
+    expect(await FA.deniedDocIds(b)).toContain("d-job");
+    expect(await FA.canAccessDocpath(`${NFC}/a.json`, b)).toBe(false);
+    expect(await FA.canAccessDocpath(`${NFD}/a.json`, b)).toBe(false);
+  });
+
+  it("unlocking with either spelling opens the folder", async () => {
+    mockDb.docs.push({ id: 9, docId: "d-job", docpath: `${NFC}/a.json` });
+    await FA.createLock({
+      folder: NFC,
+      password: "pw1234",
+      clientId: CLIENT_A,
+    });
+    const r = await FA.unlockFolder({
+      clientId: CLIENT_B,
+      folder: NFD,
+      password: "pw1234",
+    });
+    expect(r.ok).toBe(true);
+    const b = await FA.buildScope(CLIENT_B);
+    expect(await FA.deniedDocIds(b)).not.toContain("d-job");
+    expect(FA.canAccessFolder(b, NFD)).toBe(true);
   });
 });

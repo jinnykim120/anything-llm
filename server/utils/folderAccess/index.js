@@ -21,10 +21,17 @@ function unlockTtlMs() {
   const h = Number(process.env.NEXUS_UNLOCK_TTL_HOURS);
   return (Number.isFinite(h) && h > 0 ? h : 8) * HOUR;
 }
+// 관리자 로그인 유지 시간: 기본 30분. 콘솔을 쓰는 동안에는 자동으로 연장된다 (accessContext).
 function adminTtlMs() {
   const h = Number(process.env.NEXUS_ADMIN_TTL_HOURS);
-  return (Number.isFinite(h) && h > 0 ? h : 12) * HOUR;
+  return (Number.isFinite(h) && h > 0 ? h : 0.5) * HOUR;
 }
+
+/**
+ * 한글 폴더 이름은 맥 파일시스템·복사 도구에 따라 조합형(NFC)/분해형(NFD) 두 가지로 저장된다.
+ * 눈에는 같아도 문자열은 달라서, 잠금 이름과 문서 경로를 비교할 때는 항상 NFC 로 맞춘다.
+ */
+const nfc = (s) => String(s ?? "").normalize("NFC");
 
 /** docpath("실적\\x.json" 포함)에서 폴더(첫 구간)를 뽑는다. 루트 파일은 "". */
 function folderOfDocpath(docpath = "") {
@@ -32,7 +39,7 @@ function folderOfDocpath(docpath = "") {
     .replace(/\\/g, "/")
     .replace(/^\/+/, "");
   const i = p.indexOf("/");
-  return i === -1 ? "" : p.slice(0, i);
+  return i === -1 ? "" : nfc(p.slice(0, i));
 }
 
 /** 폴더 이름(단일 구간)으로 정규화. 유효하지 않으면 null. */
@@ -42,7 +49,7 @@ function normalizeFolderName(name = "") {
     .replace(/^\/+|\/+$/g, "")
     .trim();
   if (!n || n.includes("/") || n === "." || n === "..") return null;
-  return n;
+  return nfc(n);
 }
 
 // ---------------------------------------------------------------- 비밀번호
@@ -113,7 +120,7 @@ function validClientId(raw) {
  * 클라이언트의 접근 범위를 DB에서 읽어 만든다.
  * @returns {Promise<{clientId:string|null,isAdmin:boolean,locked:Set<string>,unlocked:Set<string>}>}
  */
-async function buildScope(clientId) {
+async function buildScope(clientId, { consoleMode = false } = {}) {
   const now = new Date();
   const [locks, unlocks, admin] = await Promise.all([
     prisma.folder_locks.findMany({ select: { folder: true } }),
@@ -126,13 +133,18 @@ async function buildScope(clientId) {
     clientId
       ? prisma.access_admins.findFirst({
           where: { clientId, expiresAt: { gt: now } },
-          select: { id: true },
+          select: { id: true, expiresAt: true },
         })
       : null,
   ]);
   return {
     clientId,
-    isAdmin: !!admin,
+    // 관리자 비밀번호로 로그인한 브라우저인가
+    adminAuthed: !!admin,
+    adminExpiresAt: admin?.expiresAt || null,
+    // 관리자 권한을 실제로 쓰는 요청인가 — 관리자 콘솔·설정 화면(X-Nexus-Console 헤더)에서만.
+    // 평소 화면에서는 관리자도 일반 사용자와 똑같이 동작한다.
+    isAdmin: !!admin && consoleMode,
     locked: new Set(locks.map((l) => l.folder)),
     unlocked: new Set(unlocks.map((u) => u.folder)),
     _deniedDocIds: null,
@@ -143,6 +155,8 @@ async function buildScope(clientId) {
 function publicOnlyScope(locked = new Set()) {
   return {
     clientId: null,
+    adminAuthed: false,
+    adminExpiresAt: null,
     isAdmin: false,
     locked,
     unlocked: new Set(),
@@ -158,7 +172,8 @@ function currentScope() {
 function canAccessFolder(scope, folder) {
   if (!folder) return true; // 루트 파일은 잠글 수 없다
   if (scope?.isAdmin) return true;
-  return !scope.locked.has(folder) || scope.unlocked.has(folder);
+  const name = nfc(folder);
+  return !scope.locked.has(name) || scope.unlocked.has(name);
 }
 
 /**
@@ -168,7 +183,9 @@ function canAccessFolder(scope, folder) {
 async function canAccessFolderAsync(folder, scope = currentScope()) {
   if (!folder) return true;
   if (scope) return canAccessFolder(scope, folder);
-  const lock = await prisma.folder_locks.findUnique({ where: { folder } });
+  const lock = await prisma.folder_locks.findUnique({
+    where: { folder: nfc(folder) },
+  });
   return !lock;
 }
 
@@ -187,7 +204,7 @@ async function lockedFolderSet() {
   const locks = await prisma.folder_locks.findMany({
     select: { folder: true },
   });
-  return new Set(locks.map((l) => l.folder));
+  return new Set(locks.map((l) => nfc(l.folder)));
 }
 
 /**
@@ -197,19 +214,21 @@ async function lockedFolderSet() {
  */
 async function deniedDocIds(scope = currentScope()) {
   if (scope?._deniedDocIds) return scope._deniedDocIds;
-  const folders = await inaccessibleFolders(scope);
+  const folders = new Set(await inaccessibleFolders(scope));
   let ids = [];
-  if (folders.length) {
+  if (folders.size) {
+    // 폴더 이름의 유니코드 표기 차이(NFC/NFD)를 SQL startsWith 로는 못 맞추므로
+    // 경로를 가져와 정규화한 폴더로 비교한다.
     const rows = await prisma.workspace_documents.findMany({
-      where: {
-        OR: folders.flatMap((f) => [
-          { docpath: { startsWith: `${f}/` } },
-          { docpath: { startsWith: `${f}\\` } },
-        ]),
-      },
-      select: { docId: true },
+      select: { docId: true, docpath: true },
     });
-    ids = [...new Set(rows.map((r) => r.docId))];
+    ids = [
+      ...new Set(
+        rows
+          .filter((r) => folders.has(folderOfDocpath(r.docpath)))
+          .map((r) => r.docId)
+      ),
+    ];
   }
   if (scope) scope._deniedDocIds = ids;
   return ids;
@@ -332,7 +351,7 @@ async function filterDocpaths(docpaths = [], scope = currentScope()) {
   return docpaths.filter((d) => !folders.has(folderOfDocpath(d)));
 }
 
-/** 관리자만 통과. 관리자 비밀번호가 설정돼 있지 않으면 기존 동작(열림)을 유지한다. */
+/** 콘솔(관리자 권한을 쓰는 요청)만 통과. 관리자 비밀번호가 설정돼 있지 않으면 기존 동작(열림)을 유지한다. */
 function requireAdminIfEnabled(_request, response, next) {
   if (!adminEnabled() || response.locals.nexusScope?.isAdmin) return next();
   return response
@@ -493,7 +512,19 @@ async function accessContext(request, response, next) {
     const clientId = validClientId(
       request.headers["x-nexus-client"] || request.query?.cid
     );
-    const scope = await buildScope(clientId);
+    const consoleMode = request.headers["x-nexus-console"] === "1";
+    const scope = await buildScope(clientId, { consoleMode });
+    // 콘솔을 쓰는 동안은 로그인 유지 시간을 자동 연장한다 (남은 시간이 절반 아래일 때만).
+    if (scope.isAdmin && scope.adminExpiresAt) {
+      const ttl = adminTtlMs();
+      if (new Date(scope.adminExpiresAt).getTime() - Date.now() < ttl / 2) {
+        const expiresAt = new Date(Date.now() + ttl);
+        prisma.access_admins
+          .updateMany({ where: { clientId }, data: { expiresAt } })
+          .catch(() => {});
+        scope.adminExpiresAt = expiresAt;
+      }
+    }
     response.locals.nexusScope = scope;
     als.run(scope, () => next());
   } catch (e) {

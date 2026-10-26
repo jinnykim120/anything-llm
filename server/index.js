@@ -27,6 +27,7 @@ const { workspaceThreadEndpoints } = require("./endpoints/workspaceThreads");
 const { documentEndpoints } = require("./endpoints/document");
 const { folderLockEndpoints } = require("./endpoints/folderLocks");
 const { accessContext } = require("./utils/folderAccess");
+const { consoleGuard } = require("./utils/folderAccess/adminRoutes");
 const { doclingEndpoints } = require("./endpoints/docling");
 const { classificationEndpoints } = require("./endpoints/classification");
 const { draftEndpoints } = require("./endpoints/draft");
@@ -81,6 +82,8 @@ if (
 app.use(cors({ origin: true }));
 // [NEXUS 폴더 잠금] 이후 모든 요청에 클라이언트별 접근 범위를 붙인다.
 app.use(accessContext);
+// 관리자 전용 경로(설정·관리 기능)는 라우터에 닿기 전에 한 곳에서 막는다.
+app.use("/api", consoleGuard);
 app.use(bodyParser.text({ limit: FILE_LIMIT }));
 app.use(bodyParser.json({ limit: FILE_LIMIT }));
 app.use(

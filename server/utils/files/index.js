@@ -50,7 +50,7 @@ function listFolders() {
     // [NEXUS 폴더 잠금] 잠긴 폴더도 이름·잠금 표시는 보이되, 열 수 없으면
     // 문서 수도 알려주지 않는다.
     const scope = FolderAccess.currentScope();
-    const locked = !!scope?.locked.has(file);
+    const locked = !!scope?.locked.has(file.normalize("NFC"));
     if (locked && !FolderAccess.canAccessFolder(scope, file)) {
       folders.push({
         name: file,
@@ -691,7 +691,9 @@ async function searchDocuments(searchTerm = "") {
   const hits = [...new Set([...fileHits, ...contentHits])]
     .filter(
       (absPath) =>
-        !lockedHere.has(path.basename(path.dirname(String(absPath))))
+        !lockedHere.has(
+          path.basename(path.dirname(String(absPath))).normalize("NFC")
+        )
     )
     .sort()
     .slice(0, SEARCH_MAX_RESULTS);

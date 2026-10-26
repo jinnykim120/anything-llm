@@ -69,6 +69,13 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/nexus-admin",
+        lazy: async () => {
+          const { default: NexusAdmin } = await import("@/pages/NexusAdmin");
+          return { element: <PrivateRoute Component={NexusAdmin} /> };
+        },
+      },
+      {
         path: "/workspace/:slug/library",
         lazy: async () => {
           const { default: DocumentRoom } = await import(
@@ -374,7 +381,7 @@ const router = createBrowserRouter([
           const { default: ClassificationReview } = await import(
             "@/pages/GeneralSettings/Classification"
           );
-          return { element: <ManagerRoute Component={ClassificationReview} /> };
+          return { element: <PrivateRoute Component={ClassificationReview} /> };
         },
       },
       {

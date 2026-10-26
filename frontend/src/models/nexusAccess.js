@@ -46,6 +46,19 @@ const NexusAccess = {
   adminLogin: (password) =>
     call("/nexus/admin/login", { method: "POST", body: { password } }),
   adminLogout: () => call("/nexus/admin/logout", { method: "POST" }),
+  adminOverview: () => call("/nexus/admin/overview"),
+  adminFolders: () => call("/nexus/admin/folders"),
+  adminLockFolder: (name, password) =>
+    call(`/nexus/admin/folders/${enc(name)}/lock`, {
+      method: "POST",
+      body: { password },
+    }),
+  adminChats: ({ q = "", client = "", offset = 0, limit = 30 } = {}) => {
+    const qs = new URLSearchParams({ limit, offset });
+    if (q) qs.set("q", q);
+    if (client) qs.set("client", client);
+    return call(`/nexus/admin/chats?${qs.toString()}`);
+  },
   adminReset: (name, newPassword) =>
     call(`/nexus/folders/${enc(name)}/admin-reset`, {
       method: "POST",

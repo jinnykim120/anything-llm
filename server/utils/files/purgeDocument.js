@@ -32,9 +32,11 @@ async function purgeDocument(filename = null) {
  */
 async function purgeFolder(folderName = null) {
   if (!folderName) return;
-  const subFolder = normalizePath(folderName);
-  const subFolderPath = path.resolve(documentsPath, subFolder);
-  const validRemovableSubFolders = fs
+  // 한글 폴더 이름은 디스크에는 분해형(NFD), 문서 경로에는 조합형(NFC)으로 저장돼 있을 수
+  // 있다 — 눈에는 같아도 문자열 비교로는 다르므로 NFC 로 맞춰 비교하고, 디스크 작업은
+  // 디스크에 실제로 있는 이름으로 한다.
+  const wanted = normalizePath(folderName).normalize("NFC");
+  const onDisk = fs
     .readdirSync(documentsPath)
     .map((folder) => {
       // Filter out any results which are not folders or
@@ -44,20 +46,23 @@ async function purgeFolder(folderName = null) {
       if (!fs.lstatSync(subfolderPath).isDirectory()) return null;
       return folder;
     })
-    .filter((subFolder) => !!subFolder);
+    .filter((subFolder) => !!subFolder)
+    .find((folder) => folder.normalize("NFC") === wanted);
 
-  if (
-    !validRemovableSubFolders.includes(subFolder) ||
-    !fs.existsSync(subFolderPath) ||
-    !isWithin(documentsPath, subFolderPath)
-  )
+  if (!onDisk) return;
+  const subFolderPath = path.resolve(documentsPath, onDisk);
+  if (!fs.existsSync(subFolderPath) || !isWithin(documentsPath, subFolderPath))
     return;
 
+  // 워크스페이스 문서 연결을 풀 때 docpath 가 조합형/분해형 어느 쪽으로 저장돼 있어도
+  // 맞도록 두 표기를 모두 넘긴다.
   const filenames = fs
     .readdirSync(subFolderPath)
-    .map((file) =>
-      path.join(subFolderPath, file).replace(documentsPath + "/", "")
-    );
+    .flatMap((file) => [
+      `${wanted}/${file}`,
+      `${wanted.normalize("NFD")}/${file}`,
+    ])
+    .filter((v, i, a) => a.indexOf(v) === i);
   const workspaces = await Workspace.where();
 
   const purgePromises = [];

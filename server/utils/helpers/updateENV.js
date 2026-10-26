@@ -1445,6 +1445,9 @@ async function logChangesToEventLog(newValues = {}, userId = null) {
 }
 
 function dumpENV() {
+  // 테스트(jest)가 실행 중에 이 함수를 거치면 테스트용 STORAGE_DIR 등이 실제 server/.env 에
+  // 기록되고, 다음에 서버를 켤 때 그 값이 적용돼 임베딩 모델 경로 등이 깨진다.
+  if (process.env.JEST_WORKER_ID !== undefined) return;
   const fs = require("fs");
   const path = require("path");
 
