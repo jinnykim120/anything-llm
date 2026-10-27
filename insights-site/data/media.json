@@ -182,5 +182,21 @@
   "w-fn": {
     "url": "https://image.fnnews.com/resource/media/image/2026/09/15/202609151806267942_e.jpg",
     "credit": "파이낸셜뉴스"
+  },
+  "v-et": {
+    "url": "https://img.etoday.co.kr/pto_db/2026/10/20261022141220_2405472_1200_675.png",
+    "credit": "이투데이"
+  },
+  "v-hk": {
+    "url": "https://newsimg.hankookilbo.com/2026/10/23/58c639b4-3d16-4fbc-b4d9-0604e2694c43.jpg",
+    "credit": "한국일보"
+  },
+  "v-bl": {
+    "url": "https://cdn.bloter.net/news/photo/202610/675176_289003_3317.jpg",
+    "credit": "블로터"
+  },
+  "v-mt": {
+    "url": "https://thumb.mt.co.kr/21/2025/06/2025061214242945264_1.jpg",
+    "credit": "머니투데이"
   }
 }
