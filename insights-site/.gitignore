@@ -1,0 +1,12 @@
+# 빌드 결과물 — node insights-site/build.mjs 로 다시 만든다
+site/
+
+# 외부 기사·영상 이미지(저작권) — data/media.json 의 주소로 node insights-site/fetch-media.mjs 가 다시 받는다
+data/media/
+
+# 사내 문서 기반 분야 초안 — 담당자 검토 전에는 커밋하지 않는다
+data/drafts/공정거래.json
+data/drafts/동반성장.json
+
+# 임시 파일
+*.tmp
