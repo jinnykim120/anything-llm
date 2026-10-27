@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEXUS 인사이트 보드</title>
+<link rel="stylesheet" href="ui-extra.css">
+<style>
+@font-face{font-family:"Pretendard Variable";src:url("fonts/PretendardVariable.woff2") format("woff2-variations"),url("fonts/PretendardVariable.woff2") format("woff2");font-weight:45 920;font-style:normal;font-display:swap}
+@font-face{font-family:"Outfit";src:url("fonts/Outfit-latin-wght.woff2") format("woff2-variations"),url("fonts/Outfit-latin-wght.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
+  :root{
+    --bg:#f4f1ec;--surface:#fff;--ink:#1c1b1a;--mute:#6f6a63;--line:#e7e2da;--shadow:0 1px 2px rgba(40,30,20,.06),0 6px 18px rgba(40,30,20,.06);
+    --conv:#2f6fed;--conv-s:#e6eeff;--super:#1f9d63;--super-s:#e2f5ea;--home:#e8662c;--home-s:#fdebe1;--corp:#7a4fd6;--corp-s:#eee8fb;--etc:#9a9388;
+    --hi:#d63a3a;--hi-s:#fde8e8;--mid:#c98a0b;--mid-s:#fcf1d8;--low:#5c6b80;--low-s:#e9edf2;
+    --ink-card:#1f2a44;--ink-card-fg:#f3f5fb;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#15130f;--surface:#211e19;--ink:#f1ede6;--mute:#a39c92;--line:#35302a;--shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.3);
+    --conv:#7ba4ff;--conv-s:#1d2a4a;--super:#52d196;--super-s:#16301f;--home:#ff9560;--home-s:#3a2216;--corp:#b79cff;--corp-s:#2a2142;--etc:#8a8379;
+    --hi:#ff7a7a;--hi-s:#3b1c1c;--mid:#f0b94a;--mid-s:#3a2d10;--low:#9fb0c6;--low-s:#252c35;
+    --ink-card:#2a3556;--ink-card-fg:#f3f5fb;
+  }}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:76px}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Pretendard Variable",Pretendard,"SF Pro Text","Segoe UI Variable Text","Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  button{font:inherit;color:inherit}
+  .banner{background:var(--mid-s);color:var(--mid);text-align:center;padding:8px 16px;font-size:13px;font-weight:600}
+
+  .top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .top-in{max-width:1480px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:20px}
+  .logo{font-weight:800;letter-spacing:-.02em;font-size:18px;white-space:nowrap}
+  .logo b{color:var(--conv)}
+  .nav{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav a{padding:8px 14px;border-radius:999px;text-decoration:none;color:var(--mute);font-weight:700;font-size:14px;white-space:nowrap}
+  .nav a:hover{background:var(--line)}
+  .nav a[aria-current=true]{background:var(--ink);color:var(--bg)}
+  a:focus-visible,.card:focus-visible,.x:focus-visible,.chip:focus-visible{outline:3px solid var(--conv);outline-offset:2px}
+
+  .wrap{max-width:1480px;margin:0 auto;padding:0 24px}
+  .mast{padding-top:40px;padding-bottom:8px}
+  .eyebrow{font-size:13px;font-weight:700;color:var(--conv);letter-spacing:.04em}
+  .mast h1{margin:6px 0 10px;font-size:clamp(28px,4.4vw,46px);line-height:1.12;letter-spacing:-.03em}
+  .mast p{margin:0;max-width:720px;color:var(--mute);font-size:16px}
+  .mast .meta{margin-top:12px;font-size:13px;color:var(--mute)}
+
+  section.sec{padding-top:64px}
+  .sec-h{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+  .sec-n{font-size:56px;font-weight:800;line-height:.9;letter-spacing:-.05em;color:var(--line)}
+  .sec-h h2{margin:0;font-size:clamp(22px,3vw,30px);letter-spacing:-.03em;line-height:1.2}
+  .sec-lede{margin:6px 0 22px;color:var(--mute);max-width:720px;font-size:15.5px}
+  .sub-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:34px 0 14px}
+  .sub-h h3{margin:0;font-size:19px;letter-spacing:-.02em}
+  .sub-h span{color:var(--mute);font-size:14px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 6px}
+  .chip{border:0;background:var(--surface);padding:6px 14px;border-radius:999px;cursor:pointer;font-weight:600;font-size:13.5px;box-shadow:inset 0 0 0 1px var(--line)}
+  .chip:hover{background:var(--line)}
+  .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);box-shadow:none}
+
+  .grid{position:relative}
+  .card{position:absolute;left:0;top:0;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);overflow:hidden;text-align:left;border:0;padding:0;display:block;
+    transition:transform .35s cubic-bezier(.2,.7,.2,1);will-change:transform}
+  .card.click{cursor:pointer}
+  .card.click:hover{box-shadow:0 2px 4px rgba(40,30,20,.08),0 14px 32px rgba(40,30,20,.14)}
+  .card.hide{display:none}
+  .cover{position:relative;overflow:hidden;padding:18px 18px 0}
+  .cover svg.blob{position:absolute;inset:0;width:100%;height:100%}
+  .tag{position:relative;display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.75);color:#222;margin:0 6px 6px 0}
+  .body{padding:14px 18px 18px}
+  .body h3{margin:0 0 6px;font-size:17px;line-height:1.35;letter-spacing:-.015em}
+  .body p{margin:0 0 8px;color:var(--mute);font-size:14px}
+  .body p:last-child{margin-bottom:0}
+  .body p.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
+  .body p.clamp4{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .foot{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  .pill{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--low-s);color:var(--low)}
+  .pill.hi{background:var(--hi-s);color:var(--hi)} .pill.mid{background:var(--mid-s);color:var(--mid)}
+  .pill.good{background:var(--super-s);color:var(--super)} .pill.bad{background:var(--hi-s);color:var(--hi)} .pill.both{background:var(--mid-s);color:var(--mid)}
+  .c-conv{--c:var(--conv);--cs:var(--conv-s)} .c-super{--c:var(--super);--cs:var(--super-s)} .c-home{--c:var(--home);--cs:var(--home-s)} .c-corp{--c:var(--corp);--cs:var(--corp-s)}
+  .cover.tint{background:var(--cs)}
+  .big{font-size:44px;font-weight:800;letter-spacing:-.04em;line-height:1;color:var(--c)}
+  .big small{font-size:18px;font-weight:700;margin-left:2px}
+  .lead{font-size:13px;color:var(--mute);font-weight:600;margin-bottom:8px}
+  .card.dark{background:var(--ink-card);color:var(--ink-card-fg)}
+  .card.dark .body p{color:#c9d0e6} .card.dark .pill{background:rgba(255,255,255,.14);color:#e6eaff}
+  .qmark{font-size:12px;font-weight:800;letter-spacing:.08em;color:#9db4ff;margin-bottom:8px}
+  .qtext{font-size:20px;font-weight:700;line-height:1.4;letter-spacing:-.02em;margin:0 0 12px;color:#fff}
+  .chart{display:block;width:100%;height:auto}
+  .chart text{font:600 11px system-ui,"Malgun Gothic",sans-serif;fill:var(--mute)}
+  .chart .lab{fill:var(--ink);font-weight:800;font-size:12px}
+  .chart .grid{stroke:var(--line);stroke-width:1}
+  .trigbox{background:var(--low-s);border-radius:10px;padding:8px 10px;font-size:13px;color:var(--ink);margin-top:10px}
+  .trigbox b{display:block;font-size:11px;letter-spacing:.06em;color:var(--mute);margin-bottom:2px}
+  .lists{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .lists h5{margin:0 0 4px;font-size:11px;letter-spacing:.06em;color:var(--mute)}
+  .lists ul{margin:0;padding-left:16px;font-size:13px;color:var(--ink)}
+  .narr h4{margin:14px 0 4px;font-size:15px;letter-spacing:-.01em}
+  .narr h4:first-child{margin-top:0}
+  .narr p{color:var(--ink);font-size:14.5px}
+  table.t{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+  table.t th,table.t td{padding:6px 6px;text-align:right;border-bottom:1px solid var(--line)}
+  table.t th:first-child,table.t td:first-child{text-align:left}
+  table.t th{font-size:11.5px;color:var(--mute);font-weight:700}
+  table.t tr.em td{font-weight:800}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin-top:8px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+  .panel .body h3{font-size:16px}
+  .panel .body p{color:var(--ink);font-size:14.5px}
+  .step{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:13px;font-weight:800;margin-right:8px;vertical-align:1px}
+  .eq{background:var(--low-s);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:8px 0;color:var(--ink)}
+  .empty{padding:48px 0;text-align:center;color:var(--mute)}
+
+  .scrim{position:fixed;inset:0;background:rgba(15,12,8,.55);z-index:50;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;padding:32px 16px}
+  .scrim.on{display:flex}
+  .sheet{background:var(--surface);border-radius:24px;max-width:720px;width:100%;box-shadow:0 30px 80px rgba(0,0,0,.35);position:relative;overflow:hidden}
+  .sheet .cover{padding:28px 28px 0}
+  .sheet .inner{padding:18px 28px 28px}
+  .sheet h2{margin:0 0 10px;font-size:24px;line-height:1.3;letter-spacing:-.025em}
+  .sheet p{margin:0 0 14px;font-size:16px}
+  .sheet h4{margin:22px 0 8px;font-size:13px;letter-spacing:.06em;color:var(--mute)}
+  .x{position:absolute;right:14px;top:14px;z-index:3;width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.9);color:#222;font-size:20px;cursor:pointer}
+  .trig{background:var(--low-s);border-radius:12px;padding:12px 14px;font-size:15px}
+  .src{border-top:1px solid var(--line);padding:12px 0;font-size:13.5px}
+  .src b{display:block;font-size:14px}
+  .src .m{color:var(--mute);font-size:12.5px}
+  .src ul{margin:6px 0 0;padding-left:18px;color:var(--mute)}
+  .src a{color:var(--conv);text-underline-offset:2px}
+  .note{font-size:13px;color:var(--mute);background:var(--low-s);border-radius:12px;padding:10px 14px}
+  footer{padding-top:56px;padding-bottom:56px;color:var(--mute);font-size:13px}
+  @media (max-width:600px){.top-in{padding:10px 16px;gap:12px}.wrap{padding-left:16px;padding-right:16px}.sheet .inner,.sheet .cover{padding-left:18px;padding-right:18px}.sec-n{font-size:40px}.lists{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){.card{transition:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div id="banner" class="banner" hidden>미리보기 — 담당자 승인 전 초안이 포함되어 있습니다. 배포하지 마세요.</div>
+<div class="top"><div class="top-in">
+  <a class="logo" href="index.html" style="text-decoration:none;color:inherit" title="피드로 돌아가기">NEXUS <b>Insight</b></a>
+  <nav class="nav" id="nav" aria-label="섹션"></nav>
+</div></div>
+<div class="wrap">
+  <header id="head"></header>
+  <main id="main"></main>
+  <footer id="foot"></footer>
+</div>
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="상세"><div class="sheet" id="sheet"></div></div>
+
+<script src="site-data.js"></script>
+<script>
+(function () {
+  "use strict";
+  var D = window.SITE_DATA || {};
+  var board = (D.boards || [])[0] || null, F = D.forecast || null;
+  var OUT = (board && board.outlook) || null;
+  var SEGC = { "편의점": "c-conv", "수퍼마켓": "c-super", "홈쇼핑": "c-home", "전사": "c-corp", "기타": "c-corp" };
+  var SEGCOL = { "편의점": "--conv", "수퍼마켓": "--super", "홈쇼핑": "--home", "전사": "--corp", "기타": "--etc" };
+  var SEGS = ["편의점", "수퍼마켓", "홈쇼핑"];
+  var NS = "http://www.w3.org/2000/svg";
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function svg(tag, attrs, text) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; }
+  function cv(n) { return "var(" + n + ")"; }
+  function jo(v, d) { return (v / 1e6).toFixed(d == null ? 2 : d); }
+  function pc(v, d) { return (v * 100).toFixed(d == null ? 1 : d) + "%"; }
+  function sgn(v, d) { return (v >= 0 ? "+" : "") + pc(v, d); }
+  function hash(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+
+  /* ---------- masonry ---------- */
+  var grids = [];
+  function Grid(container) {
+    var g = { box: container, items: [] };
+    container.classList.add("grid");
+    g.add = function (node, opt) {
+      opt = opt || {}; node.classList.add("card");
+      if (opt.open) {
+        node.classList.add("click"); node.setAttribute("tabindex", "0"); node.setAttribute("role", "button");
+        node.addEventListener("click", opt.open);
+        node.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); opt.open(); } });
+      }
+      g.items.push({ node: node, span: opt.span || 1, seg: opt.seg || null });
+      container.appendChild(node);
+    };
+    g.layout = function () {
+      var GAP = 20, W = container.clientWidth, minW = W < 560 ? W : 280;
+      var cols = Math.max(1, Math.floor((W + GAP) / (minW + GAP))), cw = (W - (cols - 1) * GAP) / cols, hs = [];
+      for (var i = 0; i < cols; i++) hs.push(0);
+      g.items.forEach(function (it) {
+        if (it.node.classList.contains("hide")) return;
+        var span = Math.min(it.span, cols), c = 0;
+        if (span === 1) { for (var k = 1; k < cols; k++) if (hs[k] < hs[c]) c = k; }
+        else { var best = Infinity; for (var j = 0; j <= cols - span; j++) { var m = 0; for (var s = 0; s < span; s++) m = Math.max(m, hs[j + s]); if (m < best) { best = m; c = j; } } }
+        it.node.style.width = (span * cw + (span - 1) * GAP) + "px";
+        var y = 0; for (var s2 = 0; s2 < span; s2++) y = Math.max(y, hs[c + s2]);
+        it.node.style.transform = "translate(" + (c * (cw + GAP)) + "px," + y + "px)";
+        var h = it.node.offsetHeight; for (var s3 = 0; s3 < span; s3++) hs[c + s3] = y + h + GAP;
+      });
+      container.style.height = Math.max.apply(null, hs) + "px";
+    };
+    g.filter = function (seg) { g.items.forEach(function (it) { it.node.classList.toggle("hide", !!seg && it.seg !== seg && it.seg !== "전사"); }); g.layout(); };
+    grids.push(g); return g;
+  }
+
+  /* ---------- parts ---------- */
+  function cover(seg, seed, height, tags) {
+    var c = el("div", "cover tint " + (SEGC[seg] || "c-corp")); c.style.height = height + "px";
+    var s = svg("svg", { "class": "blob", viewBox: "0 0 300 " + height, preserveAspectRatio: "xMidYMid slice", "aria-hidden": "true" });
+    var h = hash(seed);
+    for (var i = 0; i < 3; i++) s.appendChild(svg("circle", { cx: (h >> (i * 7 + 3)) % 300, cy: (h >> (i * 6 + 1)) % height, r: 40 + ((h >> (i * 5)) % 70), fill: "var(--c)", opacity: 0.12 + i * 0.07 }));
+    c.appendChild(s);
+    (tags || []).forEach(function (t) { c.appendChild(el("span", "tag", t)); });
+    return c;
+  }
+  function lineChart(o) {
+    var W = 300, H = o.h || 170, L = 34, R = 44, T = 14, B = 24;
+    var years = o.hist.map(function (p) { return p.y; }).concat(o.fc.map(function (p) { return p.y; }));
+    var all = o.hist.map(function (p) { return p.v; }).concat(o.fc.reduce(function (a, p) { return a.concat([p.lo, p.hi]); }, []));
+    var min = Math.min.apply(null, all), max = Math.max.apply(null, all), pad = (max - min) * 0.18 || max * 0.05; min -= pad; max += pad;
+    function X(y) { return L + (W - L - R) * (years.indexOf(y) / (years.length - 1)); }
+    function Y(v) { return T + (H - T - B) * (1 - (v - min) / (max - min)); }
+    var s = svg("svg", { "class": "chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": o.label });
+    for (var g = 0; g < 3; g++) { var gv = min + (max - min) * (g / 2); s.appendChild(svg("line", { "class": "grid", x1: L, x2: W - R, y1: Y(gv), y2: Y(gv) })); s.appendChild(svg("text", { x: L - 5, y: Y(gv) + 3.5, "text-anchor": "end" }, o.fmt(gv))); }
+    var last = o.hist[o.hist.length - 1];
+    var up = o.fc.map(function (p) { return X(p.y) + "," + Y(p.hi); }), dn = o.fc.slice().reverse().map(function (p) { return X(p.y) + "," + Y(p.lo); });
+    s.appendChild(svg("polygon", { points: X(last.y) + "," + Y(last.v) + " " + up.join(" ") + " " + dn.join(" "), fill: o.color, opacity: 0.18 }));
+    s.appendChild(svg("polyline", { points: o.hist.map(function (p) { return X(p.y) + "," + Y(p.v); }).join(" "), fill: "none", stroke: o.color, "stroke-width": 3, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    s.appendChild(svg("polyline", { points: [X(last.y) + "," + Y(last.v)].concat(o.fc.map(function (p) { return X(p.y) + "," + Y(p.mid); })).join(" "), fill: "none", stroke: o.color, "stroke-width": 3, "stroke-dasharray": "2 6", "stroke-linecap": "round" }));
+    o.hist.forEach(function (p) { s.appendChild(svg("circle", { cx: X(p.y), cy: Y(p.v), r: 3.5, fill: o.color })); });
+    o.fc.forEach(function (p) { s.appendChild(svg("circle", { cx: X(p.y), cy: Y(p.mid), r: 4, fill: "var(--surface)", stroke: o.color, "stroke-width": 2.5 })); });
+    years.forEach(function (y, i) { s.appendChild(svg("text", { x: X(y), y: H - 6, "text-anchor": "middle" }, y + (i >= o.hist.length ? "E" : ""))); });
+    var e = o.fc[o.fc.length - 1]; s.appendChild(svg("text", { "class": "lab", x: X(e.y) + 7, y: Y(e.mid) + 4 }, o.fmt(e.mid)));
+    return s;
+  }
+  function marginChart(m) {
+    var keys = [["2023", "’23"], ["2024", "’24"], ["2025", "’25"], ["h1_2026", "’26상"]];
+    var W = 300, H = 190, base = 160, top = 24, mx = 0.12, bw = 15, gap = 4, gw = keys.length * (bw + gap);
+    var s = svg("svg", { "class": "chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "부문별 영업이익률 추이" });
+    SEGS.forEach(function (seg, si) {
+      var x0 = 14 + si * 96;
+      keys.forEach(function (k, ki) {
+        var v = m[seg][k[0]], h = (base - top) * Math.min(v / mx, 1), x = x0 + ki * (bw + gap);
+        s.appendChild(svg("rect", { x: x, y: base - h, width: bw, height: h, rx: 3, fill: cv(SEGCOL[seg]), opacity: ki === 3 ? 1 : 0.38 + ki * 0.17 }));
+        if (ki === 0 || ki === 3) s.appendChild(svg("text", { x: x + bw / 2, y: base - h - 4, "text-anchor": "middle", "class": "lab", style: "font-size:10px" }, (v * 100).toFixed(1)));
+      });
+      s.appendChild(svg("text", { x: x0 + gw / 2 - 2, y: base + 16, "text-anchor": "middle" }, seg));
+    });
+    s.appendChild(svg("line", { "class": "grid", x1: 8, x2: W - 8, y1: base, y2: base }));
+    return s;
+  }
+  function mixChart(mix) {
+    var rows = [["2023", "2023"], ["2025", "2025"], ["2028E", "2028E"]], W = 300, H = 112, x0 = 52, bw = 236;
+    var s = svg("svg", { "class": "chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "매출 구성비 변화" });
+    rows.forEach(function (r, i) {
+      var y = 8 + i * 34, x = x0;
+      s.appendChild(svg("text", { x: x0 - 8, y: y + 17, "text-anchor": "end" }, r[1]));
+      SEGS.forEach(function (seg) {
+        var w = bw * mix[r[0]][seg];
+        s.appendChild(svg("rect", { x: x, y: y, width: w, height: 24, fill: cv(SEGCOL[seg]), opacity: 0.9 }));
+        if (w > 26) s.appendChild(svg("text", { x: x + w / 2, y: y + 16, "text-anchor": "middle", style: "fill:#fff;font-weight:800;font-size:11px" }, (mix[r[0]][seg] * 100).toFixed(1)));
+        x += w;
+      });
+    });
+    return s;
+  }
+  function sensChart(list) {
+    var W = 300, rowH = 40, H = list.length * rowH + 4, mid = 150, scale = 110 / Math.max.apply(null, list.map(function (x) { return Math.abs(x.delta); }));
+    var s = svg("svg", { "class": "chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "민감도 분석" });
+    s.appendChild(svg("line", { "class": "grid", x1: mid, x2: mid, y1: 0, y2: H }));
+    list.forEach(function (x, i) {
+      var y = 2 + i * rowH, w = Math.abs(x.delta) * scale, pos = x.delta >= 0;
+      s.appendChild(svg("text", { x: 0, y: y + 11, style: "font-size:10.5px" }, x.label));
+      s.appendChild(svg("rect", { x: pos ? mid : mid - w, y: y + 17, width: w, height: 13, rx: 3, fill: pos ? cv("--super") : cv("--hi"), opacity: 0.85 }));
+      s.appendChild(svg("text", { x: pos ? mid + w + 4 : mid - w - 4, y: y + 28, "text-anchor": pos ? "start" : "end", "class": "lab", style: "font-size:11px" }, (x.delta >= 0 ? "+" : "") + jo(x.delta)));
+    });
+    return s;
+  }
+  function table(head, rows, emRow) {
+    var t = el("table", "t"), th = el("thead"), tr = el("tr");
+    head.forEach(function (h) { tr.appendChild(el("th", null, h)); }); th.appendChild(tr); t.appendChild(th);
+    var tb = el("tbody");
+    rows.forEach(function (r, i) { var q = el("tr", i === emRow ? "em" : null); r.forEach(function (c) { q.appendChild(el("td", null, c)); }); tb.appendChild(q); });
+    t.appendChild(tb); return t;
+  }
+  function listOf(items) { var ul = el("ul"); (items || []).forEach(function (i) { ul.appendChild(el("li", null, i)); }); return ul; }
+
+  /* ---------- modal ---------- */
+  var scrim = document.getElementById("scrim"), sheet = document.getElementById("sheet"), lastFocus = null;
+  function citeBlock(ids) {
+    var wrap = el("div"); if (!ids || !ids.length || !board) return wrap;
+    wrap.appendChild(el("h4", null, "근거"));
+    ids.forEach(function (id) {
+      var s = board.sources.filter(function (x) { return x.id === id; })[0]; if (!s) return;
+      var d = el("div", "src"); d.appendChild(el("b", null, s.title));
+      d.appendChild(el("div", "m", (s.kind === "archive" ? "사내 아카이브 · " : "외부 기사 · ") + s.publisher + " · " + s.date));
+      var ul = el("ul"); s.facts.slice(0, 4).forEach(function (f) { ul.appendChild(el("li", null, f)); }); d.appendChild(ul);
+      if (s.url) { var a = el("a", null, "원문 보기 ↗"); a.href = s.url; a.target = "_blank"; a.rel = "noopener noreferrer"; var p = el("div"); p.style.marginTop = "6px"; p.appendChild(a); d.appendChild(p); }
+      wrap.appendChild(d);
+    });
+    return wrap;
+  }
+  function openSheet(o) {
+    lastFocus = document.activeElement; sheet.replaceChildren();
+    var x = el("button", "x", "×"); x.setAttribute("aria-label", "닫기"); x.onclick = close; sheet.appendChild(x);
+    sheet.appendChild(cover(o.seg, o.title, 96, o.tags));
+    var inner = el("div", "inner"); inner.appendChild(el("h2", null, o.title));
+    (o.paras || []).forEach(function (p) { inner.appendChild(el("p", null, p)); });
+    if (o.node) inner.appendChild(o.node);
+    if (o.trigger) { inner.appendChild(el("h4", null, "현실화 신호")); inner.appendChild(el("div", "trig", o.trigger)); }
+    if (o.note) inner.appendChild(el("div", "note", o.note));
+    inner.appendChild(citeBlock(o.cites)); sheet.appendChild(inner);
+    scrim.classList.add("on"); document.body.style.overflow = "hidden"; x.focus();
+  }
+  function close() { scrim.classList.remove("on"); document.body.style.overflow = ""; if (lastFocus) lastFocus.focus(); }
+  scrim.addEventListener("click", function (e) { if (e.target === scrim) close(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && scrim.classList.contains("on")) close(); });
+
+  /* ---------- section scaffolding ---------- */
+  var main = document.getElementById("main"), navEl = document.getElementById("nav"), secs = [];
+  function section(id, n, title, lede) {
+    var s = el("section", "sec"); s.id = id;
+    var h = el("div", "sec-h"); h.appendChild(el("div", "sec-n", n)); h.appendChild(el("h2", null, title)); s.appendChild(h);
+    if (lede) s.appendChild(el("p", "sec-lede", lede));
+    main.appendChild(s); secs.push({ id: id, title: title, node: s });
+    return s;
+  }
+  function subHead(parent, title, hint) { var d = el("div", "sub-h"); d.appendChild(el("h3", null, title)); if (hint) d.appendChild(el("span", null, hint)); parent.appendChild(d); return d; }
+  function gridIn(parent) { var b = el("div"); parent.appendChild(b); return Grid(b); }
+
+  /* ---------- 01 전체 매출 전망 ---------- */
+  function buildOutlook() {
+    var s = section("outlook", "01", "전체 매출 전망", "확정된 2026년 상반기 실적과 사업보고서 숫자를 통계모델에 넣은 결과입니다. 점이 아니라 ‘80% 구간’으로 읽어 주세요. 계산 방법은 바로 아래 02에서 설명합니다.");
+    var g = gridIn(s), e28 = F.forecast.total[2];
+    var hist = [2023, 2024, 2025].map(function (y) { return { y: y, v: F.consolidated[y] }; });
+    var tot = F.forecast.total.map(function (p) { return { y: p.year, lo: p.p10, mid: p.p50, hi: p.p90 }; });
+
+    // hero
+    var hn = el("article", "c-corp"), hc = el("div", "cover tint"); hc.style.padding = "22px 22px 6px";
+    hc.appendChild(el("div", "lead", "연결 매출 전망 · 단위 조원"));
+    var big = el("div", "big", jo(e28.p50, 1)); big.appendChild(el("small", null, "조원 (2028E 중앙)")); hc.appendChild(big);
+    hc.appendChild(el("div", "lead", "80% 구간 " + jo(e28.p10, 1) + " ~ " + jo(e28.p90, 1) + "조 · 2025 실적 " + jo(F.consolidated[2025], 1) + "조"));
+    hc.appendChild(lineChart({ hist: hist, fc: tot, color: cv("--corp"), fmt: function (v) { return jo(v, 1); }, label: "연결 매출 실적과 전망", h: 200 }));
+    hn.appendChild(hc);
+    var hb = el("div", "body"); hb.appendChild(el("h3", null, "GS리테일 2026~2028 매출 전망")); hb.appendChild(el("p", null, board ? board.summary : ""));
+    var hf = el("div", "foot"); hf.appendChild(el("span", "pill good", "통계모델")); hf.appendChild(el("span", "pill", "사업보고서 기반")); hb.appendChild(hf); hn.appendChild(hb);
+    g.add(hn, { span: 2, open: function () {
+      var t = el("div"); F.forecast.total.forEach(function (p, i) { var r = el("div", null, p.year + "E  " + jo(p.p50) + "조 (" + jo(p.p10) + " ~ " + jo(p.p90) + ") · 전년 대비 " + sgn(F.growth.total[i].g)); r.style.padding = "4px 0"; t.appendChild(r); });
+      openSheet({ seg: "전사", tags: ["전망", "연결"], title: "연결 매출 2028E 중앙 " + jo(e28.p50, 2) + "조원", paras: ["진한 점선이 중앙값, 옅은 띠가 80% 구간입니다. 입력 자료가 적어 구간이 실제보다 좁을 수 있습니다."], node: t });
+    } });
+
+    // narrative (LLM draft)
+    if (OUT && OUT.totalNarrative) {
+      var nn = el("article"), nb = el("div", "body narr"); nb.style.padding = "20px 22px 22px";
+      nb.appendChild(el("div", "lead", "전망 해설"));
+      OUT.totalNarrative.forEach(function (x) { nb.appendChild(el("h4", null, x.heading)); nb.appendChild(el("p", null, x.body)); });
+      var nf = el("div", "foot"); nf.appendChild(el("span", "pill", "초안 · 담당자 검수 필요")); nb.appendChild(nf);
+      nn.appendChild(nb); g.add(nn, { span: 2 });
+    }
+
+    subHead(s, "부문별 전망", "편의점 · 수퍼마켓 · 홈쇼핑 — 차트와 해설, 눌러서 성장 요인과 주시할 신호 보기");
+    var g2 = gridIn(s);
+    // segment cards
+    SEGS.forEach(function (seg) {
+      var h = [2023, 2024, 2025].map(function (y) { return { y: y, v: F.history[y][seg] }; });
+      var f = F.forecast[seg].map(function (p) { return { y: p.year, lo: p.p10, mid: p.p50, hi: p.p90 }; });
+      var m = F.model[seg], e = F.forecast[seg][2];
+      var ol = OUT && OUT.segmentOutlook ? OUT.segmentOutlook.filter(function (x) { return x.segment === seg; })[0] : null;
+      var n = el("article", SEGC[seg]), c = el("div", "cover tint"); c.style.padding = "16px 16px 4px";
+      c.appendChild(el("span", "tag", seg));
+      var bg = el("div", "big", jo(e.p50, 2)); bg.appendChild(el("small", null, "조 (2028E)")); c.appendChild(bg);
+      c.appendChild(lineChart({ hist: h, fc: f, color: cv(SEGCOL[seg]), fmt: function (v) { return jo(v, 1); }, label: seg + " 매출 전망", h: 160 }));
+      n.appendChild(c);
+      var b = el("div", "body");
+      if (ol) b.appendChild(el("h3", null, ol.headline));
+      b.appendChild(el("p", ol ? "clamp4" : null, ol ? ol.body : "2026E " + sgn(m.g2026) + " · 상반기 실적 " + sgn(m.h1yoy)));
+      var ft = el("div", "foot"); ft.appendChild(el("span", "pill", "2026E " + sgn(m.g2026))); ft.appendChild(el("span", "pill", "80% " + jo(e.p10, 1) + "~" + jo(e.p90, 1) + "조")); b.appendChild(ft);
+      n.appendChild(b);
+      g2.add(n, { open: function () {
+        var node = el("div");
+        if (ol) { var L = el("div", "lists"); var a = el("div"); a.appendChild(el("h5", null, "성장 요인")); a.appendChild(listOf(ol.drivers)); var w = el("div"); w.appendChild(el("h5", null, "주시할 신호")); w.appendChild(listOf(ol.watch)); L.appendChild(a); L.appendChild(w); node.appendChild(L); }
+        node.appendChild(el("h4", null, "연도별 전망(조원)")); node.appendChild(table(["", "하단 P10", "중앙", "상단 P90"], F.forecast[seg].map(function (p) { return [p.year + "E", jo(p.p10), jo(p.p50), jo(p.p90)]; }), 2));
+        openSheet({ seg: seg, tags: ["전망", seg], title: ol ? ol.headline : seg + " 매출 전망", paras: [ol ? ol.body : "2028E 중앙 " + jo(e.p50, 2) + "조원"], node: node, cites: ol ? ol.cites : [], note: "2026E는 상반기 확정 + 하반기 추정, 이후는 장기 앵커 " + sgn(F.assumptions.gLR[seg]) + "로 수렴하는 가정입니다." });
+      } });
+    });
+
+    // scenario table
+    var sn = el("article"), sb = el("div", "body"); sb.style.padding = "18px";
+    sb.appendChild(el("div", "lead", "시나리오 표 · 연결 매출(조원)"));
+    sb.appendChild(table(["", "하단", "중앙", "상단", "전년비"], F.forecast.total.map(function (p, i) { return [p.year + "E", jo(p.p10), jo(p.p50), jo(p.p90), sgn(F.growth.total[i].g)]; }), -1));
+    sb.appendChild(el("p", null, "하단·상단은 P10·P90입니다. 실제가 구간 밖일 확률은 약 20%이며, 자료가 적어 구간은 실제보다 좁을 수 있습니다."));
+    sb.lastChild.style.marginTop = "10px"; sn.appendChild(sb); g2.add(sn);
+
+    subHead(s, "숫자로 더 보기", "매출 구성 · 수익성 · 목표 점검");
+    var g3 = gridIn(s);
+    // mix
+    var xn = el("article"), xb = el("div", "body"); xb.style.padding = "18px";
+    xb.appendChild(el("div", "lead", "매출 구성비 변화 (%)")); xb.appendChild(mixChart(F.mix));
+    var lg = el("div", "legend"); SEGS.forEach(function (sg) { var sp = el("span"); var i = el("i"); i.style.background = cv(SEGCOL[sg]); sp.appendChild(i); sp.appendChild(document.createTextNode(sg)); lg.appendChild(sp); }); xb.appendChild(lg);
+    var d1 = F.mix["2028E"].수퍼마켓 - F.mix[2025].수퍼마켓, d2 = F.mix["2028E"].홈쇼핑 - F.mix[2025].홈쇼핑;
+    var xp = el("p", null, "수퍼마켓 비중은 " + sgn(d1, 1).replace("%", "%p") + ", 홈쇼핑은 " + sgn(d2, 1).replace("%", "%p") + " 변할 전망입니다. 편의점은 75% 안팎을 유지합니다."); xp.style.marginTop = "10px"; xb.appendChild(xp);
+    xn.appendChild(xb); g3.add(xn);
+
+    // margins
+    var mc = el("article"), mcv = el("div", "cover"); mcv.style.padding = "16px 16px 4px"; mcv.appendChild(el("span", "tag", "수익성"));
+    mcv.appendChild(el("div", "lead", "부문별 영업이익률 (%)")); mcv.appendChild(marginChart(F.margins)); mc.appendChild(mcv);
+    var mb = el("div", "body"); mb.appendChild(el("h3", null, "올해 상반기, 세 부문 이익률이 모두 올랐다")); mb.appendChild(el("p", null, "홈쇼핑은 매출의 8.8%지만 부문 영업이익의 약 30%를 차지합니다.")); mc.appendChild(mb);
+    g3.add(mc, { open: function () { openSheet({ seg: "전사", tags: ["수익성"], title: "부문별 영업이익률 (2026 상반기): 편의점 " + pc(F.margins.편의점.h1_2026) + ", 수퍼 " + pc(F.margins.수퍼마켓.h1_2026) + ", 홈쇼핑 " + pc(F.margins.홈쇼핑.h1_2026), paras: ["막대는 왼쪽부터 2023·2024·2025년, 가장 진한 막대가 2026년 상반기입니다. 전년 상반기(편의점 " + pc(F.margins.편의점.h1_2025) + ", 수퍼 " + pc(F.margins.수퍼마켓.h1_2025) + ", 홈쇼핑 " + pc(F.margins.홈쇼핑.h1_2025) + ")보다 모두 높습니다.", "다만 지난해 상반기는 기저가 낮았던 시기라 개선폭이 부풀려져 보일 수 있습니다."], cites: ["A2", "A3"] }); } });
+
+    // stats
+    var tc = F.targetCheck;
+    stat(g3, "전사", "2028 영업이익 3,800억 목표", pc(tc.requiredMargin.p50), "필요 이익률", "2025년 실제는 " + pc(tc.margin2025) + ". 매출이 하단(P10)이면 " + pc(tc.requiredMargin.p10) + "까지 필요합니다.", "모델 · 2Q 실적 보도", function () {
+      openSheet({ seg: "전사", tags: ["목표 점검"], title: "3,800억 목표에는 영업이익률 " + pc(tc.requiredMargin.p50) + "가 필요", paras: ["2028년 연결 매출 중앙 " + jo(e28.p50) + "조원에 영업이익 3,800억원을 맞추려면 영업이익률이 약 " + pc(tc.requiredMargin.p50) + "여야 합니다. 2025년 실적(" + pc(tc.margin2025) + ")에서 약 " + ((tc.requiredMargin.p50 - tc.margin2025) * 100).toFixed(1) + "%p를 높여야 하는 수준입니다.", "상반기 연결 영업이익은 31.4% 늘어 방향은 맞지만, 상반기 이익률이 연간으로 이어진다는 보장은 없습니다."], cites: ["E1", "A2"] });
+    });
+    var h1a = 0, h1b = 0; ["편의점", "수퍼마켓", "홈쇼핑", "기타"].forEach(function (k) { h1a += F.h1[2025][k]; h1b += F.h1[2026][k]; });
+    stat(g3, "전사", "2026년 상반기 매출", jo(h1b, 2), "조원", "전년 동기 대비 " + sgn(h1b / h1a - 1) + ". 편의점 " + sgn(F.model.편의점.h1yoy) + ", 수퍼 " + sgn(F.model.수퍼마켓.h1yoy) + ", 홈쇼핑 " + sgn(F.model.홈쇼핑.h1yoy) + ".", "반기 재무제표", function () {
+      openSheet({ seg: "전사", tags: ["실적"], title: "2026년 상반기 매출 " + jo(h1b, 2) + "조원 (" + sgn(h1b / h1a - 1) + ")", paras: ["세 본업이 모두 늘었습니다. 기타(개발·공통)는 " + sgn(F.model.기타.h1yoy) + "로 줄었습니다."], cites: ["A3", "E1"] });
+    });
+    var sn2 = F.sensitivity.map(function (x) { return Math.abs(x.delta); });
+    stat(g3, "전사", "가정이 바뀌면 2028E는?", "±" + jo(Math.max.apply(null, sn2), 2), "조원", "핵심 가정을 하나씩 흔들어도 2028E 중앙값은 최대 이 정도만 움직입니다. 자세한 내용은 02에서.", "민감도 분석", function () { location.hash = "#method"; });
+  }
+  function stat(g, seg, lead, big, unit, text, src, open) {
+    var n = el("article", SEGC[seg] || "c-corp"), c = el("div", "cover tint"); c.style.padding = "20px 18px 16px";
+    c.appendChild(el("div", "lead", lead)); var b = el("div", "big", big); if (unit) b.appendChild(el("small", null, unit)); c.appendChild(b); n.appendChild(c);
+    var bd = el("div", "body"); bd.appendChild(el("p", null, text)); var f = el("div", "foot"); f.appendChild(el("span", "pill", src)); bd.appendChild(f); n.appendChild(bd);
+    g.add(n, { open: open, seg: seg });
+  }
+
+  /* ---------- 02 통계 분석 설명 ---------- */
+  function panel(g, step, title, build, span) {
+    var n = el("article", "panel"), b = el("div", "body"); b.style.padding = "20px 22px 22px";
+    var h = el("h3"); h.appendChild(el("span", "step", step)); h.appendChild(document.createTextNode(title)); b.appendChild(h);
+    build(b); n.appendChild(b); g.add(n, { span: span || 1 });
+  }
+  function buildMethod() {
+    var A = F.assumptions;
+    var s = section("method", "02", "통계 분석은 이렇게 했습니다", "숫자는 사업보고서에서 그대로 읽고, 올해는 확정된 상반기로 고정하고, 내년부터는 ‘성장률이 점점 평범해진다’는 가정 위에서 2만 번 시뮬레이션했습니다. 어디까지 믿을 수 있는지도 함께 적었습니다.");
+    var g = gridIn(s);
+    panel(g, "1", "어떤 자료를 썼나", function (b) {
+      b.appendChild(el("p", null, "사내 아카이브의 일반(general) 등급 문서 중 DART 공시 재무제표 3종을 표에서 직접 읽었습니다. 손으로 옮긴 숫자는 없습니다."));
+      b.appendChild(listOf(["2023~2025년 부문별 연간 매출·영업이익 (편의점·수퍼마켓·홈쇼핑·기타)", "2025·2026년 상반기 부문별 실적 (올해 앵커)", "연결 매출 재작성 값 — 호텔 분리를 반영해 2023년부터만 비교"]));
+      var p = el("p", null, "2021~22년은 호텔 분리·합병 영향으로 같은 기준이 아니어서 뺐습니다. 그래서 연간 데이터는 3개 시점뿐입니다."); p.style.marginTop = "10px"; b.appendChild(p);
+    });
+    panel(g, "2", "올해(2026E)는 이렇게 잡았다", function (b) {
+      b.appendChild(el("p", null, "상반기는 이미 확정이라 그대로 쓰고, 하반기만 추정합니다."));
+      b.appendChild(el("div", "eq", "2026E = 상반기 실적 + 지난해 하반기 × (1 + 하반기 성장률)"));
+      b.appendChild(el("div", "eq", "하반기 성장률 = 70% × 상반기 성장률 + 30% × 장기 앵커"));
+      b.appendChild(el("p", null, "지난해 상반기는 계엄 여파와 악천후로 낮았던 기저라서, 상반기의 높은 성장률이 그대로 이어지진 않을 것으로 보고 30%만큼 평범한 수준으로 당겼습니다."));
+      b.appendChild(table(["부문", "상반기", "하반기 가정", "2026E"], SEGS.concat(["기타"]).map(function (k) { return [k, sgn(F.model[k].h1yoy), sgn(F.model[k].gH2), sgn(F.model[k].g2026)]; })));
+    });
+    panel(g, "3", "내년부터는 ‘평범해지는’ 성장", function (b) {
+      b.appendChild(el("p", null, "성장률은 지난해 성장세를 어느 정도 이어가지만(관성 " + A.phi * 100 + "%), 해마다 장기 수준으로 끌려갑니다."));
+      b.appendChild(el("div", "eq", "올해 성장률 = " + A.phi + " × 작년 성장률 + " + (1 - A.phi).toFixed(1) + " × 장기 앵커 + 충격"));
+      b.appendChild(table(["부문", "장기 앵커", "판단 근거"], [["편의점", sgn(A.gLR.편의점), "점포 감소·업계 성장 0.1% vs 기존점 +7.5%"], ["수퍼마켓", sgn(A.gLR.수퍼마켓), "점포 +36, 퀵커머스 확대, 규제·온라인 경쟁"], ["홈쇼핑", sgn(A.gLR.홈쇼핑), "업계 거래액 -5.1%, 당사는 선방"], ["기타", sgn(A.gLR.기타), "개발·공통 축소 추세"]]));
+      var p = el("p", null, "장기 앵커는 통계로 구한 값이 아니라 외부 업황을 보고 정한 판단값입니다. 가장 중요한 가정이라 아래 5번에서 흔들어 봤습니다."); p.style.marginTop = "10px"; b.appendChild(p);
+}, 2);
+    panel(g, "4", "불확실성은 2만 번 시뮬레이션", function (b) {
+      b.appendChild(el("p", null, "매년 성장률에 ‘충격’을 더해 2만 개의 가능한 미래를 만들고, 그중 중앙값과 80% 구간(하위 10%~상위 90%)을 보여줍니다."));
+      b.appendChild(table(["부문", "과거 성장률 변동(σ)"], SEGS.concat(["기타"]).map(function (k) { return [k, pc(F.model[k].sigma)]; })));
+      var p = el("p", null, "충격의 " + (A.macroLoading * 100).toFixed(0) + "%는 모든 부문에 같이 오는 경기 요인, 나머지는 부문 고유 요인입니다. 그래서 부문들이 같이 좋아지거나 같이 나빠질 수 있습니다."); p.style.marginTop = "10px"; b.appendChild(p);
+      b.appendChild(el("p", null, "그림에서 점선은 중앙값, 옅은 띠는 80% 구간입니다. 띠 밖으로 나갈 확률이 약 20%라는 뜻입니다."));
+    });
+    panel(g, "5", "가정을 바꾸면 얼마나 달라지나", function (b) {
+      b.appendChild(el("p", null, "핵심 가정을 하나씩 흔들었을 때 2028E 연결 매출 중앙값(" + jo(F.forecast.total[2].p50) + "조)의 변화입니다. 단위 조원."));
+      b.appendChild(sensChart(F.sensitivity));
+      var p = el("p", null, "어떤 가정을 바꿔도 변화폭은 0.2조원 안팎입니다. 전망의 불확실성은 가정의 선택보다 ‘자료가 적다’는 데서 더 크게 옵니다."); p.style.marginTop = "10px"; b.appendChild(p);
+    });
+    panel(g, "6", "믿을 수 있는 범위와 한계", function (b) {
+      b.appendChild(el("h3", null, "")); b.lastChild.remove();
+      b.appendChild(listOf(F.caveats));
+      var p = el("p", null, "이 전망은 계획이 아니라 ‘지금 숫자로 보면 이 정도 범위’라는 참고용 추정입니다."); p.style.marginTop = "10px"; b.appendChild(p);
+    });
+  }
+
+  /* ---------- 03 대외환경과 위기 요인 ---------- */
+  function buildEnv() {
+    var s = section("env", "03", "대외환경과 위기 요인", "우리를 둘러싼 환경이 어느 쪽으로 불고 있는지, 무엇이 현실이 되면 위험한지를 나눠 정리했습니다. 카드를 누르면 근거 기사와 사내 자료를 볼 수 있습니다.");
+    var bar = el("div", "chips"), all = [];
+    var cur = null;
+    ["전체", "편의점", "수퍼마켓", "홈쇼핑"].forEach(function (name) {
+      var b = el("button", "chip", name); b.type = "button"; b.setAttribute("aria-pressed", name === "전체");
+      b.onclick = function () { cur = name === "전체" ? null : name; [].forEach.call(bar.children, function (c) { c.setAttribute("aria-pressed", c === b); }); all.forEach(function (g) { g.filter(cur); }); };
+      bar.appendChild(b);
+    });
+    s.appendChild(bar);
+
+    subHead(s, "대외환경", "순풍인가 역풍인가 — 우리 사업에 부는 바람");
+    var g1 = gridIn(s); all.push(g1);
+    board.environment.forEach(function (x) {
+      var dcls = x.direction === "순풍" ? "good" : x.direction === "역풍" ? "bad" : "both";
+      var n = el("article"); n.appendChild(cover(x.segment, x.title, 56 + (hash(x.title) % 4) * 10, [x.segment]));
+      var b = el("div", "body"); b.appendChild(el("h3", null, x.title)); b.appendChild(el("p", "clamp", x.body));
+      var f = el("div", "foot"); f.appendChild(el("span", "pill " + dcls, x.direction)); b.appendChild(f); n.appendChild(b);
+      g1.add(n, { seg: x.segment, open: function () { openSheet({ seg: x.segment, tags: [x.segment, "대외환경", x.direction], title: x.title, paras: [x.body], cites: x.cites }); } });
+    });
+
+    subHead(s, "위기 요인", "‘이런 신호가 보이면 현실화된 것’까지 함께 적었습니다");
+    var g2 = gridIn(s); all.push(g2);
+    board.risks.forEach(function (x) {
+      var scls = x.severity === "높음" ? "hi" : x.severity === "중간" ? "mid" : "";
+      var n = el("article"); n.appendChild(cover(x.segment, x.title, 48 + (hash(x.title) % 4) * 8, [x.segment]));
+      var b = el("div", "body"); b.appendChild(el("h3", null, x.title)); b.appendChild(el("p", "clamp4", x.body));
+      var tb = el("div", "trigbox"); tb.appendChild(el("b", null, "현실화 신호")); tb.appendChild(document.createTextNode(x.trigger)); b.appendChild(tb);
+      var f = el("div", "foot"); f.appendChild(el("span", "pill " + scls, "위험도 " + x.severity)); b.appendChild(f); n.appendChild(b);
+      g2.add(n, { seg: x.segment, open: function () { openSheet({ seg: x.segment, tags: [x.segment, "위기 요인", "위험도 " + x.severity], title: x.title, paras: [x.body], trigger: x.trigger, cites: x.cites }); } });
+    });
+  }
+
+  /* ---------- 04 Inside(함께 생각해 볼 질문) / 05 Insight(HOW 제안) ---------- */
+  function buildInsights() {
+    var s = section("ins", "04", "Inside", "함께 생각해 볼 질문입니다. 위의 숫자와 환경에서 나온 질문이며, 정답을 정하려는 것이 아니라 논의를 시작하려는 것입니다. 카드를 누르면 판단에 필요한 근거가 나옵니다.");
+    var g = gridIn(s);
+    board.insights.forEach(function (x, i) {
+      var n = el("article", "dark"), b = el("div", "body"); b.style.padding = "22px 22px 22px";
+      b.appendChild(el("div", "qmark", "생각해 볼 질문 " + (i + 1)));
+      b.appendChild(el("p", "qtext", x.question));
+      b.appendChild(el("p", "clamp", x.body));
+      var f = el("div", "foot"); f.appendChild(el("span", "pill", x.title)); b.appendChild(f);
+      n.appendChild(b);
+      g.add(n, { span: 1, open: function () { openSheet({ seg: "전사", tags: ["함께 생각해 볼 질문"], title: x.question, paras: [x.body], cites: x.cites }); } });
+    });
+  }
+  function buildIdeas() {
+    if (!board.ideas || !board.ideas.length) return;
+    var s = section("ideas", "05", "Insight", "HOW. 위의 숫자와 환경을 바탕으로 우리가 어떻게 움직일지에 대한 제안입니다. 확인된 사실이 아니라 제안이므로, 카드를 누르면 배경이 나옵니다.");
+    var g = gridIn(s);
+    board.ideas.forEach(function (x) {
+      var n = el("article", "dark idea"), b = el("div", "body"); b.style.padding = "22px 22px 22px";
+      b.appendChild(el("div", "qmark", "HOW"));
+      b.appendChild(el("p", "qtext", x.question));
+      b.appendChild(el("p", "clamp", x.body));
+      n.appendChild(b);
+      g.add(n, { span: 1, open: function () { openSheet({ seg: "전사", tags: ["HOW"], title: x.question, paras: [x.body] }); } });
+    });
+  }
+
+  /* 상단: 다른 주제 페이지와 같은 양식(왼쪽 글, 오른쪽 그림) — 그림은 전망 숫자에서 바로 그린다 */
+  function heroArt() {
+    var W = 400, H = 300, sv = svg("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "연결 매출 실적과 전망 그래프" });
+    var d = svg("defs", {}), g = svg("linearGradient", { id: "hg", x1: 0, y1: 0, x2: 1, y2: 1 });
+    g.appendChild(svg("stop", { offset: "0", "stop-color": "#2b1d8f" })); g.appendChild(svg("stop", { offset: "1", "stop-color": "#2f6fed" })); d.appendChild(g); sv.appendChild(d);
+    sv.appendChild(svg("rect", { width: W, height: H, fill: "url(#hg)" }));
+    var hist = [2023, 2024, 2025].map(function (y) { return { y: y, v: F.consolidated[y] / 1e6 }; });
+    var fc = F.forecast.total.map(function (p) { return { y: p.year, lo: p.p10 / 1e6, mid: p.p50 / 1e6, hi: p.p90 / 1e6 }; });
+    var pts = hist.concat(fc), L = 40, R = 40, T = 108, B = 232;
+    var lo = Math.min.apply(null, pts.map(function (p) { return p.lo != null ? p.lo : p.v; })), hi = Math.max.apply(null, pts.map(function (p) { return p.hi != null ? p.hi : p.v; }));
+    function X(i) { return L + (W - L - R) * i / (pts.length - 1); }
+    function Y(v) { return B - (B - T) * (v - lo) / (hi - lo); }
+    var nh = hist.length, up = [], dn = [];
+    fc.forEach(function (p, i) { up.push(X(nh + i) + "," + Y(p.hi)); dn.unshift(X(nh + i) + "," + Y(p.lo)); });
+    sv.appendChild(svg("polygon", { points: [X(nh - 1) + "," + Y(hist[nh - 1].v)].concat(up, dn).join(" "), fill: "#fff", opacity: ".22" }));
+    sv.appendChild(svg("polyline", { points: hist.map(function (p, i) { return X(i) + "," + Y(p.v); }).join(" "), fill: "none", stroke: "#fff", "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    sv.appendChild(svg("polyline", { points: [X(nh - 1) + "," + Y(hist[nh - 1].v)].concat(fc.map(function (p, i) { return X(nh + i) + "," + Y(p.mid); })).join(" "), fill: "none", stroke: "#fff", "stroke-width": 4, "stroke-dasharray": "2 8", "stroke-linecap": "round" }));
+    pts.forEach(function (p, i) {
+      var v = p.v != null ? p.v : p.mid;
+      sv.appendChild(svg("circle", { cx: X(i), cy: Y(v), r: i < nh ? 5 : 6, fill: i < nh ? "#fff" : "#2b1d8f", stroke: "#fff", "stroke-width": 3 }));
+      sv.appendChild(svg("text", { x: X(i), y: B + 26, "text-anchor": "middle", fill: "#fff", opacity: ".85", "font-size": 13, "font-weight": 700 }, p.y + (i >= nh ? "E" : "")));
+    });
+    sv.appendChild(svg("text", { x: 40, y: 52, fill: "#fff", opacity: ".8", "font-size": 15, "font-weight": 700 }, "연결 매출 (조원)"));
+    sv.appendChild(svg("text", { x: 40, y: 92, fill: "#fff", "font-size": 44, "font-weight": 900, "letter-spacing": "-1.5" }, hist[nh - 1].v.toFixed(1) + " → " + fc[fc.length - 1].mid.toFixed(1)));
+    return sv;
+  }
+
+  /* ---------- domain-only fallback (no board) ---------- */
+  function buildDomains() {
+    var s = section("dom", "01", "분야별 인사이트", "사내 아카이브 자료를 바탕으로 정리했습니다.");
+    var g = gridIn(s);
+    (D.domains || []).forEach(function (d) {
+      d.insights.forEach(function (x) {
+        var n = el("article"); n.appendChild(cover("전사", d.domain + x.title, 56, [d.domain]));
+        var b = el("div", "body"); b.appendChild(el("h3", null, x.title)); b.appendChild(el("p", "clamp", x.body)); n.appendChild(b);
+        g.add(n, { open: function () { var l = el("div"); l.appendChild(el("h4", null, "근거 문서")); l.appendChild(listOf(x.cites)); openSheet({ seg: "전사", tags: [d.domain], title: x.title, paras: [x.body], node: l }); } });
+      });
+    });
+  }
+
+  /* ---------- mount ---------- */
+  var head = document.getElementById("head");
+  var hero = el("div", "hero nobg"), hin = el("div", "txt");
+  hin.appendChild(el("div", "eyebrow", board ? "FORECAST · 전망과 대외환경" : "INSIGHT"));
+  hin.appendChild(el("h1", null, board ? "GS리테일, 2026년과 향후 3년 — 매출은 어디로 가나" : "NEXUS 인사이트"));
+  hin.appendChild(el("p", null, board ? "편의점·수퍼마켓·홈쇼핑의 매출 전망을 숫자로 보고, 우리를 둘러싼 환경과 위기 요인을 살핀 뒤, 함께 생각해 볼 질문(Inside)과 어떻게 할지에 대한 제안(Insight)으로 마무리합니다." : "사내 아카이브 자료를 바탕으로 정리한 분야별 인사이트"));
+  hero.appendChild(hin);
+  if (board && F) { var ph = el("div", "photo"); ph.appendChild(heroArt()); hero.appendChild(ph); }
+  head.appendChild(hero);
+  var up = board && board.updatedAt ? board.updatedAt.slice(0, 10) : (D.builtAt || "").slice(0, 10);
+  head.appendChild(el("div", "meta", "갱신 " + up + (board && board.status !== "approved" ? " · 승인 전 초안 · 담당자 검수 필요" : "")));
+  if (D.preview) document.getElementById("banner").hidden = false;
+
+  if (board && F) { buildOutlook(); buildMethod(); buildEnv(); buildInsights(); buildIdeas(); } else buildDomains();
+  if (!secs.length) main.appendChild(el("div", "empty", "아직 발행된 인사이트가 없습니다."));
+  if (board && board.unverified && board.unverified.length) {
+    var uv = el("section", "sec"), ub = el("div", "note unv"); ub.appendChild(el("h3", null, "확인하지 못한 것")); ub.appendChild(listOf(board.unverified)); uv.appendChild(ub); main.appendChild(uv);
+  }
+  secs.forEach(function (s) { var a = el("a", null, s.title); a.href = "#" + s.id; a.dataset.id = s.id; navEl.appendChild(a); });
+  document.getElementById("foot").textContent = "사내 아카이브의 일반(general) 등급 문서와 공개 기사를 사용했습니다. 전망은 통계 모델의 구간 추정이며 확정된 계획이 아닙니다. 빌드 " + (D.builtAt || "").slice(0, 10);
+
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) [].forEach.call(navEl.children, function (a) { a.setAttribute("aria-current", a.dataset.id === e.target.id); }); }); }, { rootMargin: "-30% 0px -60% 0px" });
+    secs.forEach(function (s) { io.observe(s.node); });
+  }
+  function relayout() { grids.forEach(function (g) { g.layout(); }); }
+  relayout();
+  var raf; window.addEventListener("resize", function () { cancelAnimationFrame(raf); raf = requestAnimationFrame(relayout); });
+  window.addEventListener("load", relayout);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
+})();
+</script>
+</body>
+</html>

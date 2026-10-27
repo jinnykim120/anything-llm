@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEXUS 인사이트 피드</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  /* 이 페이지만 흰 바탕 + 검정 글씨 (주제 페이지는 기존 색 유지) */
+  :root{--bg:#fff;--surface:#fff;--ink:#222;--mute:#6b6b6b;--line:#e4e4e4;--shadow:none;--sticker:#ffd24d;--ph:#eee}
+  @media (prefers-color-scheme:dark){:root{--bg:#0e0e10;--surface:#151517;--ink:#f3f3f3;--mute:#9b9b9b;--line:#2b2b2e;--sticker:#f0b94a;--ph:#1d1d20}}
+  body{font-family:"Pretendard Variable",Pretendard,"Segoe UI","SF Pro Text","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,sans-serif}
+  .wrap{max-width:1560px}
+  .top-in{max-width:1560px}
+  .dept{margin-left:auto;font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--mute);white-space:nowrap}
+
+  /* ── 제목: 작은 라벨 / 큰 대문자 + 스티커 / 짧은 설명 ── */
+  .ch{text-align:center;padding:clamp(44px,7vw,100px) 0 clamp(22px,3vw,40px)}
+  .ch .t{font-size:15px;font-weight:700;letter-spacing:.02em}
+  .ch .t span{color:var(--mute);font-weight:500}
+  .ch h1{margin:10px 0 14px;font-family:"Outfit","Pretendard Variable","Segoe UI","Helvetica Neue",Arial,sans-serif;font-size:clamp(58px,15.5vw,236px);line-height:.84;letter-spacing:-.055em;font-weight:900;text-transform:uppercase;color:var(--ink)}
+  .ch h1>span{display:block}
+  .has-sticker{position:relative;display:inline-block}
+  .sticker{position:absolute;width:.5em;height:.5em;right:-.3em;top:-.06em;transform:rotate(12deg)}
+  .sticker text{font-family:"Outfit","Pretendard Variable","Segoe UI",Arial,sans-serif;font-weight:900;letter-spacing:0}
+  .ch .b{font-size:clamp(16px,1.9vw,24px);font-weight:600;color:var(--mute);letter-spacing:-.01em}
+
+  .tools{display:flex;flex-direction:column;align-items:center;gap:16px;margin:30px 0 8px}
+  .search{display:flex;align-items:center;gap:10px;width:min(620px,100%);height:56px;border:2px solid var(--ink);border-radius:999px;padding:0 8px 0 20px;background:var(--surface)}
+  .search:focus-within{outline:3px solid var(--conv);outline-offset:3px}
+  .search svg{flex:none;width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:2.2;stroke-linecap:round}
+  .search input{flex:1;min-width:0;border:0;background:transparent;font:inherit;font-size:16px;color:var(--ink);outline:none;height:100%}
+  .search input::placeholder{color:var(--mute)}
+  .search button{flex:none;border:0;border-radius:999px;height:40px;padding:0 20px;background:var(--ink);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer}
+  .tools .chips{margin:0;justify-content:center}
+  .tools .chip{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line);font-weight:700}
+  .tools .chip:hover{box-shadow:inset 0 0 0 1.5px var(--ink);background:transparent}
+  .tools .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);box-shadow:none}
+  .result{min-height:20px;font-size:13px;color:var(--mute)}
+
+  /* ── 카드: 4:3 사진 + 마우스를 올리면 어두운 막과 버튼 ── */
+  .gc{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px 28px}
+  .gc li[hidden]{display:none}
+  .gcard{display:block;text-decoration:none;color:inherit}
+  .fig{position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:var(--ph);margin:0}
+  .fig img,.fig svg{display:block;width:100%;height:100%}
+  .fig img{object-fit:cover}
+  .fig.contain{background:#07122c}
+  .fig.contain img{object-fit:contain}
+  .hv{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(to top,rgba(0,0,0,.74),rgba(0,0,0,.3));opacity:0;transition:opacity .2s}
+  .gcard:hover .hv,.gcard:focus-visible .hv{opacity:1}
+  .gcard:focus-visible{outline:3px solid var(--conv);outline-offset:4px;border-radius:12px}
+  .hv .btn{display:inline-flex;align-items:center;gap:8px;background:#fff;color:#111;border-radius:999px;padding:12px 22px;font-weight:800;font-size:14px}
+  .hv .hl{position:absolute;left:18px;right:18px;bottom:14px;color:#fff;text-align:left}
+  .hv small{display:block;font-size:11px;letter-spacing:.12em;font-weight:700;opacity:.85;text-transform:uppercase}
+  .hv h4{margin:2px 0 0;font-size:17px;line-height:1.3;font-weight:700}
+  .cmeta{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:14px 2px 0}
+  .cmeta h3{margin:0;font-size:clamp(17px,1.5vw,20px);font-weight:800;letter-spacing:-.025em;line-height:1.3}
+  .cmeta span{flex:none;font-size:12.5px;color:var(--mute);white-space:nowrap}
+  .slot{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;border:2px dashed var(--line);border-radius:10px;color:var(--mute);font-weight:700;font-size:15px}
+
+  /* ── 읽어볼 이야기: 작은 제목 + 3열 ── */
+  .ch-s{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:clamp(60px,8vw,120px) 0 28px}
+  .ch-s .t{font-size:15px;font-weight:700}
+  .ch-s h2{margin:6px 0 0;font-family:"Outfit","Pretendard Variable","Segoe UI",sans-serif;font-size:clamp(34px,5vw,64px);line-height:1.05;letter-spacing:-.02em;word-spacing:.12em;font-weight:900}
+  .ch-s .n{font-size:13px;font-weight:800;padding:6px 14px;border-radius:999px;border:1.5px solid var(--ink);white-space:nowrap}
+  .ch-s.first{padding-top:clamp(36px,5vw,72px)}
+  .nores{padding:56px 0;text-align:center;color:var(--mute);font-size:16px}
+  footer{padding-top:72px}
+  @media (max-width:1000px){.gc{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:620px){.gc{grid-template-columns:1fr;gap:34px}.hv{display:none}.cmeta{flex-direction:column;gap:4px}}
+  @media (hover:none){.hv{display:none}}
+</style>
+</head>
+<body>
+<div id="banner" class="banner" hidden>미리보기 — 담당자 승인 전 초안이 포함되어 있습니다. 배포하지 마세요.</div>
+<div class="top"><div class="top-in"><a class="logo" href="index.html">NEXUS <b>Insight</b></a><span class="dept">지속가능경영부문</span></div></div>
+<div class="wrap">
+  <header class="ch">
+    <div class="t">Company Feed <span id="upd"></span></div>
+    <h1><span>Insight</span><span><span class="has-sticker">Inside<svg class="sticker" viewBox="0 0 100 100" aria-hidden="true"><path fill="var(--sticker)" d="M50 2l9.5 8.6 12.7-2.1 4.6 12 12 4.6-2.1 12.7L95 48.5 86.4 58l2.1 12.7-12 4.6-4.6 12-12.7-2.1L50 94l-9.5-8.6-12.7 2.1-4.6-12-12-4.6 2.1-12.7L2 48.5 10.6 39 8.5 26.3l12-4.6 4.6-12 12.7 2.1z"></path><text x="50" y="60" text-anchor="middle" font-size="30" fill="#222">NEW</text></svg></span></span></h1>
+    <div class="b">지금 우리가 볼 만한 이야기</div>
+    <div class="tools">
+      <form class="search" id="searchForm" role="search" onsubmit="return false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M20 20l-4.6-4.6"></path></svg>
+        <input id="q" type="search" placeholder="주제나 키워드로 찾아보기 (예: 편의점, AI, 장보기)" aria-label="카드 검색" autocomplete="off">
+        <button type="submit">검색</button>
+      </form>
+      <div class="chips" id="chips" role="group" aria-label="카테고리"></div>
+      <div class="result" id="result" aria-live="polite"></div>
+    </div>
+  </header>
+
+  <section id="block1">
+    <div class="ch-s first">
+      <div><div class="t">Recent Issues</div><h2>Explore A Wide &amp; Variety of Story</h2></div>
+      <span class="n" id="count1">0</span>
+    </div>
+    <ul class="gc" id="gc1"></ul>
+  </section>
+
+  <section id="block2">
+    <div class="ch-s">
+      <div><div class="t">Reading List</div><h2>Stories to Read</h2></div>
+      <span class="n" id="count2">0</span>
+    </div>
+    <ul class="gc" id="gc2"></ul>
+  </section>
+  <div class="nores" id="nores" hidden>찾는 카드가 아직 없습니다. 다른 키워드로 찾아보세요.</div>
+  <footer id="foot"></footer>
+</div>
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="상세"><div class="sheet" id="sheet"></div></div>
+
+<script src="site-data.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var D = window.SITE_DATA || {}, NX = window.NX, el = NX.el, NS = "http://www.w3.org/2000/svg";
+  function svg(tag, attrs, text) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; }
+  var feed = D.feed || [], gid = 0;
+
+  /* 매출 전망 카드 표지(4:3): 그림은 숫자에서 바로 그린다 */
+  function forecastArt(a) {
+    var id = "fg" + (gid++), W = 400, H = 300, s = svg("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "연결 매출 실적과 전망 그래프", preserveAspectRatio: "xMidYMid slice" });
+    var d = svg("defs", {}), g = svg("linearGradient", { id: id, x1: 0, y1: 0, x2: 1, y2: 1 });
+    g.appendChild(svg("stop", { offset: "0", "stop-color": "#2b1d8f" })); g.appendChild(svg("stop", { offset: "1", "stop-color": "#2f6fed" })); d.appendChild(g); s.appendChild(d);
+    s.appendChild(svg("rect", { width: W, height: H, fill: "url(#" + id + ")" }));
+    var pts = a.hist.concat(a.fc), L = 40, R = 40, T = 108, B = 232;
+    var lo = Math.min.apply(null, pts.map(function (p) { return p.lo != null ? p.lo : p.v; })), hi = Math.max.apply(null, pts.map(function (p) { return p.hi != null ? p.hi : p.v; }));
+    function X(i) { return L + (W - L - R) * i / (pts.length - 1); }
+    function Y(v) { return B - (B - T) * (v - lo) / (hi - lo); }
+    var nh = a.hist.length, up = [], dn = [];
+    a.fc.forEach(function (p, i) { up.push(X(nh + i) + "," + Y(p.hi)); dn.unshift(X(nh + i) + "," + Y(p.lo)); });
+    s.appendChild(svg("polygon", { points: [X(nh - 1) + "," + Y(a.hist[nh - 1].v)].concat(up, dn).join(" "), fill: "#fff", opacity: ".22" }));
+    s.appendChild(svg("polyline", { points: a.hist.map(function (p, i) { return X(i) + "," + Y(p.v); }).join(" "), fill: "none", stroke: "#fff", "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    s.appendChild(svg("polyline", { points: [X(nh - 1) + "," + Y(a.hist[nh - 1].v)].concat(a.fc.map(function (p, i) { return X(nh + i) + "," + Y(p.mid); })).join(" "), fill: "none", stroke: "#fff", "stroke-width": 4, "stroke-dasharray": "2 8", "stroke-linecap": "round" }));
+    pts.forEach(function (p, i) {
+      var v = p.v != null ? p.v : p.mid;
+      s.appendChild(svg("circle", { cx: X(i), cy: Y(v), r: i < nh ? 5 : 6, fill: i < nh ? "#fff" : "#2b1d8f", stroke: "#fff", "stroke-width": 3 }));
+      s.appendChild(svg("text", { x: X(i), y: B + 26, "text-anchor": "middle", fill: "#fff", opacity: ".85", "font-size": 13, "font-weight": 700 }, p.y + (i >= nh ? "E" : "")));
+    });
+    s.appendChild(svg("text", { x: 40, y: 52, fill: "#fff", opacity: ".8", "font-size": 15, "font-weight": 700 }, "연결 매출 (조원)"));
+    s.appendChild(svg("text", { x: 40, y: 92, fill: "#fff", "font-size": 44, "font-weight": 900, "letter-spacing": "-1.5" }, a.hist[nh - 1].v.toFixed(1) + " → " + a.fc[a.fc.length - 1].mid.toFixed(1)));
+    return s;
+  }
+
+  /* ---------- 카드 ---------- */
+  var gc1 = document.getElementById("gc1"), gc2 = document.getElementById("gc2"), nores = document.getElementById("nores");
+  var live = feed.filter(function (f) { return f.kind !== "empty"; }), items = [];
+  feed.forEach(function (f) {
+    var ul = f.sec === "read" ? gc2 : gc1, li = el("li");
+    if (f.kind === "empty") { li.appendChild(el("div", "slot", "신규 콘텐츠")); ul.appendChild(li); items.push({ li: li, ul: ul, empty: true }); return; }
+    var a = el("a", "gcard"); a.href = f.href;
+    var fig = el("figure", "fig" + (f.fit === "contain" ? " contain" : ""));
+    if (f.art) fig.appendChild(forecastArt(f.art));
+    else if (f.src) { var im = el("img"); im.src = f.src; im.alt = ""; im.loading = "lazy"; if (f.pos) im.style.objectPosition = f.pos; fig.appendChild(im); }
+    var hv = el("div", "hv"), btn = el("span", "btn", "읽어보기 →"); hv.appendChild(btn);
+    var hl = el("div", "hl"); hl.appendChild(el("small", null, f.tag || "")); hl.appendChild(el("h4", null, f.title)); hv.appendChild(hl); fig.appendChild(hv);
+    var meta = el("div", "cmeta"); meta.appendChild(el("h3", null, f.title)); meta.appendChild(el("span", null, f.tag || ""));
+    a.appendChild(fig); a.appendChild(meta); li.appendChild(a); ul.appendChild(li);
+    items.push({ li: li, ul: ul, text: [f.title, f.tag, (f.cats || []).join(" ")].join(" ").toLowerCase(), cats: f.cats || [] });
+  });
+
+  /* ---------- 검색 + 카테고리 ---------- */
+  var cats = [], chips = document.getElementById("chips"), q = document.getElementById("q"), state = { cat: "", q: "" };
+  live.forEach(function (f) { (f.cats || []).forEach(function (c) { if (cats.indexOf(c) < 0) cats.push(c); }); });
+  var count1 = document.getElementById("count1"), count2 = document.getElementById("count2"), result = document.getElementById("result"), b1 = document.getElementById("block1"), b2 = document.getElementById("block2");
+  var nRead = live.filter(function (f) { return f.sec === "read"; }).length, nNew = live.length - nRead;
+  function apply() {
+    var active = !!(state.cat || state.q), terms = state.q.toLowerCase().split(/\s+/).filter(Boolean), n1 = 0, n2 = 0;
+    items.forEach(function (it) {
+      var ok = it.empty ? !active : (!state.cat || it.cats.indexOf(state.cat) >= 0) && terms.every(function (t) { return it.text.indexOf(t) >= 0; });
+      it.li.hidden = !ok;
+      if (ok && !it.empty) { if (it.ul === gc2) n2++; else n1++; }
+    });
+    b1.hidden = active && n1 === 0; b2.hidden = active && n2 === 0;
+    count1.textContent = (active ? n1 : nNew) + " STORY";
+    count2.textContent = (active ? n2 : nRead) + " STORY";
+    result.textContent = active ? "검색 결과 " + (n1 + n2) + "개" : "";
+    nores.hidden = !(active && n1 + n2 === 0);
+  }
+  ["전체"].concat(cats).forEach(function (c) {
+    var b = el("button", "chip", c); b.setAttribute("aria-pressed", c === "전체");
+    b.onclick = function () { state.cat = c === "전체" ? "" : c; [].forEach.call(chips.children, function (x) { x.setAttribute("aria-pressed", x === b); }); apply(); };
+    chips.appendChild(b);
+  });
+  q.addEventListener("input", function () { state.q = q.value.trim(); apply(); });
+  count1.textContent = nNew + " STORY"; count2.textContent = nRead + " STORY";
+
+  document.getElementById("upd").textContent = "· " + (D.builtAt || "").slice(0, 10) + " 갱신" + (D.draftCount ? " · 초안 " + D.draftCount + "건" : "");
+  document.getElementById("foot").textContent = "사내 아카이브의 일반(general) 등급 문서와 공개 기사·영상을 사용했습니다. 이미지는 각 카드에 표시된 출처의 것이며 사내 비상업 용도로만 사용합니다.";
+  if (D.preview) document.getElementById("banner").hidden = false;
+})();
+</script>
+</body>
+</html>

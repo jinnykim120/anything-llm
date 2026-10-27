@@ -1,0 +1,20 @@
+/* 주제 페이지와 전망 페이지가 함께 쓰는 상단(히어로)·HOW 카드·확인하지 못한 것 양식 */
+.hero{position:relative;margin-top:24px;border-radius:28px;overflow:hidden;background:#222;color:#fff;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:clamp(16px,3vw,40px);align-items:center;padding:clamp(20px,4vw,44px);isolation:isolate}
+.hero.nobg{background:linear-gradient(135deg,#1b1740,#2b1d8f 55%,#2f6fed)}
+.hero .bgimg{position:absolute;inset:-40px;width:calc(100% + 80px);height:calc(100% + 80px);object-fit:cover;filter:blur(28px) brightness(.45) saturate(1.1);z-index:-1}
+.hero .txt{min-width:0}
+.hero .eyebrow{color:#ffd9a8;font-size:13px;font-weight:700;letter-spacing:.04em}
+.hero h1{margin:6px 0 12px;font-size:clamp(26px,3.8vw,42px);line-height:1.17;letter-spacing:-.03em}
+.hero p{margin:0;max-width:none;color:rgba(255,255,255,.9);font-size:15.5px}
+.hero .photo{position:relative;border-radius:20px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.4);background:#111}
+.hero .photo img{display:block;width:100%;height:clamp(240px,30vw,380px);object-fit:cover}
+.hero .photo svg{display:block;width:100%;height:auto}
+.hero .credit{position:absolute;right:10px;top:10px;font-size:11px;color:rgba(255,255,255,.85);background:rgba(0,0,0,.45);padding:2px 9px;border-radius:999px}
+@media (max-width:760px){.hero{grid-template-columns:1fr}.hero .photo{order:-1}.hero .photo img{height:210px}}
+.meta{margin:12px 0 0;font-size:13px;color:var(--mute)}
+.unv h3{margin:0 0 8px;font-size:16px}
+.unv ul{margin:0;padding-left:20px;color:var(--mute);font-size:14px}
+
+/* HOW(Insight) 카드: 질문 카드와 같은 모양에 보라색 바탕 */
+.card.dark.idea{background:linear-gradient(140deg,#7a4fd6,#2f6fed)}
+.card.dark.idea .qmark{color:#ffe9b0}

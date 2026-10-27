@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEXUS 인사이트 주제</title>
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="ui-extra.css">
+<style>
+  table.t{width:100%;border-collapse:collapse;font-size:13px}
+  table.t th,table.t td{padding:9px 10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  table.t th{font-size:11.5px;color:var(--mute);font-weight:700;white-space:nowrap}
+  table.t td:first-child{font-weight:800;white-space:nowrap}
+  .tscroll{overflow-x:auto;margin-top:10px}
+</style>
+</head>
+<body>
+<div id="banner" class="banner" hidden>미리보기 — 담당자 승인 전 초안이 포함되어 있습니다. 배포하지 마세요.</div>
+<div class="top"><div class="top-in">
+  <a class="logo" href="index.html">NEXUS <b>Insight</b></a>
+  <nav class="nav" id="nav" aria-label="섹션"></nav>
+</div></div>
+<div class="wrap">
+  <header id="head"></header>
+  <main id="main"></main>
+  <footer id="foot"></footer>
+</div>
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="상세"><div class="sheet" id="sheet"></div></div>
+
+<script src="site-data.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var D = window.SITE_DATA || {}, NX = window.NX, el = NX.el;
+  var slug = document.documentElement.getAttribute("data-slug") || (location.pathname.split("/").pop() || "").replace(/\.html$/, "");
+  var T = (D.topics || []).filter(function (t) { return t.slug === slug; })[0];
+  var main = document.getElementById("main"), head = document.getElementById("head"), nav = document.getElementById("nav");
+  if (!T) { main.appendChild(el("div", "empty", "이 주제는 아직 발행되지 않았습니다. ")); var back = el("a", null, "피드로 돌아가기"); back.href = "index.html"; main.firstChild.appendChild(back); return; }
+  document.title = T.title + " · NEXUS 인사이트";
+  if (D.preview) document.getElementById("banner").hidden = false;
+
+  var M = function (id) { return T.media[id] || null; };
+  var heroM = M(T.heroMedia);
+  var hero = el("div", "hero");
+  if (heroM) { var bg = el("img", "bgimg"); bg.src = heroM.src; bg.alt = ""; hero.appendChild(bg); }
+  var hin = el("div", "txt"); hin.appendChild(el("div", "eyebrow", T.eyebrow)); hin.appendChild(el("h1", null, T.title)); hin.appendChild(el("p", null, T.summary)); hero.appendChild(hin);
+  if (heroM) { var ph = el("div", "photo"), hi = el("img"); hi.src = heroM.src; hi.alt = ""; ph.appendChild(hi); ph.appendChild(el("span", "credit", heroM.credit)); hero.appendChild(ph); }
+  head.appendChild(hero);
+  head.appendChild(el("div", "meta", "갱신 " + (T.updatedAt || "").slice(0, 10) + (T.status !== "approved" ? " · 승인 전 초안 · 담당자 검수 필요" : "")));
+
+  function open(it, extra) { NX.openSheet(Object.assign({ title: it.title || it.question, paras: it.body ? [it.body] : [], facts: it.facts, cites: it.cites, sources: T.sources }, extra || {})); }
+  var jump = {};
+
+  /* 질문과 HOW 제안이 섞여 있으면 위아래 두 섹션으로 나눈다: Inside(함께 생각해 볼 질문) / Insight(HOW) */
+  function splitIdeas(list) {
+    var out = [];
+    list.forEach(function (sec) {
+      var ideas = sec.items.filter(function (i) { return i.mark; }), qs = sec.items.filter(function (i) { return !i.mark; });
+      if (!ideas.length) { out.push(sec); return; }
+      if (qs.length) out.push({ id: sec.id, title: "Inside", lede: "함께 생각해 볼 질문입니다. 위의 사실에서 나온 질문이며, 정답을 정하려는 것이 아니라 논의를 시작하려는 것입니다. 카드를 누르면 질문의 배경이 나옵니다.", items: qs });
+      out.push({ id: sec.id + "-ideas", title: "Insight", lede: "HOW. 위의 사실을 바탕으로 우리가 어떻게 움직일지에 대한 제안입니다. 확인된 사실이 아니라 제안이므로, 카드를 누르면 배경이 나옵니다.", items: ideas });
+    });
+    out.forEach(function (s, i) { s.n = ("0" + (i + 1)).slice(-2); });
+    return out;
+  }
+  var SECS = splitIdeas(T.sections);
+
+  SECS.forEach(function (sec) {
+    var s = el("section", "sec"); s.id = sec.id;
+    var h = el("div", "sec-h"); h.appendChild(el("div", "sec-n", sec.n)); h.appendChild(el("h2", null, sec.title)); s.appendChild(h);
+    if (sec.lede) s.appendChild(el("p", "sec-lede", sec.lede));
+    var box = el("div"); s.appendChild(box); main.appendChild(s);
+    var g = NX.Grid(box);
+    sec.items.forEach(function (it) {
+      var n, op = null;
+      if (it.type === "stat") {
+        n = el("article"); var b = el("div", "body"); b.appendChild(el("div", "lead", it.lead));
+        var big = el("div", "big", it.big); big.appendChild(el("small", null, it.unit)); b.appendChild(big);
+        var p = el("p", null, it.text); p.style.marginTop = "12px"; b.appendChild(p); n.appendChild(b);
+        op = function () { open({ title: it.lead + " " + it.big + it.unit, body: it.text, cites: it.cites }); };
+      } else if (it.type === "case") {
+        var m = M(it.media);
+        n = NX.pin({ tag: it.tag, title: it.title, src: m && m.src, credit: m && m.credit });
+        op = function () { open(it, { image: m && m.src, credit: m && m.credit }); };
+      } else if (it.type === "video") {
+        var v = T.videos[it.video], vm = M(v.media);
+        n = NX.pin({ tag: it.tag, title: it.title, sub: it.body, src: vm && vm.src, credit: vm && vm.credit, play: true });
+        op = function () {
+          // 카드 자리에서 바로 재생(눌러서 재생). 막힌 영상은 시트에서 YouTube 링크로 열 수 있다.
+          if (n.dataset.played) return; n.dataset.played = "1";
+          var box2 = n.querySelector(".imgbox"); box2.replaceChildren(NX.ytBox(v.id));
+          [".shade", ".cap", ".play", ".credit"].forEach(function (q) { var e = n.querySelector(q); if (e) e.remove(); });
+          n.classList.remove("click"); n.removeAttribute("role"); n.removeAttribute("tabindex");
+          var link = el("a", null, "YouTube에서 열기 ↗"); link.href = "https://www.youtube.com/watch?v=" + v.id; link.target = "_blank"; link.rel = "noopener noreferrer";
+          var bar = el("div", "body"); bar.appendChild(el("h3", null, it.title)); var pp = el("p"); pp.appendChild(link); bar.appendChild(pp); n.appendChild(bar);
+          n.style.color = "var(--ink)"; n.style.background = "var(--surface)"; NX.relayout();
+        };
+      } else if (it.type === "table") {
+        n = el("article"); var tb = el("div", "body"); tb.appendChild(el("h3", null, it.title));
+        var tbl = el("table", "t"), thd = el("thead"), thr = el("tr"); it.head.forEach(function (h) { thr.appendChild(el("th", null, h)); }); thd.appendChild(thr); tbl.appendChild(thd);
+        var tbd = el("tbody"); it.rows.forEach(function (r) { var tr = el("tr"); r.forEach(function (c) { tr.appendChild(el("td", null, c)); }); tbd.appendChild(tr); }); tbl.appendChild(tbd);
+        var wrapT = el("div", "tscroll"); wrapT.appendChild(tbl); tb.appendChild(wrapT);
+        if (it.body) { var nt = el("p", null, it.body); nt.style.marginTop = "10px"; nt.style.fontSize = "12.5px"; tb.appendChild(nt); }
+        n.appendChild(tb); op = null;
+      } else if (it.type === "question") {
+        n = el("article", "dark"); var qb = el("div", "body"); qb.style.padding = "22px";
+        qb.appendChild(el("div", "qmark", it.mark || "생각해 볼 것")); if (it.mark) n.classList.add("idea"); qb.appendChild(el("p", "qtext", it.question)); qb.appendChild(el("p", "clamp", it.body)); n.appendChild(qb);
+        op = function () { open(it, { title: it.question }); };
+      } else {
+        n = el("article"); var nb = el("div", "body"); nb.appendChild(el("span", "note-tag", it.tag)); nb.appendChild(el("h3", null, it.title)); nb.appendChild(el("p", "clamp", it.body)); n.appendChild(nb);
+        op = function () { open(it); };
+      }
+      n.id = it.id; g.add(n, { span: it.span || 1, open: it.type === "video" ? function () { op(); } : op });
+      jump[it.id] = it.type === "video" ? null : op;
+    });
+  });
+
+  var uv = el("section", "sec"); uv.id = "unverified";
+  var ub = el("div", "note unv"); ub.appendChild(el("h3", null, "확인하지 못한 것")); var ul = el("ul"); (T.unverified || []).forEach(function (x) { ul.appendChild(el("li", null, x)); }); ub.appendChild(ul); uv.appendChild(ub); main.appendChild(uv);
+
+  var links = SECS.map(function (s) { return { id: s.id, title: s.title }; });
+  links.forEach(function (l) { var a = el("a", null, l.title); a.href = "#" + l.id; a.dataset.id = l.id; nav.appendChild(a); });
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) [].forEach.call(nav.children, function (a) { a.setAttribute("aria-current", a.dataset.id === e.target.id); }); }); }, { rootMargin: "-30% 0px -60% 0px" });
+    [].forEach.call(main.querySelectorAll("section.sec[id]"), function (n2) { io.observe(n2); });
+  }
+  document.getElementById("foot").textContent = "사내 비상업 용도로 공개 기사·영상의 이미지를 인용했으며 출처를 카드마다 표시했습니다. 해석·가설은 그렇게 표시했고 확인되지 않은 항목은 위에 따로 적었습니다.";
+
+  NX.relayout();
+  // 피드의 핀에서 들어온 경우(#c-minum 등): 해당 카드로 이동해 열어 준다
+  window.addEventListener("load", function () {
+    var id = location.hash.slice(1), n3 = id && document.getElementById(id);
+    if (n3) setTimeout(function () { n3.scrollIntoView({ block: "center" }); if (jump[id]) jump[id](); }, 250);
+  });
+})();
+</script>
+</body>
+</html>
