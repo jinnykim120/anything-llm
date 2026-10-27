@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEXUS 아키텍처 (맥 기준) — v28</title>
+<style>
+:root {
+  --bg: #f8fafc; --fg: #1e293b; --muted: #64748b; --card: #ffffff; --line: #cbd5e1;
+  --accent: #2563eb; --accent-soft: #dbeafe; --warn: #b45309; --warn-soft: #fef3c7;
+  --ok: #047857; --ok-soft: #d1fae5; --bad: #b91c1c; --bad-soft: #fee2e2; --code: #eef2f7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1120; --fg: #e2e8f0; --muted: #94a3b8; --card: #111a2e; --line: #334155;
+    --accent: #60a5fa; --accent-soft: #172554; --warn: #fbbf24; --warn-soft: #3b2a07;
+    --ok: #34d399; --ok-soft: #052e22; --bad: #f87171; --bad-soft: #3b0d0d; --code: #1a2438;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); line-height: 1.7; font-size: 15px;
+  font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+}
+.layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+nav.toc {
+  position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+  padding: 28px 16px 28px 24px; border-right: 1px solid var(--line); font-size: 13px;
+}
+nav.toc strong { display: block; margin-bottom: 10px; font-size: 14px; }
+nav.toc a { display: block; padding: 4px 8px; margin: 1px 0; color: var(--muted); text-decoration: none; border-radius: 6px; }
+nav.toc a:hover { background: var(--accent-soft); color: var(--accent); }
+main { padding: 36px 40px 80px; min-width: 0; }
+h1 { font-size: 30px; margin: 0 0 6px; }
+h2 { font-size: 22px; margin: 52px 0 12px; padding-top: 10px; border-top: 2px solid var(--line); scroll-margin-top: 12px; }
+h2 .no { color: var(--accent); margin-right: 6px; }
+h3 { font-size: 17px; margin: 28px 0 8px; }
+p { margin: 8px 0; }
+a { color: var(--accent); }
+code { background: var(--code); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+pre code { background: none; padding: 0; }
+.lede { color: var(--muted); margin-bottom: 18px; }
+.callout { margin: 16px 0; padding: 12px 16px; border-left: 4px solid var(--accent); background: var(--accent-soft); border-radius: 4px; }
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.callout.ok { border-color: var(--ok); background: var(--ok-soft); }
+.callout p { margin: 4px 0; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13.5px; background: var(--card); }
+th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: var(--accent-soft); font-weight: 600; }
+td.nowrap, th.nowrap { white-space: nowrap; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+.tag { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.tag.ok { background: var(--ok-soft); color: var(--ok); }
+.tag.bad { background: var(--bad-soft); color: var(--bad); }
+figure { margin: 18px 0 26px; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+figure svg { display: block; width: 100%; height: auto; color: var(--fg); }
+figcaption { margin-top: 10px; font-size: 13px; color: var(--muted); }
+/* 다이어그램 요소 */
+svg .box { fill: var(--card); stroke: currentColor; stroke-width: 1.3; }
+svg .soft { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.3; }
+svg .okbox { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.3; }
+svg .badbox { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.3; }
+svg .warnbox { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.3; }
+svg .zone { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 6 5; }
+svg .ln { stroke: currentColor; stroke-width: 1.4; fill: none; }
+svg .lnA { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+svg .lnB { stroke: var(--bad); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+svg text { fill: currentColor; font-size: 12px; font-family: inherit; }
+svg text.t { font-size: 13px; font-weight: 700; }
+svg text.s { font-size: 11px; fill: var(--muted); }
+svg text.a { fill: var(--accent); font-weight: 700; }
+svg text.b { fill: var(--bad); font-weight: 700; }
+svg text.k { fill: var(--ok); font-weight: 700; }
+.meta td:first-child { width: 140px; font-weight: 600; background: var(--accent-soft); }
+footer { margin-top: 60px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 14px; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  nav.toc { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  main { padding: 24px 18px 60px; }
+}
+@media print {
+  nav.toc { display: none; } .layout { display: block; } main { padding: 0; }
+  h2 { page-break-after: avoid; } figure, table { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="목차">
+  <strong>NEXUS 아키텍처 v28</strong>
+  <a href="#s1">1. 한눈에 보기</a>
+  <a href="#s2">2. 시스템 구성</a>
+  <a href="#s3">3. 패키지 폴더 구조</a>
+  <a href="#s4">4. 접근 제어</a>
+  <a href="#s5">5. 데이터 모델</a>
+  <a href="#s6">6. 문서 요약</a>
+  <a href="#s7">7. API 요약</a>
+  <a href="#s8">8. 화면 변경</a>
+  <a href="#s9">9. 운영</a>
+  <a href="#s10">10. 보안 모델과 한계</a>
+  <a href="#s11">11. 검증 현황</a>
+  <a href="#s12">12. 남은 과제</a>
+  <a href="#s13">13. 변경 이력</a>
+</nav>
+
+<main>
+<h1>NEXUS 아키텍처 (맥 기준)</h1>
+<p class="lede">사내 문서 아카이브 · 근거 기반 질의응답 · 문서 작성 시스템 (AnythingLLM v1.16.0 포크)</p>
+
+<div class="callout">
+  <p><strong>이 파일이 NEXUS 아키텍처의 단일 기준 문서입니다.</strong> 구조·보안·운영이 바뀌면 이 파일에 반영합니다.</p>
+  <p>새 변경은 <a href="#s13">§13 변경 이력</a> 맨 위에 추가하고, 영향받는 절을 같이 고칩니다.</p>
+  <p>위치: <code>NEXUS-Mac-Package/NEXUS-ARCHITECTURE.html</code> — 실제 파일은 저장소의 <code>app/docs/NEXUS-ARCHITECTURE.html</code> 이고, 패키지 루트의 파일은 그 파일을 가리킵니다. 그래서 수정하면 git 으로 같이 저장됩니다.</p>
+  <p>저장소가 <strong>공개</strong>이므로 비밀번호 · 사내 IP · 회사 문서 이름 · 키는 적지 않습니다.</p>
+</div>
+
+<table class="meta">
+  <tr><td>버전</td><td><strong>v28</strong> — 윈도 시절 v27 이후: 맥 이전 + 접근 제어 + 관리자 콘솔 + 문서 요약</td></tr>
+  <tr><td>작성</td><td>2026-10-27</td></tr>
+  <tr><td>기준 브랜치</td><td><code>nexus_linux</code> (GitHub 기본 브랜치)</td></tr>
+  <tr><td>윈도 시절 보존</td><td>태그 <code>windows-final</code> (= <code>feat/archive-qa</code>, v27). 더 이상 고치지 않음</td></tr>
+  <tr><td>이전 아키텍처</td><td><code>docs/architecture-v27.html</code> (윈도 시절, 기능 소개 중심)</td></tr>
+</table>
+
+<!-- ============================================================ 1 -->
+<h2 id="s1"><span class="no">1.</span>한눈에 보기</h2>
+<p>v27 까지는 윈도 PC 한 대에서 로그인 없이 돌았고, v28 에서 <strong>맥으로 옮기면서</strong> 아래가 추가됐습니다.</p>
+<ol>
+  <li><strong>폴더 비밀번호</strong> — 업로드하는 사람이 폴더를 만들며 비밀번호를 정하면, 모르는 사람의 검색·열람에서 그 폴더가 제외된다.</li>
+  <li><strong>브라우저별 대화 분리</strong> — 로그인 없이 브라우저마다 대화·스레드가 따로 보인다.</li>
+  <li><strong>관리자 콘솔</strong> — 관리자 비밀번호로 들어가는 별도 화면. 설정·관리 기능은 여기로 모았다.</li>
+  <li><strong>문서 요약</strong> — 문서마다 한두 문장 요약을 만들어 문서함에 보여 준다.</li>
+  <li><strong>운영 보강</strong> — 한글 폴더 이름(NFC/NFD) 처리, 시작 시 DB 마이그레이션, 테스트의 <code>.env</code> 오염 방지.</li>
+</ol>
+
+<!-- ============================================================ 2 -->
+<h2 id="s2"><span class="no">2.</span>시스템 구성</h2>
+
+<figure>
+<svg viewBox="0 0 940 480" role="img" aria-label="브라우저의 요청은 서버 맥 안의 프론트엔드와 API 서버를 거쳐 SQLite, Postgres 벡터 DB, 임베딩 모델, Claude CLI로 가고, 업로드 파일은 collector를 거쳐 Docling과 LibreOffice로 간다">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+    <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+  <!-- 서버 맥 영역 -->
+  <rect class="zone" x="198" y="8" width="734" height="466" rx="12"/>
+  <text class="s" x="212" y="26">서버 맥 (macOS) — 같은 사내망에서만 접속</text>
+
+  <!-- 브라우저 -->
+  <rect class="box" x="10" y="205" width="130" height="80" rx="8"/>
+  <text class="t" x="75" y="240" text-anchor="middle">사용자 브라우저</text>
+  <text class="s" x="75" y="258" text-anchor="middle">localStorage 의 임의 ID</text>
+  <line class="lnA" x1="140" y1="245" x2="213" y2="245" marker-end="url(#aha)"/>
+  <text class="a" x="176" y="237" text-anchor="middle">HTTP :3000</text>
+
+  <!-- 프론트엔드 -->
+  <rect class="box" x="215" y="205" width="150" height="80" rx="8"/>
+  <text class="t" x="290" y="240" text-anchor="middle">프론트엔드</text>
+  <text class="s" x="290" y="258" text-anchor="middle">Vite :3000</text>
+  <line class="lnA" x1="365" y1="245" x2="418" y2="245" marker-end="url(#aha)"/>
+  <text class="a" x="391" y="237" text-anchor="middle">/api</text>
+  <text class="s" x="391" y="262" text-anchor="middle">+ID 헤더</text>
+
+  <!-- API 서버 -->
+  <rect class="soft" x="420" y="150" width="190" height="190" rx="10"/>
+  <text class="t" x="515" y="173" text-anchor="middle">API 서버 :3001</text>
+  <rect class="box" x="434" y="186" width="162" height="34" rx="6"/>
+  <text x="515" y="207" text-anchor="middle">accessContext · scope 계산</text>
+  <rect class="box" x="434" y="230" width="162" height="34" rx="6"/>
+  <text x="515" y="251" text-anchor="middle">consoleGuard · 관리자 경로</text>
+  <rect class="box" x="434" y="274" width="162" height="34" rx="6"/>
+  <text x="515" y="295" text-anchor="middle">읽기 경로 검사 · 사전 필터</text>
+  <text class="s" x="515" y="328" text-anchor="middle">Express · Node 24 · Prisma</text>
+
+  <!-- 줄기 -->
+  <line class="ln" x1="610" y1="245" x2="650" y2="245"/>
+  <line class="ln" x1="650" y1="55" x2="650" y2="325"/>
+  <line class="ln" x1="650" y1="55" x2="716" y2="55" marker-end="url(#ah)"/>
+  <line class="ln" x1="650" y1="145" x2="716" y2="145" marker-end="url(#ah)"/>
+  <line class="ln" x1="650" y1="235" x2="716" y2="235" marker-end="url(#ah)"/>
+  <line class="ln" x1="650" y1="325" x2="716" y2="325" marker-end="url(#ah)"/>
+  <text class="s" x="683" y="48" text-anchor="middle">저장·조회</text>
+  <text class="s" x="683" y="138" text-anchor="middle">벡터 검색</text>
+  <text class="s" x="683" y="228" text-anchor="middle">임베딩</text>
+  <text class="s" x="683" y="318" text-anchor="middle">생성</text>
+
+  <rect class="box" x="720" y="20" width="200" height="70" rx="8"/>
+  <text class="t" x="820" y="46" text-anchor="middle">SQLite (Prisma)</text>
+  <text class="s" x="820" y="64" text-anchor="middle">문서목록 · 분류 · 잠금 · 대화 · 요약</text>
+  <text class="s" x="820" y="79" text-anchor="middle">anythingllm.db</text>
+
+  <rect class="box" x="720" y="110" width="200" height="70" rx="8"/>
+  <text class="t" x="820" y="136" text-anchor="middle">Postgres 17 + pgvector</text>
+  <text class="s" x="820" y="154" text-anchor="middle">청크 벡터 (384차원)</text>
+  <text class="s" x="820" y="169" text-anchor="middle">metadata.doc_id 로 문서와 연결</text>
+
+  <rect class="box" x="720" y="200" width="200" height="70" rx="8"/>
+  <text class="t" x="820" y="226" text-anchor="middle">임베딩 · 리랭커 (ONNX)</text>
+  <text class="s" x="820" y="244" text-anchor="middle">서버 프로세스 안에서 실행</text>
+  <text class="s" x="820" y="259" text-anchor="middle">multilingual-e5-small</text>
+
+  <rect class="box" x="720" y="290" width="200" height="70" rx="8"/>
+  <text class="t" x="820" y="316" text-anchor="middle">Claude CLI</text>
+  <text class="s" x="820" y="334" text-anchor="middle">claude -p · claude-sonnet-5-5</text>
+  <text class="s" x="820" y="349" text-anchor="middle">답변 · 초안 · 요약</text>
+
+  <!-- 업로드 경로 -->
+  <line class="ln" x1="515" y1="340" x2="515" y2="373" marker-end="url(#ah)"/>
+  <text class="s" x="523" y="361">업로드</text>
+  <rect class="box" x="420" y="375" width="190" height="60" rx="8"/>
+  <text class="t" x="515" y="402" text-anchor="middle">collector :8888</text>
+  <text class="s" x="515" y="420" text-anchor="middle">파일 → 파싱된 JSON</text>
+  <line class="ln" x1="610" y1="405" x2="716" y2="405" marker-end="url(#ah)"/>
+  <text class="s" x="663" y="397" text-anchor="middle">파싱·변환</text>
+  <rect class="box" x="720" y="378" width="200" height="56" rx="8"/>
+  <text class="t" x="820" y="400" text-anchor="middle">Docling :5001 (켜고 끔)</text>
+  <text class="s" x="820" y="419" text-anchor="middle">LibreOffice (PPT·HWP → PDF)</text>
+
+  <text class="s" x="212" y="456">파일: server/storage/documents/&lt;폴더&gt;/*.json · LaunchAgent: 로그인 시 + 5분마다 자동 복구</text>
+</svg>
+<figcaption>브라우저는 <strong>3000번 하나만</strong> 쓴다 — Vite 가 <code>/api</code> 요청을 3001번 API 서버로 대신 전달한다(프록시). 모든 API 요청은 접근 범위 계산(<code>accessContext</code>)과 관리자 경로 검사(<code>consoleGuard</code>)를 먼저 지난다. 문서 업로드는 collector 를 거쳐 JSON 으로 저장된 뒤 임베딩되어 pgvector 에 들어간다. 위치는 이 맥 안이며, Claude 호출만 외부 서비스를 쓴다.</figcaption>
+</figure>
+
+<table>
+  <tr><th>구성요소</th><th>위치/포트</th><th>비고</th></tr>
+  <tr><td>프론트엔드</td><td><code>app/frontend</code>, :3000</td><td>Vite 개발 서버. 소스를 고치면 곧바로 반영됨. <code>/api</code> 를 3001 로 프록시(<code>vite.config.js</code>)하므로 사용자는 3000 하나로 접속</td></tr>
+  <tr><td>API 서버</td><td><code>app/server</code>, :3001</td><td>Node 24, Express, Prisma 5.3.1</td></tr>
+  <tr><td>collector</td><td><code>app/collector</code>, :8888</td><td>업로드 파일 → 파싱된 JSON</td></tr>
+  <tr><td>메타 DB</td><td><code>server/storage/anythingllm.db</code></td><td>SQLite. 문서 목록·분류·대화·잠금·요약</td></tr>
+  <tr><td>벡터 DB</td><td>Postgres 17 + pgvector</td><td>테이블 <code>anythingllm_vectors</code>, 청크 단위</td></tr>
+  <tr><td>임베딩·리랭커</td><td>서버 프로세스 안 ONNX</td><td>모델은 <code>server/storage/models</code></td></tr>
+  <tr><td>LLM</td><td>Claude CLI (<code>claude -p</code>)</td><td>모델 <code>claude-sonnet-5-5</code>. 이 맥에 로그인된 계정 사용</td></tr>
+  <tr><td>Docling</td><td>127.0.0.1:5001</td><td>표·구조 PDF/PPTX 정밀 파싱. 적재할 때만 켠다</td></tr>
+  <tr><td>작업공간</td><td><code>archive-full</code>(본 아카이브), <code>eval</code></td><td>벡터는 작업공간(namespace)별로 분리</td></tr>
+</table>
+
+<div class="callout">
+  <p><strong>문서가 저장되는 방식</strong> — 문서는 <code>storage/documents/&lt;폴더&gt;/&lt;이름&gt;.json</code> (폴더는 한 단계만). DB 의 <code>workspace_documents.docpath</code> 가 <code>폴더/파일.json</code> 이고, <code>docId</code> 가 벡터의 <code>doc_id</code> 와 같다. 폴더 이름이 곧 <strong>저장 폴더</strong>이며 비밀번호 잠금의 단위다.</p>
+  <p>문서함 화면의 <strong>분류 폴더</strong>(업무 분류 → 사업부)는 분류 값으로 묶은 <strong>다른 개념</strong>이다 (§8).</p>
+</div>
+
+<!-- ============================================================ 3 -->
+<h2 id="s3"><span class="no">3.</span>패키지 폴더 구조</h2>
+<pre><code>NEXUS-Mac-Package/
+├─ app/                     ← git 저장소 (GitHub, 공개). 소스 코드
+│   ├─ server/  frontend/  collector/
+│   ├─ docs/NEXUS-ARCHITECTURE.html   ← 이 문서의 실제 파일
+│   └─ .local-cache/        ← 로그·가상환경·백업 (git 제외)
+├─ data/                    ← 설정·DB 덤프·모델 캐시 (윈도 내보내기본, git 제외)
+├─ secrets/admin.env        ← 관리자 비밀번호 (git 밖, 권한 600)
+├─ user-guide/              ← 사용자 배포용 가이드 (PDF/HTML/MD + 이미지)
+├─ NEXUS-ARCHITECTURE.html  → app/docs/NEXUS-ARCHITECTURE.html
+├─ 1-setup.sh  2-start.sh  3-verify.sh
+└─ README-맥에서-시작하기.md</code></pre>
+<ul>
+  <li><code>user-guide/</code> 는 화면 이미지에 회사 문서가 보여 <strong>저장소에 올리지 않는다.</strong></li>
+  <li><code>secrets/</code> 는 저장소 밖이라 코드와 함께 올라가지 않는다. 위치는 환경변수 <code>NEXUS_SECRETS_DIR</code> 로 바꿀 수 있다.</li>
+</ul>
+
+<!-- ============================================================ 4 -->
+<h2 id="s4"><span class="no">4.</span>접근 제어 (v28 핵심)</h2>
+
+<h3>4-1. 사용자 식별 — 로그인 없이 "브라우저"를 사용자로</h3>
+<ul>
+  <li>브라우저가 처음 열릴 때 임의의 ID(24바이트 난수)를 만들어 <code>localStorage</code> 에 저장한다 (<code>utils/nexusClient.js</code>).</li>
+  <li><code>window.fetch</code> 를 감싸서 API 로 가는 <strong>모든 요청</strong>에 <code>X-Nexus-Client</code> 헤더를 붙인다 (스트리밍 포함). 헤더를 못 붙이는 <code>&lt;iframe&gt;</code>/링크 URL 은 <code>?cid=</code> 쿼리를 쓴다.</li>
+  <li>서버는 이 ID 로 "이 브라우저가 연 폴더"와 "이 브라우저의 대화"를 구분한다. <strong>사람이 아니라 브라우저</strong>이므로, 같은 사람도 기기·브라우저마다 다른 사용자이고 브라우저 데이터를 지우면 새 사용자가 된다.</li>
+  <li>쿠키를 쓰지 않는 이유: 프론트(:3000)와 API(:3001)가 다른 출처이고 서버 CORS 가 자격증명을 허용하지 않는다.</li>
+  <li>사내 SSO 를 붙이면 이 ID 대신 사번이 키가 된다 (미구현, §12).</li>
+</ul>
+
+<h3>4-2. 접근 범위(scope) 계산 — <code>server/utils/folderAccess/index.js</code></h3>
+<p>요청마다 한 번 <code>buildScope()</code> 로 계산해 <code>AsyncLocalStorage</code> 에 두고, 이후 모든 읽기 경로가 이것만 본다.</p>
+
+<figure>
+<svg viewBox="0 0 940 300" role="img" aria-label="요청이 accessContext에서 접근 범위를 계산하고, consoleGuard에서 관리자 전용 경로를 걸러낸 뒤, 읽기 경로가 그 범위로 판정한다. 관리자 전용 경로인데 관리자 권한이 없으면 403으로 끝난다">
+  <defs>
+    <marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+    <marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker>
+    <marker id="b3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+  <!-- 1행: 파이프라인 -->
+  <rect class="box" x="10" y="50" width="150" height="76" rx="8"/>
+  <text class="t" x="85" y="78" text-anchor="middle">브라우저 요청</text>
+  <text class="s" x="85" y="96" text-anchor="middle">X-Nexus-Client</text>
+  <text class="s" x="85" y="111" text-anchor="middle">X-Nexus-Console (콘솔만)</text>
+
+  <line class="lnA" x1="160" y1="88" x2="198" y2="88" marker-end="url(#b3)"/>
+
+  <rect class="soft" x="200" y="50" width="160" height="76" rx="8"/>
+  <text class="t" x="280" y="78" text-anchor="middle">accessContext</text>
+  <text class="s" x="280" y="96" text-anchor="middle">scope 계산</text>
+  <text class="s" x="280" y="111" text-anchor="middle">→ AsyncLocalStorage</text>
+
+  <line class="lnA" x1="360" y1="88" x2="398" y2="88" marker-end="url(#b3)"/>
+
+  <rect class="soft" x="400" y="50" width="160" height="76" rx="8"/>
+  <text class="t" x="480" y="78" text-anchor="middle">consoleGuard</text>
+  <text class="s" x="480" y="96" text-anchor="middle">관리자 전용 경로인가?</text>
+  <text class="s" x="480" y="111" text-anchor="middle">(규칙 26개)</text>
+
+  <line class="lnA" x1="560" y1="88" x2="598" y2="88" marker-end="url(#b3)"/>
+  <text class="a" x="580" y="80" text-anchor="middle">통과</text>
+
+  <rect class="soft" x="600" y="50" width="160" height="76" rx="8"/>
+  <text class="t" x="680" y="78" text-anchor="middle">라우터 · 읽기 경로</text>
+  <text class="s" x="680" y="96" text-anchor="middle">scope 로 판정</text>
+  <text class="s" x="680" y="111" text-anchor="middle">(§4-5 점검표)</text>
+
+  <line class="lnA" x1="760" y1="88" x2="798" y2="88" marker-end="url(#b3)"/>
+
+  <rect class="okbox" x="800" y="50" width="130" height="76" rx="8"/>
+  <text class="t" x="865" y="82" text-anchor="middle">응답</text>
+  <text class="s" x="865" y="100" text-anchor="middle">허용된 것만</text>
+
+  <!-- 2행: scope 의 재료 -->
+  <rect class="box" x="170" y="190" width="220" height="86" rx="8"/>
+  <text class="t" x="280" y="214" text-anchor="middle">SQLite 에서 읽는 재료</text>
+  <text class="s" x="280" y="234" text-anchor="middle">folder_locks — 어떤 폴더가 잠겼나</text>
+  <text class="s" x="280" y="249" text-anchor="middle">folder_unlocks — 이 브라우저가 연 폴더</text>
+  <text class="s" x="280" y="264" text-anchor="middle">access_admins — 관리자 로그인 여부</text>
+  <line class="ln" x1="280" y1="190" x2="280" y2="128" marker-end="url(#b1)"/>
+  <text class="s" x="290" y="162">읽음</text>
+
+  <!-- 거부 -->
+  <rect class="badbox" x="400" y="190" width="160" height="86" rx="8"/>
+  <text class="b" x="480" y="222" text-anchor="middle">403 needsAdmin</text>
+  <text class="s" x="480" y="242" text-anchor="middle">관리자 전용인데</text>
+  <text class="s" x="480" y="257" text-anchor="middle">isAdmin 이 아님</text>
+  <line class="lnB" x1="480" y1="128" x2="480" y2="188" marker-end="url(#b2)"/>
+  <text class="b" x="490" y="162">차단</text>
+
+  <!-- 읽기 경로 판정 결과 -->
+  <rect class="box" x="600" y="190" width="330" height="86" rx="8"/>
+  <text class="t" x="765" y="214" text-anchor="middle">scope 의 정의</text>
+  <text class="s" x="765" y="234" text-anchor="middle">공개 폴더 + 이 브라우저가 연 폴더</text>
+  <text class="s" x="765" y="249" text-anchor="middle">+ (관리자 권한이 켜진 요청이면) 전부</text>
+  <text class="s" x="765" y="264" text-anchor="middle">범위를 모르면 → 공개 폴더만 (fail-closed)</text>
+  <line class="ln" x1="680" y1="128" x2="680" y2="188" marker-end="url(#b1)"/>
+  <text class="s" x="690" y="162">참조</text>
+</svg>
+<figcaption>한 요청이 지나는 순서. scope 는 요청당 한 번만 계산되고, 이후 모든 검사가 같은 scope 를 본다. 요청 밖 작업·헤더 없음·에이전트 웹소켓·외부 API 키는 scope 를 알 수 없으므로 공개 폴더만 허용한다.</figcaption>
+</figure>
+
+<ul>
+  <li>폴더 = <code>docpath</code> 의 첫 구간. 루트 파일은 잠글 수 없다.</li>
+  <li>비밀번호는 <code>scrypt</code> + 폴더별 salt 해시로 저장 (<code>folder_locks.passwordHash</code>). 평문은 저장하지 않는다.</li>
+  <li>무차별 대입 제한: (브라우저·IP·폴더)별로 10분에 5회 실패하면 10분간 거부 (메모리 보관, 서버 재시작 시 초기화).</li>
+  <li>비밀번호를 바꾸면 그 폴더의 모든 열림 기록(<code>folder_unlocks</code>)을 지워 모두 다시 잠근다.</li>
+  <li>열림 유지 시간은 기본 8시간 (<code>NEXUS_UNLOCK_TTL_HOURS</code>).</li>
+</ul>
+
+<h3>4-3. 한글 폴더 이름 (NFC/NFD)</h3>
+<div class="callout warn">
+  <p>윈도에서 가져온 <code>실적</code> 폴더는 디스크에서 분해형(NFD), DB 의 문서 경로는 조합형(NFC)이었다. 눈에는 같아도 문자열이 달라 <strong>잠금이 이 폴더 문서에 안 걸리는</strong> 구멍이 있었다.</p>
+</div>
+<p>이제 잠금 이름 · 문서 경로 · 디스크 이름을 비교하는 모든 곳이 NFC 로 정규화한다 (<code>folderOfDocpath</code>, <code>normalizeFolderName</code>, <code>canAccessFolder</code>, <code>deniedDocIds</code>, <code>purgeFolder</code> 등). 디스크 작업은 실제 디스크 이름으로 한다.</p>
+
+<h3>4-4. 검색에서 막는 방법 — 사전 필터 + 사후 필터</h3>
+<p><code>server/utils/vectorDbProviders/pgvector/retrieval.js</code></p>
+
+<figure>
+<svg viewBox="0 0 940 250" role="img" aria-label="검색 파이프라인에서 잠긴 문서를 거르는 세 지점: 후보를 뽑는 SQL 쿼리 안, 리랭크 이후의 사후 필터, 구간 확장 이후의 최종 안전망">
+  <defs>
+    <marker id="c1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+  </defs>
+  <!-- 7 단계 -->
+  <rect class="box" x="10" y="60" width="112" height="70" rx="8"/>
+  <text class="t" x="66" y="90" text-anchor="middle">질의 임베딩</text>
+  <text class="s" x="66" y="108" text-anchor="middle">질문 → 벡터</text>
+
+  <rect class="warnbox" x="142" y="60" width="124" height="70" rx="8"/>
+  <text class="t" x="204" y="86" text-anchor="middle">① 후보 추출</text>
+  <text class="s" x="204" y="104" text-anchor="middle">SQL 에서 잠긴 문서</text>
+  <text class="s" x="204" y="118" text-anchor="middle">를 처음부터 제외</text>
+
+  <rect class="box" x="286" y="60" width="112" height="70" rx="8"/>
+  <text class="t" x="342" y="90" text-anchor="middle">리랭크</text>
+  <text class="s" x="342" y="108" text-anchor="middle">+ 키워드 가산</text>
+
+  <rect class="warnbox" x="418" y="60" width="124" height="70" rx="8"/>
+  <text class="t" x="480" y="86" text-anchor="middle">② 사후 필터</text>
+  <text class="s" x="480" y="104" text-anchor="middle">미승인 생성문서와</text>
+  <text class="s" x="480" y="118" text-anchor="middle">같은 집합으로 거름</text>
+
+  <rect class="box" x="562" y="60" width="112" height="70" rx="8"/>
+  <text class="t" x="618" y="90" text-anchor="middle">구간 확장</text>
+  <text class="s" x="618" y="108" text-anchor="middle">같은 문서의 앞뒤</text>
+
+  <rect class="warnbox" x="694" y="60" width="124" height="70" rx="8"/>
+  <text class="t" x="756" y="86" text-anchor="middle">③ 최종 안전망</text>
+  <text class="s" x="756" y="104" text-anchor="middle">남은 잠긴 문서가</text>
+  <text class="s" x="756" y="118" text-anchor="middle">있으면 제거</text>
+
+  <rect class="okbox" x="838" y="60" width="92" height="70" rx="8"/>
+  <text class="t" x="884" y="90" text-anchor="middle">컨텍스트</text>
+  <text class="s" x="884" y="108" text-anchor="middle">LLM 입력</text>
+
+  <line class="ln" x1="122" y1="95" x2="140" y2="95" marker-end="url(#c1)"/>
+  <line class="ln" x1="266" y1="95" x2="284" y2="95" marker-end="url(#c1)"/>
+  <line class="ln" x1="398" y1="95" x2="416" y2="95" marker-end="url(#c1)"/>
+  <line class="ln" x1="542" y1="95" x2="560" y2="95" marker-end="url(#c1)"/>
+  <line class="ln" x1="674" y1="95" x2="692" y2="95" marker-end="url(#c1)"/>
+  <line class="ln" x1="818" y1="95" x2="836" y2="95" marker-end="url(#c1)"/>
+
+  <!-- 설명선 -->
+  <text class="s" x="204" y="160" text-anchor="middle">밀집 · 리랭크 · 어휘 검색</text>
+  <text class="s" x="204" y="175" text-anchor="middle">3개 쿼리 모두에 조건 추가</text>
+  <text class="s" x="204" y="200" text-anchor="middle">COALESCE(doc_id,'') &lt;&gt; ALL(잠긴 목록)</text>
+  <line class="ln" x1="204" y1="132" x2="204" y2="146"/>
+  <text class="k" x="480" y="160" text-anchor="middle">왜 ①이 핵심인가</text>
+  <text class="s" x="480" y="178" text-anchor="middle">상위 K개를 뽑은 뒤 지우면, 잠긴 문서가 상위권인 질문은</text>
+  <text class="s" x="480" y="193" text-anchor="middle">결과가 비어 버린다. 후보를 뽑기 전에 조건으로 걸어야 한다.</text>
+</svg>
+<figcaption>잠긴 문서를 거르는 지점은 세 곳이다. ①이 실제 차단이고 ②③은 구현 실수나 확장 단계에서 새는 경우를 막는 안전망이다.</figcaption>
+</figure>
+<p>실데이터 검증: <code>실적</code> 폴더를 잠금 상태로 가정하면 밀집 검색의 해당 청크 127개, 어휘 검색의 53개가 사라지고, 열었거나 관리자면 되돌아온다.</p>
+
+<h3>4-5. 읽기 경로 점검표</h3>
+<table>
+  <tr><th>경로</th><th>처리</th></tr>
+  <tr><td>벡터 검색 (채팅 · 초안 · PPT · 전사문서 · 텔레그램 · API)</td><td>§4-4</td></tr>
+  <tr><td>문서 목록 · 검색 (<code>listFolders</code>, <code>viewLocalFiles</code>, <code>getDocumentsByFolder</code>, <code>getDocumentsByDocPaths</code>, <code>searchDocuments</code>)</td><td>잠긴 폴더는 이름·🔒 표시만. 문서 수·파일명 숨김. ripgrep 본문 검색은 개수 제한 <strong>전에</strong> 걸러냄</td></tr>
+  <tr><td>원문 열람 <code>/document/raw/:docId</code></td><td>403</td></tr>
+  <tr><td>본문 로더 (<code>loadBaseDocument</code>, <code>Document.content</code>, <code>contentByDocPath</code>)</td><td>"잠긴 폴더의 문서입니다" 예외 → 초안·PPT·추출·통계·우선 자료가 조용히 제외</td></tr>
+  <tr><td>워크스페이스 문서 목록 응답</td><td>열 수 없는 폴더 문서 제외 (<code>maskWorkspaceDocuments</code>)</td></tr>
+  <tr><td>분류 검수 목록 (<code>archiveDocuments</code>)</td><td>열 수 없는 문서 제외</td></tr>
+  <tr><td>변경 (임베딩 추가·삭제, 폴더 삭제, 이동, 업로드, 재파싱)</td><td>폴더를 열어야만 가능</td></tr>
+  <tr><td>생성 문서 보관 (<code>archive-generated</code>)</td><td>§4-7</td></tr>
+</table>
+
+<h3>4-6. 대화 분리</h3>
+<p><code>workspace_threads</code> · <code>workspace_chats</code> 에 <code>client_id</code> 컬럼. 조회·삭제·수정은 <code>scopeChatWhere()</code> 가 "내 기록 + <code>client_id</code> 가 비어 있는 이전 기록(공개)"만 보이게 합친다. 새 기록은 현재 브라우저 ID 로 저장된다. 다른 브라우저의 스레드는 열기·삭제 모두 404. 관리자 <strong>콘솔 요청</strong>만 전체를 본다.</p>
+
+<h3>4-7. 생성 문서의 잠금 상속</h3>
+<p>잠긴 폴더 자료로 만든 초안·PPT·전사문서 결과를 다운로드하면 "내부생성자료"로 자동 보관되는데, 이것이 공개 폴더로 새지 않게 <code>restrictionForSources()</code> 가 판정한다.</p>
+<table>
+  <tr><th>근거 문서의 상황</th><th>결과</th></tr>
+  <tr><td>정확히 <strong>한 개의 잠긴 폴더</strong>에 있음</td><td><span class="tag ok">그 폴더로 옮겨 보관</span></td></tr>
+  <tr><td>서로 다른 잠긴 폴더를 섞음</td><td><span class="tag warn">보관하지 않음</span> (다운로드는 영향 없음)</td></tr>
+  <tr><td>잠긴 폴더 문서인데 열 권한이 없음</td><td><span class="tag warn">보관하지 않음</span></td></tr>
+  <tr><td>근거를 모르는데 잠긴 폴더를 열어 둔 상태</td><td><span class="tag warn">보관하지 않음</span></td></tr>
+  <tr><td>잠긴 폴더 문서가 근거에 없음</td><td>기존대로 공개 보관</td></tr>
+</table>
+
+<h3>4-8. 관리자와 콘솔</h3>
+<ul>
+  <li>관리자 비밀번호는 <code>secrets/admin.env</code> 의 <code>NEXUS_ADMIN_PASSWORD</code>. 서버가 시작할 때 읽는다 (<code>index.js</code>). 값이 없으면 관리자 기능은 꺼지고 기존처럼 모두 열린다.</li>
+  <li>로그인은 <code>/api/nexus/admin/login</code> → <code>access_admins</code> 에 (브라우저 ID, 만료) 저장. <strong>기본 30분, 콘솔을 쓰는 동안 자동 연장.</strong></li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 940 330" role="img" aria-label="관리자 로그인을 마친 같은 브라우저라도, 콘솔 헤더가 없는 평소 화면 요청은 일반 사용자 범위이고, 콘솔 헤더가 있는 요청은 관리자 권한이 켜진다. 로그인하지 않은 브라우저가 콘솔 헤더를 붙여도 권한은 생기지 않는다">
+  <defs>
+    <marker id="d1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+    <marker id="d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+    <marker id="d3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ok)"/></marker>
+    <marker id="d4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker>
+  </defs>
+  <rect class="soft" x="330" y="8" width="280" height="56" rx="8"/>
+  <text class="t" x="470" y="32" text-anchor="middle">같은 브라우저 (관리자 로그인 완료)</text>
+  <text class="s" x="470" y="50" text-anchor="middle">access_admins 에 만료 전 행이 있음</text>
+
+  <line class="lnA" x1="400" y1="64" x2="230" y2="108" marker-end="url(#d2)"/>
+  <line class="lnA" x1="540" y1="64" x2="710" y2="108" marker-end="url(#d2)"/>
+  <text class="a" x="262" y="82" text-anchor="middle">평소 화면 요청</text>
+  <text class="a" x="680" y="82" text-anchor="middle">콘솔·설정 화면 요청</text>
+
+  <!-- 왼쪽 레인 -->
+  <rect class="box" x="40" y="110" width="380" height="58" rx="8"/>
+  <text class="t" x="230" y="134" text-anchor="middle">헤더: X-Nexus-Client 만</text>
+  <text class="s" x="230" y="152" text-anchor="middle">/workspace/… 채팅 · 문서함 · 업로드 · 분류 검수</text>
+  <line class="ln" x1="230" y1="168" x2="230" y2="200" marker-end="url(#d1)"/>
+  <rect class="box" x="40" y="202" width="380" height="58" rx="8"/>
+  <text class="t" x="230" y="226" text-anchor="middle">isAdmin = false</text>
+  <text class="s" x="230" y="244" text-anchor="middle">adminAuthed 는 true 여도 권한은 쓰지 않음</text>
+  <line class="ln" x1="230" y1="260" x2="230" y2="282" marker-end="url(#d1)"/>
+  <rect class="okbox" x="40" y="284" width="380" height="40" rx="8"/>
+  <text class="k" x="230" y="309" text-anchor="middle">일반 사용자와 똑같이: 내가 연 폴더만, 내 대화만</text>
+
+  <!-- 오른쪽 레인 -->
+  <rect class="box" x="520" y="110" width="380" height="58" rx="8"/>
+  <text class="t" x="710" y="134" text-anchor="middle">헤더: X-Nexus-Client + X-Nexus-Console: 1</text>
+  <text class="s" x="710" y="152" text-anchor="middle">/nexus-admin · /settings/* · 작업공간 설정·연계성·호출량</text>
+  <line class="ln" x1="710" y1="168" x2="710" y2="200" marker-end="url(#d1)"/>
+  <rect class="box" x="520" y="202" width="380" height="58" rx="8"/>
+  <text class="t" x="710" y="226" text-anchor="middle">isAdmin = 로그인됨 AND 콘솔 헤더</text>
+  <text class="s" x="710" y="244" text-anchor="middle">콘솔 헤더만 있고 로그인이 없으면 false</text>
+  <line class="ln" x1="710" y1="260" x2="710" y2="282" marker-end="url(#d3)"/>
+  <rect class="okbox" x="520" y="284" width="380" height="40" rx="8"/>
+  <text class="k" x="710" y="309" text-anchor="middle">모든 폴더 · 모든 대화 · 관리자 전용 경로 허용</text>
+</svg>
+<figcaption>관리자 권한은 "로그인했다"가 아니라 "로그인했고, 이 요청이 콘솔에서 왔다"일 때만 켜진다. 그래서 관리자도 평소 화면에서는 일반 사용자와 똑같이 동작하고, 콘솔 헤더를 위조해도 로그인 없이는 권한이 생기지 않는다.</figcaption>
+</figure>
+
+<ul>
+  <li>프론트가 콘솔 헤더를 붙이는 곳: <code>/nexus-admin</code>, <code>/settings/*</code>(<strong>분류 검수 제외</strong>), <code>/workspace/:slug/(settings|affinity|usage)</code>.</li>
+  <li><strong>관리자 전용 경로 차단</strong>: <code>utils/folderAccess/adminRoutes.js</code> 한 곳의 표(26개 규칙)로 막고, <code>consoleGuard</code> 가 라우터에 닿기 전에 검사한다. 대상은 <code>/admin/*</code>, 시스템 설정 쓰기, API 키, 이벤트 로그·전체 채팅 기록, 임베드 위젯 관리, 예약 작업, 모델 라우터, 작업공간 생성·삭제, 콘솔 API 등.</li>
+  <li><strong>일반 사용자의 평소 작업 경로는 표에 넣지 않는다.</strong> 넣으면 그 기능이 403 으로 깨진다. 이 구분은 단위 테스트(<code>adminRoutes.test.js</code>)가 지킨다 — 예: 검색 방식 전환·모델 선택이 쓰는 <code>workspace/:slug/update</code>, 임베드 위젯의 공개 <code>stream-chat</code>, 분류 검수.</li>
+  <li>화면 쪽: <code>AdminGate</code> 가 설정 계열 라우트(<code>AdminRoute</code>/<code>ManagerRoute</code>/<code>SingleUserRoute</code>)를 감싸 로그인 안 한 접근을 <code>/nexus-admin?next=…</code> 로 보낸다. 세션이 만료되면 403 <code>needsAdmin</code> 응답을 받아 같은 곳으로 보낸다.</li>
+</ul>
+
+<table>
+  <tr><th>콘솔 탭 (<code>/nexus-admin</code>)</th><th>내용</th></tr>
+  <tr><td>개요</td><td>문서·요약·잠긴 폴더·스레드·질문 수, 최근 24시간 질문, 대화를 남긴 브라우저 수</td></tr>
+  <tr><td>폴더 관리</td><td>전체 폴더 목록(문서 수·잠금 상태), 잠그기·비밀번호 초기화·잠금 해제·삭제</td></tr>
+  <tr><td>전체 대화</td><td>모든 브라우저의 질문·답변 열람(읽기 전용), 검색·브라우저 필터</td></tr>
+  <tr><td>시스템·설정</td><td>서버 상태, 기존 설정 화면 바로가기</td></tr>
+</table>
+
+<!-- ============================================================ 5 -->
+<h2 id="s5"><span class="no">5.</span>데이터 모델 (v28 추가분)</h2>
+<p>SQLite(Prisma) 마이그레이션 2개: <code>20261026140700_nexus_folder_locks</code>, <code>20261026160000_nexus_document_summaries</code>.</p>
+<table>
+  <tr><th>테이블/컬럼</th><th>용도</th></tr>
+  <tr><td><code>folder_locks(folder UNIQUE, passwordHash, createdByClient)</code></td><td>잠긴 폴더. 행이 없으면 공개</td></tr>
+  <tr><td><code>folder_unlocks(clientId, folder, expiresAt)</code></td><td>브라우저가 연 폴더. 만료되면 다시 잠김</td></tr>
+  <tr><td><code>access_admins(clientId UNIQUE, expiresAt)</code></td><td>관리자 비밀번호로 로그인한 브라우저</td></tr>
+  <tr><td><code>workspace_threads.client_id</code>, <code>workspace_chats.client_id</code></td><td>대화 소유 브라우저. NULL = 이전 기록(공개)</td></tr>
+  <tr><td><code>document_summaries(contentHash UNIQUE, summary, sourceChars, model)</code></td><td>문서 요약 (내용 해시 기준)</td></tr>
+</table>
+<ul>
+  <li>관계(FK)를 걸지 않았다 (SQLite 는 관계를 걸면 테이블 전체 재생성이라 위험하다는 기존 판단과 같음).</li>
+  <li>마이그레이션은 <code>run-local.sh</code> 가 서버를 새로 띄우기 전에 <code>prisma migrate deploy</code> 로 자동 적용한다 (멱등). 옛 DB(윈도 내보내기본)를 가져와도 서버가 깨지지 않는다.</li>
+</ul>
+
+<!-- ============================================================ 6 -->
+<h2 id="s6"><span class="no">6.</span>문서 요약</h2>
+<ul>
+  <li>문서 내용 앞 <strong>12,000자</strong>를 읽고 설정된 LLM 이 한국어 2문장(120자 안팎)으로 요약 (<code>utils/summaries</code>). 수치·고유명사를 그대로 쓰고 추측하지 않게 지시.</li>
+  <li><strong>처음 한 번</strong>: <code>server/scripts/backfill-summaries.js</code> (이어서 실행 가능, 동시 3개). 현재 문서 전체 완료 — 154건이 352초, 실패 0.</li>
+  <li><strong>이후</strong>: 백그라운드 작업 <code>summarize-documents</code> 가 15분마다 새 문서를 10건까지 요약 (동시 2개).</li>
+  <li><strong>잠긴 폴더 문서는 백그라운드에서 요약하지 않는다.</strong> 아무도 폴더를 열지 않은 상태로 내용을 LLM 에 보내지 않기 위해서다. 폴더를 열 수 있는 사람이 문서함에서 <strong>요약 만들기</strong>를 누르면 <code>POST /classification/summary</code> 가 그 자리에서 만든다.</li>
+  <li>비용 실측(1건): 6천자 → 입력 약 7.5천 토큰 · 6.1초, 3만자 → 약 3.1만 토큰 · 9.2초. 토큰은 글자 수와 거의 1:1.</li>
+  <li>표시: <code>GET /classification/documents</code> 가 <code>summary</code> 를 내려주고 문서함 목록에 문서명 아래로 보인다. 접근 불가 문서는 목록에서 이미 빠지므로 요약도 같이 가려진다.</li>
+</ul>
+
+<!-- ============================================================ 7 -->
+<h2 id="s7"><span class="no">7.</span>API 요약 (v28 추가/변경)</h2>
+<table>
+  <tr><th>경로</th><th>설명</th><th class="nowrap">권한</th></tr>
+  <tr><td><code>GET /nexus/access</code></td><td>내 상태: <code>adminAuthed</code>, <code>isAdmin</code>(이 요청이 관리자 권한을 쓰는가), <code>adminEnabled</code></td><td>모두</td></tr>
+  <tr><td><code>GET /nexus/folders</code></td><td>폴더 목록 + 잠금/열림 여부 (내용 없음)</td><td>모두</td></tr>
+  <tr><td><code>POST /nexus/folders/:name/unlock</code> · <code>/lock</code></td><td>비밀번호로 열기 / 이 브라우저에서 다시 잠그기</td><td>모두</td></tr>
+  <tr><td><code>POST /nexus/folders/:name/password</code> · <code>/remove-lock</code></td><td>현재 비밀번호를 아는 사람이 변경/해제</td><td>모두 (비밀번호 필요)</td></tr>
+  <tr><td><code>POST /nexus/admin/login</code> · <code>/logout</code></td><td>관리자 로그인/로그아웃</td><td>모두</td></tr>
+  <tr><td><code>GET /nexus/admin/overview</code> · <code>/folders</code> · <code>/chats</code></td><td>콘솔용 현황 · 폴더 · 전체 대화</td><td>관리자</td></tr>
+  <tr><td><code>POST /nexus/admin/folders/:name/lock</code> · <code>/nexus/folders/:name/admin-reset</code></td><td>공개 폴더 잠그기 / 비밀번호 초기화·해제</td><td>관리자</td></tr>
+  <tr><td><code>POST /document/create-folder</code></td><td><code>password</code> 선택 인자 추가</td><td>모두</td></tr>
+  <tr><td><code>POST /workspace/:slug/upload-and-embed</code></td><td><code>folderPassword</code> 인자(새 폴더일 때), 잠긴 폴더는 연 사람만</td><td>모두</td></tr>
+  <tr><td><code>GET /classification/folders</code></td><td>분류 폴더 값 + 문서 수 (빈 폴더 표시용)</td><td>모두</td></tr>
+  <tr><td><code>DELETE /classification/taxonomy/axis</code></td><td><code>onlyEmpty</code> 모드 (문서가 하나라도 있으면 거부)</td><td>모두</td></tr>
+  <tr><td><code>POST /classification/summary</code></td><td>요약 즉시 생성 (열 수 있는 문서만)</td><td>모두</td></tr>
+  <tr><td><code>DELETE /system/remove-folder</code></td><td>지울 수 없으면 400 + 사유(이전엔 조용한 200), 삭제 시 잠금 행도 정리</td><td>폴더를 연 사람</td></tr>
+</table>
+
+<!-- ============================================================ 8 -->
+<h2 id="s8"><span class="no">8.</span>화면(프론트엔드) 변경</h2>
+<table>
+  <tr><th>화면</th><th>변경</th></tr>
+  <tr><td>모든 화면</td><td>브라우저 ID 헤더 자동 부착. 오른쪽 아래(테마 버튼 옆)에 관리자 콘솔 바로가기</td></tr>
+  <tr><td>채팅 · 사이드바</td><td><strong>검색 범위 표시</strong>: "잠긴 폴더 N개는 검색에서 제외됨 · 열기" / "열어 둔 잠긴 폴더 N개 포함하여 검색". 누르면 폴더 목록에서 열기·다시 잠그기</td></tr>
+  <tr><td>자료 업로드 창</td><td>자료 구분에 서버 폴더 목록(🔒 표시)과 <strong>+ 새 폴더 만들기</strong>(이름 + 비밀번호). 잠긴 폴더는 비밀번호 입력 후 저장. 이 창이 검색 범위 설정(<code>archive-scope</code>)을 바꾸지 않도록 수정</td></tr>
+  <tr><td>내 문서 (파일 선택기)</td><td>폴더 🔒 아이콘, 클릭 시 비밀번호 창, 열린 폴더는 보안 설정(재잠금·비밀번호 변경·해제)</td></tr>
+  <tr><td>문서함</td><td>문서 아래 요약 · "요약 만들기" 버튼, <strong>빈 폴더</strong> 구역(문서 0건인 사용자 추가 폴더만, 휴지통으로 삭제)</td></tr>
+  <tr><td>관리자 콘솔</td><td>§4-8</td></tr>
+</table>
+<div class="callout">
+  <p><strong>"추출 아카이브 범위"</strong> (사이드바 드롭다운 전체/실적/법규/대외)는 저장 폴더가 아니라 <strong>문서 종류(docType) 기준</strong>으로 채팅 검색만 좁힌다. 자료 추출 · 초안 · 통계 · PPT · 전사문서작성에는 적용되지 않는다. 사규 등 일부 종류는 어느 범위에도 없어서, 범위를 좁히면 검색에서 빠진다.</p>
+  <p><strong>자료 추출</strong>은 저장 폴더가 아니라 <strong>업무 분류 폴더</strong> 또는 개별 파일로 고른다. 분류 전 문서는 "미분류" 폴더에 들어 있으며, 잠긴 폴더 문서는 폴더를 연 브라우저에만 나타난다. 한 번에 최대 15건.</p>
+</div>
+
+<!-- ============================================================ 9 -->
+<h2 id="s9"><span class="no">9.</span>운영</h2>
+<table>
+  <tr><th>작업</th><th>방법</th></tr>
+  <tr><td>시작 / 중지</td><td><code>bash 2-start.sh</code> / <code>bash app/stop-local.sh</code></td></tr>
+  <tr><td>점검</td><td><code>bash 3-verify.sh [--llm]</code></td></tr>
+  <tr><td>자동 시작</td><td>LaunchAgent 2개 (로그인 시 + 5분마다 복구, 전원 연결 중 잠자기 방지). <strong>로그인해야 올라온다</strong> — 로그인 없는 부팅 시 시작은 미구현</td></tr>
+  <tr><td>로그</td><td><code>app/.local-cache/{server,collector,frontend}.run.log</code>, <code>migrate.run.log</code>, <code>summaries.backfill.log</code></td></tr>
+  <tr><td>관리자 비밀번호 바꾸기</td><td><code>secrets/admin.env</code> 수정 후 서버 재시작</td></tr>
+  <tr><td>DB 백업</td><td>큰 변경 전 <code>app/.local-cache/backup/</code> 에 SQLite 사본을 만든다</td></tr>
+  <tr><td>설정 위치</td><td><code>app/server/.env.development</code> (DB 접속 등. 관리자 비밀번호는 여기 없음)</td></tr>
+</table>
+<h3>실제로 겪은 주의점</h3>
+<div class="callout warn">
+  <p><strong>테스트가 서버를 망가뜨릴 수 있었다.</strong> 일부 jest 테스트가 <code>dumpENV()</code> 를 거치며 테스트용 <code>STORAGE_DIR</code> 을 실제 <code>server/.env</code> 에 써 넣었고, 다음 서버 시작부터 임베딩 모델을 엉뚱한 경로에서 찾아 <strong>문서 업로드(임베딩)가 모두 실패</strong>했다. <code>dumpENV()</code> 는 이제 jest 실행 중 아무것도 하지 않는다.</p>
+  <p>증상은 서버 로그의 "native embedding model has never been run and will be downloaded".</p>
+</div>
+<ul>
+  <li>개발 서버(vite)라서 <strong>화면 코드는 저장 즉시 모든 사용자에게 반영</strong>된다. 서버 코드는 서버 재시작 후 반영된다.</li>
+  <li>한글 폴더를 가져오거나 복사할 때 NFC/NFD 가 바뀔 수 있다 (§4-3). <code>3-verify.sh</code> 의 "문서 경로 → 파일 확인" 이 알려 준다.</li>
+</ul>
+
+<!-- ============================================================ 10 -->
+<h2 id="s10"><span class="no">10.</span>보안 모델과 한계</h2>
+<table>
+  <tr><th>지키는 것</th><th>방법</th></tr>
+  <tr><td>비밀번호를 모르는 사람의 검색·열람</td><td>§4 (SQL 사전 필터 + 읽기 경로 점검 + 변경 차단)</td></tr>
+  <tr><td>사용자 간 대화</td><td>브라우저별 <code>client_id</code> 분리</td></tr>
+  <tr><td>설정·관리 기능</td><td>관리자 비밀번호 + <code>consoleGuard</code> + 콘솔 헤더</td></tr>
+  <tr><td>비밀번호 저장</td><td>scrypt 해시(폴더), 관리자는 환경변수 (파일 권한 600, 저장소 밖)</td></tr>
+</table>
+<table>
+  <tr><th>한계 (알고 쓸 것)</th><th>설명</th></tr>
+  <tr><td><span class="tag bad">HTTP</span></td><td>암호화 없음. 같은 네트워크에서 비밀번호가 평문으로 오간다. 소수 인원·사내망 한정이 전제</td></tr>
+  <tr><td><span class="tag warn">식별은 브라우저 단위</span></td><td>사람이 아니라 브라우저. 개별 권한 부여·회수는 SSO 이후</td></tr>
+  <tr><td><span class="tag warn">디스크는 암호화 안 됨</span></td><td>맥을 직접 쓰는 사람은 문서 파일과 DB 를 볼 수 있다 (FileVault 꺼짐)</td></tr>
+  <tr><td><span class="tag warn">LLM 전송</span></td><td>폴더를 연 사용자가 질문하면 해당 내용이 Claude 로 전송된다 (요약은 §6 의 규칙)</td></tr>
+  <tr><td><span class="tag warn">일부 경로는 범위 적용 밖</span></td><td>에이전트 웹소켓·모바일 동기화는 헤더를 못 보내 "공개만"으로 동작하거나 별도 인증을 쓴다. 외부 API 키 경로는 공개 폴더만</td></tr>
+  <tr><td><span class="tag warn">관리자 전체 열람</span></td><td>관리자는 콘솔에서 모든 대화를 본다</td></tr>
+  <tr><td><span class="tag warn">불필요한 포트가 열려 있음</span></td><td>브라우저는 3000번만 필요하지만 3001(API)·8888(collector)도 같은 네트워크에 열려 있고 맥 방화벽은 꺼져 있다. 3001 로 직접 들어와도 같은 서버의 접근 범위 검사를 거치므로 우회는 아니지만, 노출 면적을 줄이려면 방화벽이나 바인딩 제한이 필요하다</td></tr>
+  <tr><td><span class="tag warn">시도 횟수 초기화</span></td><td>무차별 대입 제한이 메모리 보관이라 서버 재시작 시 초기화</td></tr>
+</table>
+
+<!-- ============================================================ 11 -->
+<h2 id="s11"><span class="no">11.</span>검증 현황 (2026-10-27 기준)</h2>
+<ul>
+  <li><strong>자동 테스트</strong>: 813건 통과, 1건 실패 — 실패는 v28 이전부터 있던 것 (<code>NativeEmbeddingReranker memory guard</code>, 맥의 메모리 판정이 <code>os.freemem</code> 모킹과 맞지 않음). 이번에 추가한 테스트: <code>folderAccess</code>(NFC/NFD · 관리자 · 생성물 상속 포함), <code>adminRoutes</code>(차단 표와 일반 경로 보호), <code>purgeFolder</code>, <code>docRegen</code> 잠금 거부.</li>
+  <li><strong>실서버 확인</strong>: 잠금 생성·열기·재잠금, 다른 브라우저의 목록/본문검색/원문/워크스페이스 문서 차단, 실제 질문→답변에서 연 사람은 근거 포함·안 연 사람은 "없음", 대화 분리, 생성물 상속, 관리자 로그인·콘솔 분리·설정 차단, 요약 전체 생성, 빈 폴더 삭제, 한글 폴더 삭제.</li>
+  <li><strong>화면</strong>: 헤드리스 Chrome 으로 주요 화면과 관리자 콘솔 4개 탭을 렌더링해 확인 (JS 오류 0건). 다만 사람 눈으로의 전수 점검은 아님.</li>
+  <li><strong>미확인</strong>: 재부팅 후 자동 시작, 다른 기기(휴대폰·타 PC)에서의 접속, 전사문서작성tool · 초안 수정의 세부 단계, 장시간 다중 사용자 부하.</li>
+</ul>
+
+<!-- ============================================================ 12 -->
+<h2 id="s12"><span class="no">12.</span>남은 과제 / 결정 대기</h2>
+<ol>
+  <li>HTTPS 적용 (사내 IT 인증서 권장). 접속자가 늘거나 기밀 자료를 보호하기 시작하면 필요.</li>
+  <li>사내 SSO 연동 → 브라우저 ID 를 사번으로 교체, 개별 권한 부여.</li>
+  <li>로그인 없는 부팅 시 자동 시작, 맥 재부팅 후 동작 확인.</li>
+  <li>항상 켜져 있는 서버(별도 PC/서버)로의 이전 검토 (맥 잠자기·메모리 한계).</li>
+  <li>"추출 아카이브 범위"를 저장 폴더/분류 폴더와 일치시킬지, 정리할지 (§8).</li>
+  <li>요약 범위: 지금은 앞 12,000자. 긴 문서의 뒷부분은 반영되지 않는다.</li>
+  <li>저장소를 비공개로 바꿀지.</li>
+</ol>
+
+<!-- ============================================================ 13 -->
+<h2 id="s13"><span class="no">13.</span>변경 이력 <span class="tag">새 항목은 맨 위에</span></h2>
+<table>
+  <tr><th class="nowrap">날짜</th><th class="nowrap">커밋</th><th>내용</th></tr>
+  <tr><td>2026-10-27</td><td><code>이 문서</code></td><td>아키텍처 문서를 Markdown 에서 HTML 로 전환 — 구성도·요청 순서·검색 필터 위치·관리자 권한 조건을 그림으로 추가. 기준 파일은 <code>NEXUS-ARCHITECTURE.html</code> 하나</td></tr>
+  <tr><td>2026-10-27</td><td><code>acf161d0</code></td><td>NEXUS-ARCHITECTURE.md 최초 작성 (v28)</td></tr>
+  <tr><td>2026-10-27</td><td><code>20156ddf</code></td><td>관리자 비밀번호를 저장소 밖 <code>secrets/admin.env</code> 로 이동, 서버가 시작 시 읽음</td></tr>
+  <tr><td>2026-10-26</td><td><code>0ca27557</code></td><td>관리자 콘솔 버튼을 사이드바 문구와 겹치지 않게 이동</td></tr>
+  <tr><td>2026-10-26</td><td><code>d2886221</code></td><td>관리자 콘솔 분리(콘솔 요청에만 관리자 권한), 설정 관리자 전용화(<code>consoleGuard</code> · <code>AdminGate</code>), 한글 폴더 NFC/NFD 정리, <code>purgeFolder</code> 수정, 테스트의 <code>.env</code> 오염 방지</td></tr>
+  <tr><td>2026-10-26</td><td><code>48aa5645</code></td><td>문서 요약 (테이블 · 생성기 · 백그라운드 작업 · 일괄 스크립트 · 문서함 표시)</td></tr>
+  <tr><td>2026-10-26</td><td><code>dba4d73b</code></td><td>검색 범위 표시 (채팅·사이드바), 접근 변경 공용 이벤트</td></tr>
+  <tr><td>2026-10-26</td><td><code>4c32c51d</code></td><td>업로드 창이 검색 범위 설정을 바꾸던 문제 수정</td></tr>
+  <tr><td>2026-10-26</td><td><code>35e5e1bb</code></td><td>기준 브랜치 <code>nexus_linux</code>, 윈도 최종본 <code>windows-final</code> 선언</td></tr>
+  <tr><td>2026-10-26</td><td><code>e0867d0d</code></td><td>문서함 빈 폴더 표시·삭제 (<code>onlyEmpty</code>)</td></tr>
+  <tr><td>2026-10-26</td><td><code>eee0652b</code></td><td><strong>폴더 비밀번호, 브라우저별 대화 분리, 관리자 권한</strong>, 생성물 잠금 상속, 검색 사전 필터</td></tr>
+  <tr><td>2026-10-26</td><td><code>9e0ffc9b</code></td><td>사내 프록시 인증서 때문에 <code>yarn install</code> 이 실패하던 문제 (<code>NEXUS_SKIP_CORP_CA</code>)</td></tr>
+  <tr><td>2026-10-26</td><td>(설치)</td><td>윈도 → 맥 이전 패키지 설치 · 데이터 복원 · 검증 (PASS 19), LaunchAgent 자동 시작</td></tr>
+  <tr><td>~2026-10-26</td><td><code>windows-final</code></td><td>v27 — 윈도 PC 시절 최종본 (<code>docs/architecture-v27.html</code>)</td></tr>
+</table>
+
+<footer>NEXUS 아키텍처 v28 · 기준 브랜치 <code>nexus_linux</code> · 이 파일은 외부 의존성이 없는 단일 HTML 입니다 (브라우저 테마에 따라 라이트/다크).</footer>
+</main>
+</div>
+</body>
+</html>
