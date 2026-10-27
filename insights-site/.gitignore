@@ -10,3 +10,6 @@ data/drafts/동반성장.json
 
 # 임시 파일
 *.tmp
+
+# 단일 파일 묶음(bundle.mjs 결과) — 용량이 커서 git 에는 넣지 않는다
+dist/

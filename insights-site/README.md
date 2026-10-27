@@ -21,13 +21,15 @@ insights-site/
 ├─ forecast.mjs                 통계 전망(부문별 몬테카를로, P10~P90)
 ├─ board.mjs · outlook.mjs      전망 보드의 환경·위기·해설 초안 생성
 ├─ fetch-media.mjs · build.mjs  기사 이미지 내려받기 · 정적 사이트 빌드
+├─ bundle.mjs                   site/ 전체를 HTML 파일 하나로 묶기 → dist/
 ├─ template/                    feed(메인)·board(전망)·topic(주제) HTML, 공통 CSS/JS, fonts/
 ├─ data/
 │  ├─ drafts/ approved/         주제·보드 초안과 승인본 (JSON)
 │  ├─ research/ forecast.json   외부 근거 정리 · 전망 결과
 │  ├─ media.json                이미지 id → 원본 주소·출처
 │  └─ media/                    받은 이미지 (git 제외, fetch-media.mjs 로 다시 받음)
-└─ site/                        빌드 결과 (git 제외, build.mjs 로 다시 만듦)
+├─ site/                        빌드 결과 (git 제외, build.mjs 로 다시 만듦)
+└─ dist/                        단일 파일 묶음 (git 제외, bundle.mjs 결과)
 ```
 git 에서 제외하는 것: `site/`, `data/media/`(외부 기사 이미지), 사내 문서 기반 분야 초안(`공정거래.json`·`동반성장.json`, 검토 전).
 
@@ -53,6 +55,16 @@ node insights-site/build.mjs [--preview]
 - 이미지: `data/media.json` 에 id→url·출처를 적고 `node insights-site/fetch-media.mjs` 로 `data/media/` 에 받는다(사내 프록시면 `NODE_EXTRA_CA_CERTS`). 사내 비상업 용도, 카드마다 출처 표기.
 - 영상: YouTube id 만 저장하고 youtube-nocookie 로 임베드(원본 링크 제공).
 - 승인: `review.mjs approve topic-<slug>` 후 `build.mjs`. 해석·가설은 본문에 그렇게 표시하고, 확인 못 한 것은 `unverified` 에 둔다.
+
+## 파일 하나로 묶기 (다른 컴퓨터에서 열어 보기)
+```
+node insights-site/build.mjs --preview     # site/ 를 먼저 만든다
+node insights-site/bundle.mjs              # → insights-site/dist/NEXUS-Insight.html (약 6MB)
+```
+- 메인·전망·주제 페이지, 이미지(가로 1100px로 줄임), 폰트가 모두 들어 있어 이 파일만 메일·USB로 옮겨 더블클릭하면 열린다. 인터넷이나 서버가 필요 없다.
+- 파일 안에서 `#/privacy` 같은 주소로 페이지를 옮겨 다니며, 뒤로 가기도 된다. YouTube 영상만 인터넷이 있어야 한다(원본 링크로 열림).
+- 빌드 시점의 내용이 그대로 들어가므로 내용을 고치면 build → bundle 을 다시 실행한다. `--preview` 로 만들면 ‘미승인 초안’ 배너가 붙는다.
+- 이미지를 줄이려면 Pillow(`pip install pillow`)가 필요하다(없으면 원본 크기로 넣는다). `dist/` 는 git 에 넣지 않는다.
 
 ## 질문(Inside)과 HOW(Insight)
 - 주제 파일의 마지막 섹션에서 `"mark": "HOW"` 가 있는 항목은 보라색 카드로 아래 `Insight` 섹션에, 나머지 질문은 어두운 카드로 위 `Inside` 섹션에 나뉜다. 전망 보드는 draft 의 `ideas` 배열이 `Insight` 섹션이 된다.
