@@ -15,6 +15,7 @@
 | `data/storage/` | SQLite DB · 업로드한 문서(원본 PDF + 파싱 결과) · 임베딩/리랭커 모델 |
 | `data/pg/` | pgvector 벡터 DB 덤프(검색 인덱스) |
 | `data/hf/` | Docling 모델 캐시(다시 내려받지 않도록) |
+| `secrets/admin.env` | **관리자 콘솔 비밀번호** 파일 (`NEXUS_ADMIN_PASSWORD`). GitHub 저장소 밖에 있으며, 바꾸면 서버를 다시 시작합니다. 외부에 공유하지 마세요. |
 | `1-setup.sh` `2-start.sh` `3-verify.sh` | 설치 / 시작 / 점검 |
 
 **보안:** `data/config`의 `.env`에는 비밀키가, `data/storage`에는 회사 문서가 들어 있습니다. USB/클라우드로 옮길 때 외부에 노출되지 않게 하세요.

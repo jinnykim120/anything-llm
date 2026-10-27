@@ -2,6 +2,16 @@ process.env.NODE_ENV === "development"
   ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
   : require("dotenv").config();
 
+// [NEXUS 관리자] 관리자 비밀번호는 저장소 밖의 secrets 폴더(admin.env)에 둔다.
+// NEXUS_SECRETS_DIR 로 위치를 바꿀 수 있고, 파일이 없으면 아무 일도 하지 않는다.
+require("dotenv").config({
+  path: require("path").join(
+    process.env.NEXUS_SECRETS_DIR ||
+      require("path").resolve(__dirname, "../../secrets"),
+    "admin.env"
+  ),
+});
+
 require("./utils/logger")();
 require("./utils/boot/patchSdkTimeouts")();
 require("./utils/helpers/modelPricing"); // boots the model pricing cache refresh
