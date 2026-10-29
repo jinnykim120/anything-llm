@@ -160,17 +160,36 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
         targetFolder,
         newFolderPassword || null
       );
-      if (!created?.success)
-        return setFolderError(
-          created?.message ||
-            "폴더를 만들지 못했습니다. 이미 있는 이름일 수 있습니다."
-        );
+      if (!created?.success) {
+        // 이전 시도에서 폴더만 만들어지고 업로드가 실패했다면 같은 이름이 이미 있다.
+        // 막지 않고, 입력한 비밀번호로 열어서 이어서 올린다.
+        const alreadyExists = /already exists/i.test(created?.message || "");
+        if (!alreadyExists)
+          return setFolderError(
+            created?.message || "폴더를 만들지 못했습니다."
+          );
+        if (newFolderPassword) {
+          const r = await NexusAccess.unlock(targetFolder, newFolderPassword);
+          if (!r.ok && r.data?.reason !== "no-lock")
+            return setFolderError(
+              "이미 있는 폴더입니다. 입력한 비밀번호가 이 폴더의 비밀번호와 다릅니다."
+            );
+        }
+      }
+      // 이 뒤로는 만든(또는 이미 있는) 폴더를 그대로 골라 둔다 — 저장이 실패해 다시
+      // 눌러도 "새 폴더 만들기"가 아니라 기존 폴더 경로로 이어진다.
+      const fresh = await NexusAccess.folders();
+      if (fresh.ok) setServerFolders(fresh.data.folders || []);
+      setCategory(targetFolder);
+      setNewFolderName("");
+      setNewFolderPassword("");
     } else if (needsUnlock) {
       const r = await NexusAccess.unlock(category, unlockPassword);
       if (!r.ok) return setFolderError(r.message || "폴더를 열지 못했습니다.");
     }
     if (category === NEW_FOLDER || needsUnlock) notifyNexusAccessChanged();
 
+    let deniedByLock = false;
     setIsUploading(true);
     const queue = selectedFiles.map((file) => ({
       file,
@@ -205,6 +224,8 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
           if (!response.ok || !data?.success) {
             const error =
               data?.error || "자료를 아카이브에 저장하지 못했습니다.";
+            if (response.status === 403 && /잠긴 폴더/.test(error))
+              deniedByLock = true;
             updateUpload(index, { status: "failed", error });
             return false;
           }
@@ -221,6 +242,16 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
     );
 
     setIsUploading(false);
+    if (deniedByLock) {
+      // 폴더가 잠겨 있어 막힌 경우: 막다른 길이 되지 않게, 그 폴더를 고른 상태로 두고
+      // 바로 아래 비밀번호 칸이 나오도록 목록을 새로 받는다.
+      const fresh = await NexusAccess.folders();
+      if (fresh.ok) setServerFolders(fresh.data.folders || []);
+      setCategory(targetFolder);
+      setFolderError(
+        "이 폴더가 잠겨 있어 저장하지 못했습니다. 아래에 폴더 비밀번호를 입력하고 다시 저장하세요."
+      );
+    }
     if (results.every(Boolean)) {
       showToast(
         `${results.length}개 자료를 ${targetFolder === "전체" ? "전체" : targetFolder} 아카이브에 저장했습니다.`,

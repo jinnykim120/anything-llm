@@ -926,15 +926,19 @@ function workspaceEndpoints(app) {
           const folderExists =
             !!lockName && fs.existsSync(path.join(documentsPath, lockName));
           if (!lockName) {
-            response
-              .status(400)
-              .json({
-                success: false,
-                error: "폴더 이름이 올바르지 않습니다.",
-              });
+            response.status(400).json({
+              success: false,
+              error: "폴더 이름이 올바르지 않습니다.",
+            });
             return;
           }
           if (!(await FolderAccess.canAccessFolderAsync(lockName))) {
+            // 어떤 브라우저가 어느 폴더에서 막혔는지 남겨 둔다 (사용자 문의 확인용).
+            console.log(
+              `[folderLock] 업로드 거부 folder="${lockName}" client=${String(
+                response.locals.nexusScope?.clientId || "none"
+              ).slice(0, 8)}`
+            );
             response.status(403).json({
               success: false,
               error: "잠긴 폴더입니다. 비밀번호로 먼저 여세요.",
