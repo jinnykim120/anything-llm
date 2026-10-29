@@ -16,8 +16,10 @@
 
   /* ── 제목: 작은 라벨 / 큰 대문자 + 스티커 / 짧은 설명 ── */
   .ch{text-align:center;padding:clamp(44px,7vw,100px) 0 clamp(22px,3vw,40px)}
-  .ch .t{font-size:15px;font-weight:700;letter-spacing:.02em}
-  .ch .t span{color:var(--mute);font-weight:500}
+  .ch .t{font-size:clamp(20px,2.2vw,28px);font-weight:700;letter-spacing:.02em}
+  .ch .t{display:inline-flex;align-items:center;gap:14px}
+  .ch .t .dot{font-style:normal;font-weight:900;color:var(--mute)}
+  .co-logo{height:1.7em;width:auto;display:block}
   .ch h1{margin:10px 0 14px;font-family:"Outfit","Pretendard Variable","Segoe UI","Helvetica Neue",Arial,sans-serif;font-size:clamp(58px,15.5vw,236px);line-height:.84;letter-spacing:-.055em;font-weight:900;text-transform:uppercase;color:var(--ink)}
   .ch h1>span{display:block}
   .has-sticker{position:relative;display:inline-block}
@@ -77,8 +79,8 @@
 <div class="top"><div class="top-in"><a class="logo" href="index.html">NEXUS <b>Insight</b></a><span class="dept">지속가능경영부문</span></div></div>
 <div class="wrap">
   <header class="ch">
-    <div class="t">Company Feed <span id="upd"></span></div>
-    <h1><span>Insight</span><span><span class="has-sticker">Inside<svg class="sticker" viewBox="0 0 100 100" aria-hidden="true"><path fill="var(--sticker)" d="M50 2l9.5 8.6 12.7-2.1 4.6 12 12 4.6-2.1 12.7L95 48.5 86.4 58l2.1 12.7-12 4.6-4.6 12-12.7-2.1L50 94l-9.5-8.6-12.7 2.1-4.6-12-12-4.6 2.1-12.7L2 48.5 10.6 39 8.5 26.3l12-4.6 4.6-12 12.7 2.1z"></path><text x="50" y="60" text-anchor="middle" font-size="30" fill="#222">NEW</text></svg></span></span></h1>
+    <div class="t">Company Feed <i class="dot" aria-hidden="true">·</i> <img class="co-logo" src="@@GSLOGO@@" alt="GS리테일"></div>
+    <h1><span>Insight</span><span>Inside</span></h1>
     <div class="b">지금 우리가 볼 만한 이야기</div>
     <div class="tools">
       <form class="search" id="searchForm" role="search" onsubmit="return false">
@@ -187,8 +189,6 @@
   });
   q.addEventListener("input", function () { state.q = q.value.trim(); apply(); });
   count1.textContent = nNew + " STORY"; count2.textContent = nRead + " STORY";
-
-  document.getElementById("upd").textContent = "· " + (D.builtAt || "").slice(0, 10) + " 갱신" + (D.draftCount ? " · 초안 " + D.draftCount + "건" : "");
   document.getElementById("foot").textContent = "사내 아카이브의 일반(general) 등급 문서와 공개 기사·영상을 사용했습니다. 이미지는 각 카드에 표시된 출처의 것이며 사내 비상업 용도로만 사용합니다.";
   if (D.preview) document.getElementById("banner").hidden = false;
 })();
