@@ -1,0 +1,5 @@
+{
+  "host": "맥북 IP 또는 이름 (예: 10.57.52.100)",
+  "user": "맥북 사용자 이름",
+  "remoteDir": "nexus-insight"
+}

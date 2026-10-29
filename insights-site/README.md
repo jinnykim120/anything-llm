@@ -81,3 +81,9 @@ node insights-site/bundle.mjs              # → insights-site/dist/NEXUS-Insigh
 - Node 22.5+ (`node:sqlite` 사용), `claude` CLI 필요(`CLAUDE_CLI_BIN`으로 경로 지정 가능).
 - 스케줄러(주 1회 generate)만 OS별로 다름: Windows 작업 스케줄러 ↔ Mac `launchd`.
 - `data/`(초안·승인 이력)를 복사하면 승인 상태가 그대로 이어진다.
+
+## 맥북으로 보내서 서버로 쓰기 (deploy)
+작업은 이 PC에서 하고, 결과 파일만 맥북으로 보내 웹 서버로 연다. 맥북에는 Node가 필요 없고 기본 `python3` 만 쓴다.
+1. 맥북에서 한 번: `deploy/mac-setup.sh` 를 맥북에서 실행 → 8080 포트 서버가 만들어지고 로그인 때마다 자동으로 켜진다. 시스템 설정에서 **원격 로그인**을 켠다.
+2. 이 PC에서 한 번: `ssh-keygen -t ed25519` 로 키를 만들고 `ssh-copy-id 사용자@맥IP`(또는 공개키를 맥북 `~/.ssh/authorized_keys` 에 추가). `deploy/mac.config.example.json` 을 `deploy/mac.config.json` 으로 복사해 host·user 를 채운다.
+3. 갱신할 때마다: `node insights-site/deploy.mjs` → 빌드, 단일 파일, 전송까지 한 번에. 접속 주소는 `http://맥IP:8080`.

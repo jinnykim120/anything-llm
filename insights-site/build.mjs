@@ -1,6 +1,7 @@
 // Build the static site from APPROVED content only → insights-site/site/
 //   node insights-site/build.mjs            # approved only (what gets published)
 //   node insights-site/build.mjs --preview  # include unapproved drafts, banner-marked
+//   node insights-site/build.mjs --preview --no-banner  # same, without the draft banner
 // Output: index.html(이미지 피드) + 주제마다 <slug>.html + site-data.js + media/ — copy the `site/` folder to any web server.
 import { readFileSync, writeFileSync, readdirSync, existsSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
@@ -83,7 +84,7 @@ topics.forEach((t, ti) => {
 for (const [sec, span, h] of [["read", 1, 0], ["read", 1, 0], ["read", 1, 0], ["read", 1, 0], ["read", 1, 0]]) feed.push({ kind: "empty", sec, span, h });
 
 const draftCount = [...boards, ...topics].filter((x) => x.status !== "approved").length;
-writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview, draftCount, feed, boards, forecast, topics })};`);
+writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview: preview && !process.argv.includes("--no-banner"), draftCount, feed, boards, forecast, topics })};`);
 const T = (f) => join(here, "template", f);
 const V = Date.now(); // 정적 서버가 CSS·JS 를 캐시해도 새 빌드는 새로 받게 한다
 const ver = (h) => ["common.css", "common.js", "ui-extra.css"].reduce((x, f) => x.replace(`${f}"`, `${f}?v=${V}"`), h);
@@ -93,7 +94,7 @@ copyFileSync(T("common.css"), join(out, "common.css"));
 if (existsSync(T("fonts"))) { const fo = dir(join(out, "fonts")); for (const f of readdirSync(T("fonts"))) copyFileSync(T(join("fonts", f)), join(fo, f)); }
 copyFileSync(T("common.js"), join(out, "common.js"));
 copyFileSync(T("ui-extra.css"), join(out, "ui-extra.css"));
-writeFileSync(join(out, "index.html"), page("feed.html"));
+writeFileSync(join(out, "index.html"), page("feed.html", (h) => h.split("@@GSLOGO@@").join("data:image/png;base64," + readFileSync(T("gsretail-logo.png")).toString("base64"))));
 for (const b of boards) writeFileSync(join(out, `${b.slug}.html`), page("board.html"));
 for (const t of topics) writeFileSync(join(out, `${t.slug}.html`), page("topic.html", (h) => h.replace('<html lang="ko">', `<html lang="ko" data-slug="${t.slug}">`)));
 console.log(`site/ 생성: 피드 카드 ${feed.length} · 전망 보드 ${boards.length} · 트렌드 주제 ${topics.length} (${preview ? "미승인 초안 포함 미리보기" : "승인된 것만"})`);

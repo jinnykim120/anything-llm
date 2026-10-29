@@ -13,3 +13,6 @@ data/drafts/동반성장.json
 
 # 단일 파일 묶음(bundle.mjs 결과) — 용량이 커서 git 에는 넣지 않는다
 dist/
+
+# 맥북 전송 설정(접속 정보)
+deploy/mac.config.json

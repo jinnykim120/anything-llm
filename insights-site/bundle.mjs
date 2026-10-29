@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { here } from "./lib.mjs";
 
-const SITE = join(here, "site"), OUT_DIR = join(here, "dist"), OUT = join(OUT_DIR, "NEXUS-Insight.html");
+const ARTIFACT = process.argv.includes("--artifact"); // claude.ai Artifact 용: 문서 골격 없이, #이름 주소만 사용
+const SITE = join(here, "site"), OUT_DIR = join(here, "dist"), OUT = join(OUT_DIR, ARTIFACT ? "NEXUS-Insight-artifact.html" : "NEXUS-Insight.html");
 if (!existsSync(join(SITE, "index.html"))) { console.error("site/ 가 없습니다. 먼저 node insights-site/build.mjs 를 실행하세요."); process.exit(1); }
 const txt = (f) => readFileSync(join(SITE, f), "utf8");
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".woff2": "font/woff2" };
@@ -71,11 +72,12 @@ for (const f of readdirSync(SITE).filter((x) => x.endsWith(".html"))) {
 
 // ── 5) 껍데기 HTML (iframe 하나 + 라우터)
 const lit = (v) => JSON.stringify(v).replace(/<\//g, "<\\/").replace(/<!--/g, "<\\!--");
-const shell = `<!doctype html>
+const HEAD_OPEN = ARTIFACT ? "" : `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NEXUS Insight</title>
+`;
+const shell = `${HEAD_OPEN}<title>NEXUS Insight</title>
 <style>html,body{margin:0;height:100%;background:#fff}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>
-</head><body>
+${ARTIFACT ? "" : "</head><body>"}
 <iframe id="f" title="NEXUS Insight"></iframe>
 <script>
 (function () {
@@ -99,20 +101,20 @@ const shell = `<!doctype html>
     return sub(h, "</body>", "<script>" + HOOK + "<\\/script></body>");
   }
   function route() {
-    var m = (location.hash || "").match(/^#\\/([a-z0-9-]+)(?:\\/(.*))?$/), name = m && PAGES[m[1]] ? m[1] : "index";
+    var m = (location.hash || "").match(${ARTIFACT ? String.raw`/^#([a-z0-9-]+)$/` : String.raw`/^#\/([a-z0-9-]+)(?:\/(.*))?$/`}), name = m && PAGES[m[1]] ? m[1] : "index";
     document.title = (TITLES[name] || "NEXUS Insight");
     f.srcdoc = assemble(name, m && m[2] ? decodeURIComponent(m[2]) : "");
   }
   window.addEventListener("message", function (e) {
     if (e.source !== f.contentWindow || !e.data || typeof e.data.go !== "string") return;
     var m = e.data.go.match(/^([a-z0-9-]+)\\.html(?:#(.*))?$/); if (!m) return;
-    location.hash = m[1] === "index" ? "#/" : "#/" + m[1] + (m[2] ? "/" + m[2] : "");
+    location.hash = ${ARTIFACT ? 'm[1] === "index" ? "" : "#" + m[1]' : 'm[1] === "index" ? "#/" : "#/" + m[1] + (m[2] ? "/" + m[2] : "")'};
   });
   f.addEventListener("load", function () { try { var t = f.contentDocument.title; if (t) document.title = t; } catch (e) {} });
   window.addEventListener("hashchange", route); route();
 })();
 </script>
-</body></html>`;
+${ARTIFACT ? "" : "</body></html>"}`;
 
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT, shell);
