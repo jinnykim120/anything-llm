@@ -80,8 +80,7 @@ topics.forEach((t, ti) => {
   const cm = t.media[t.cardMedia]; // 카드 표지는 대표 사진 한 장(여러 장 모음은 설득력이 떨어짐)
   feed.push({ kind: "topic", href: `${t.slug}.html`, tag: t.tag, title: t.title, src: cm?.src, credit: cm?.credit, fit: t.cardFit, pos: t.cardPos, span: shape.span, h: shape.h, cats: t.cats, sec: t.section });
 });
-// 메인에는 동작하는 카드만 두고 나머지는 "신규 콘텐츠" 빈 칸(높이를 달리해 피드처럼 보이게). 상품 사례·영상 핀은 주제 페이지 안에만 둔다.
-for (const [sec, span, h] of [["read", 1, 0], ["read", 1, 0], ["read", 1, 0], ["read", 1, 0], ["read", 1, 0]]) feed.push({ kind: "empty", sec, span, h });
+// 메인에는 동작하는 카드만 둔다(빈 칸 없음). 상품 사례·영상 핀은 주제 페이지 안에만 둔다.
 
 const draftCount = [...boards, ...topics].filter((x) => x.status !== "approved").length;
 writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview: preview && !process.argv.includes("--no-banner"), draftCount, feed, boards, forecast, topics })};`);
