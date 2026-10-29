@@ -198,5 +198,53 @@
   "v-mt": {
     "url": "https://thumb.mt.co.kr/21/2025/06/2025061214242945264_1.jpg",
     "credit": "머니투데이"
+  },
+  "g-sg": {
+    "url": "https://img.segye.com/content/image/2026/10/27/20261027516571.jpg",
+    "credit": "세계일보"
+  },
+  "g-ft": {
+    "url": "https://cdn.ftoday.co.kr/news/photo/202610/368193_378124_4712.jpg",
+    "credit": "파이낸셜투데이"
+  },
+  "i-ge": {
+    "url": "https://nimage.g-enews.com/phpwas/restmb_allidxmake.php?idx=5&simg=20261028081600011269a1f30943117511616074.jpg",
+    "credit": "글로벌이코노믹"
+  },
+  "i-hk": {
+    "url": "https://wimg.heraldcorp.com/news/cms/2026/10/28/news-p.v1.20261012.b24bc33873134e259daba11c2616fc2a_P1.jpg",
+    "credit": "헤럴드경제"
+  },
+  "f-nd": {
+    "url": "https://image.newdaily.co.kr/site/data/img/2026/10/21/2026102100007_0.jpg",
+    "credit": "뉴데일리 (로이터/연합뉴스)"
+  },
+  "f-h1": {
+    "url": "https://img.hankyung.com/photo/202610/ZA.46123528.1.jpg",
+    "credit": "한국경제 (REUTERS)"
+  },
+  "f-h2": {
+    "url": "https://img.hankyung.com/photo/202610/AA.46142679.1.jpg",
+    "credit": "한국경제 (AFP연합뉴스)"
+  },
+  "f-mt": {
+    "url": "https://thumb.mt.co.kr/21/2026/10/2026102519314970925_1.jpg",
+    "credit": "머니투데이"
+  },
+  "c-et": {
+    "url": "https://img.etoday.co.kr/pto_db/2026/10/20261012155337_2400137_1200_895.jpg",
+    "credit": "이투데이"
+  },
+  "c-aj": {
+    "url": "https://image.ajunews.com/content/image/2026/10/25/20261025095030938687.jpg",
+    "credit": "아주경제"
+  },
+  "c-n1": {
+    "url": "https://file2.nocutnews.co.kr/newsroom/image/2026/06/11/202606111503456475_0.jpg",
+    "credit": "노컷뉴스"
+  },
+  "c-n2": {
+    "url": "https://file2.nocutnews.co.kr/newsroom/image/2026/06/11/202606111505084791_0.jpg",
+    "credit": "노컷뉴스 (연합뉴스)"
   }
 }
