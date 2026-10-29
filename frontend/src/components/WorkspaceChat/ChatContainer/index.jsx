@@ -1,5 +1,6 @@
 import { useState, useEffect, useContext, useRef, useCallback } from "react";
 import ChatHistory from "./ChatHistory";
+import InsightButton from "@/components/WorkspaceChat/InsightButton";
 import { CLEAR_ATTACHMENTS_EVENT, DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
   PROMPT_INPUT_EVENT,
@@ -645,6 +646,7 @@ export default function ChatContainer({
                 onClose={() => setShowExtractData(false)}
               />
             )}
+            {isArchive && <InsightButton />}
             <ChatTooltips />
           </div>
           <MemoriesSidebar workspace={workspace} />
