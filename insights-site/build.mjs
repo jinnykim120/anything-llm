@@ -38,6 +38,7 @@ const boards = pick(isBoard).map((b) => {
   const used = new Set([...b.environment, ...b.risks, ...b.insights].flatMap((x) => x.cites));
   return {
     slug: b.slug,
+    section: b.section,
     status: b.status,
     updatedAt: b.approvedAt || b.generatedAt,
     summary: b.summary,
@@ -54,12 +55,24 @@ const boards = pick(isBoard).map((b) => {
 const forecast = boards.length ? readJson(join(DATA, "forecast.json")) : null;
 if (forecast) delete forecast.sources; // 아카이브 문서명 제외
 
+// ── 구역 배치: 자동 생성 카드(slug 가 daily-YYYYMMDD…)는 이번 주 것만 맨 위 "Weekly Brief", 지난주 것은 "Explore"(new),
+//    직접 만든 카드와 전망 보드는 모두 "Stories to Read"(read)에 쌓인다. 주는 월요일 10시(KST, 매일 배치 시각)에 바뀐다.
+const mondayOf = (d) => { const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x; };
+const thisMonday = mondayOf(new Date((process.env.INSIGHTS_NOW ? Date.parse(process.env.INSIGHTS_NOW) : Date.now()) + (9 - 10) * 3600e3));
+const mmdd = (d) => `${String(d.getUTCMonth() + 1).padStart(2, "0")}.${String(d.getUTCDate()).padStart(2, "0")}`;
+const weekLabel = `${mmdd(thisMonday)} – ${mmdd(new Date(thisMonday.getTime() + 6 * 864e5))}`;
+const sectionOf = (t) => {
+  const m = /^daily-(\d{4})(\d\d)(\d\d)/.exec(t.slug);
+  if (!m) return t.section === "new" ? "new" : "read"; // 직접 만든 카드: JSON 의 section 값(기본 read)
+  return mondayOf(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))).getTime() === thisMonday.getTime() ? "brief" : "new";
+};
+
 // ── 트렌드 주제 (기사·영상 기반 이미지 카드 페이지)
 const topics = pick(isTopic).map((t) => {
   const ids = new Set([t.heroMedia, t.cardMedia, ...Object.values(t.videos || {}).map((v) => v.media), ...t.sections.flatMap((s) => s.items.map((i) => i.media))].filter(Boolean));
   const media = {};
   for (const id of ids) { const m = usedMedia(id); if (m) media[id] = m; }
-  return { slug: t.slug, order: t.order ?? 99, cardMedia: t.cardMedia || t.heroMedia, cardFit: t.cardFit || "cover", card: t.card, cardPos: t.cardPos, section: t.section || "new", cats: t.cats || [], tag: t.tag || "트렌드", status: t.status, updatedAt: t.approvedAt || t.generatedAt, eyebrow: t.eyebrow, title: t.title, summary: t.summary, heroMedia: t.heroMedia, videos: t.videos || {}, sections: t.sections, sources: t.sources, unverified: t.unverified || [], media };
+  return { slug: t.slug, order: t.order ?? 99, cardMedia: t.cardMedia || t.heroMedia, cardFit: t.cardFit || "cover", card: t.card, cardPos: t.cardPos, section: sectionOf(t), cats: t.cats || [], tag: t.tag || "트렌드", status: t.status, updatedAt: t.approvedAt || t.generatedAt, eyebrow: t.eyebrow, title: t.title, summary: t.summary, heroMedia: t.heroMedia, videos: t.videos || {}, sections: t.sections, sources: t.sources, unverified: t.unverified || [], media };
 }).sort((a, b) => a.order - b.order);
 
 // ── 피드 카드: 매출 전망 → 트렌드 주제 → 상품 사례·영상 핀
@@ -69,7 +82,7 @@ for (const b of boards) {
   const fc = forecast.forecast.total.map((p) => ({ y: p.year, lo: p.p10 / 1e6, mid: p.p50 / 1e6, hi: p.p90 / 1e6 }));
   const last = fc[fc.length - 1];
   feed.push({
-    kind: "topic", href: `${b.slug}.html`, tag: "전망 · GS리테일", cats: ["전망", "재무"], art: { hist, fc },
+    kind: "topic", sec: b.section === "new" ? "new" : "read", href: `${b.slug}.html`, tag: "전망 · GS리테일", cats: ["전망", "재무"], art: { hist, fc },
     title: "GS리테일, 2026년과 향후 3년 — 매출은 어디로 가나",
     sub: `연결 매출 ${hist[2].v.toFixed(1)}조 → ${last.y}년 ${last.mid.toFixed(1)}조(중앙값). 통계 분석·대외환경·위기 요인·고민할 것까지`,
   });
@@ -83,7 +96,7 @@ topics.forEach((t, ti) => {
 // 메인에는 동작하는 카드만 둔다(빈 칸 없음). 상품 사례·영상 핀은 주제 페이지 안에만 둔다.
 
 const draftCount = [...boards, ...topics].filter((x) => x.status !== "approved").length;
-writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview: preview && !process.argv.includes("--no-banner"), draftCount, feed, boards, forecast, topics })};`);
+writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview: preview && !process.argv.includes("--no-banner"), weekLabel, draftCount, feed, boards, forecast, topics })};`);
 const T = (f) => join(here, "template", f);
 const V = Date.now(); // 정적 서버가 CSS·JS 를 캐시해도 새 빌드는 새로 받게 한다
 const ver = (h) => ["common.css", "common.js", "ui-extra.css"].reduce((x, f) => x.replace(`${f}"`, `${f}?v=${V}"`), h);

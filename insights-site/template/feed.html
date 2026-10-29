@@ -93,9 +93,17 @@
     </div>
   </header>
 
-  <section id="block1">
+  <section id="block0">
     <div class="ch-s first">
-      <div><div class="t">Recent Issues</div><h2>Explore A Wide &amp; Variety of Story</h2></div>
+      <div><div class="t" id="wk">This Week</div><h2>Weekly Brief</h2></div>
+      <span class="n" id="count0">0</span>
+    </div>
+    <ul class="gc" id="gc0"></ul>
+  </section>
+
+  <section id="block1">
+    <div class="ch-s">
+      <div><div class="t">Previous Weeks</div><h2>Explore A Wide &amp; Variety of Story</h2></div>
       <span class="n" id="count1">0</span>
     </div>
     <ul class="gc" id="gc1"></ul>
@@ -148,11 +156,10 @@
   }
 
   /* ---------- 카드 ---------- */
-  var gc1 = document.getElementById("gc1"), gc2 = document.getElementById("gc2"), nores = document.getElementById("nores");
-  var live = feed.filter(function (f) { return f.kind !== "empty"; }), items = [];
+  var gc0 = document.getElementById("gc0"), gc1 = document.getElementById("gc1"), gc2 = document.getElementById("gc2"), nores = document.getElementById("nores");
+  var live = feed, items = [];
   feed.forEach(function (f) {
-    var ul = f.sec === "read" ? gc2 : gc1, li = el("li");
-    if (f.kind === "empty") { li.appendChild(el("div", "slot", "신규 콘텐츠")); ul.appendChild(li); items.push({ li: li, ul: ul, empty: true }); return; }
+    var ul = f.sec === "brief" ? gc0 : f.sec === "read" ? gc2 : gc1, li = el("li");
     var a = el("a", "gcard"); a.href = f.href;
     var fig = el("figure", "fig" + (f.fit === "contain" ? " contain" : ""));
     if (f.art) fig.appendChild(forecastArt(f.art));
@@ -167,20 +174,20 @@
   /* ---------- 검색 + 카테고리 ---------- */
   var cats = [], chips = document.getElementById("chips"), q = document.getElementById("q"), state = { cat: "", q: "" };
   live.forEach(function (f) { (f.cats || []).forEach(function (c) { if (cats.indexOf(c) < 0) cats.push(c); }); });
-  var count1 = document.getElementById("count1"), count2 = document.getElementById("count2"), result = document.getElementById("result"), b1 = document.getElementById("block1"), b2 = document.getElementById("block2");
-  var nRead = live.filter(function (f) { return f.sec === "read"; }).length, nNew = live.length - nRead;
+  var count0 = document.getElementById("count0"), count1 = document.getElementById("count1"), count2 = document.getElementById("count2"), result = document.getElementById("result");
+  var b0 = document.getElementById("block0"), b1 = document.getElementById("block1"), b2 = document.getElementById("block2");
+  if (D.weekLabel) document.getElementById("wk").textContent = "This Week · " + D.weekLabel;
   function apply() {
-    var active = !!(state.cat || state.q), terms = state.q.toLowerCase().split(/\s+/).filter(Boolean), n1 = 0, n2 = 0;
+    var active = !!(state.cat || state.q), terms = state.q.toLowerCase().split(/\s+/).filter(Boolean), n = [0, 0, 0];
     items.forEach(function (it) {
-      var ok = it.empty ? !active : (!state.cat || it.cats.indexOf(state.cat) >= 0) && terms.every(function (t) { return it.text.indexOf(t) >= 0; });
+      var ok = (!state.cat || it.cats.indexOf(state.cat) >= 0) && terms.every(function (t) { return it.text.indexOf(t) >= 0; });
       it.li.hidden = !ok;
-      if (ok && !it.empty) { if (it.ul === gc2) n2++; else n1++; }
+      if (ok) n[it.ul === gc0 ? 0 : it.ul === gc2 ? 2 : 1]++;
     });
-    b1.hidden = active && n1 === 0; b2.hidden = active && n2 === 0;
-    count1.textContent = (active ? n1 : nNew) + " STORY";
-    count2.textContent = (active ? n2 : nRead) + " STORY";
-    result.textContent = active ? "검색 결과 " + (n1 + n2) + "개" : "";
-    nores.hidden = !(active && n1 + n2 === 0);
+    b0.hidden = n[0] === 0; b1.hidden = n[1] === 0; b2.hidden = n[2] === 0; // 카드가 없는 구역은 보이지 않는다
+    count0.textContent = n[0] + " STORY"; count1.textContent = n[1] + " STORY"; count2.textContent = n[2] + " STORY";
+    result.textContent = active ? "검색 결과 " + (n[0] + n[1] + n[2]) + "개" : "";
+    nores.hidden = !(active && n[0] + n[1] + n[2] === 0);
   }
   ["전체"].concat(cats).forEach(function (c) {
     var b = el("button", "chip", c); b.setAttribute("aria-pressed", c === "전체");
@@ -188,7 +195,7 @@
     chips.appendChild(b);
   });
   q.addEventListener("input", function () { state.q = q.value.trim(); apply(); });
-  count1.textContent = nNew + " STORY"; count2.textContent = nRead + " STORY";
+  apply();
   document.getElementById("foot").textContent = "사내 아카이브의 일반(general) 등급 문서와 공개 기사·영상을 사용했습니다. 이미지는 각 카드에 표시된 출처의 것이며 사내 비상업 용도로만 사용합니다.";
   if (D.preview) document.getElementById("banner").hidden = false;
 })();
