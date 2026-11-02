@@ -367,6 +367,15 @@ async function dropLockRow(folder) {
   await prisma.folder_unlocks.deleteMany({ where: { folder: name } });
 }
 
+/** 폴더를 잠그거나 풀었을 때 그 폴더 문서의 민감도 분류를 규칙에 맞춘다. 실패해도 잠금 동작은 막지 않는다. */
+async function syncSensitivity(folder) {
+  try {
+    await require("../classification/sensitivityRule").syncFolder(folder);
+  } catch (e) {
+    console.error("[folderAccess] 민감도 동기화 실패:", e.message);
+  }
+}
+
 // ----------------------------------------------------------------- 서비스
 async function listFolderLocks() {
   return prisma.folder_locks.findMany({ select: { folder: true } });
@@ -390,6 +399,8 @@ async function createLock({ folder, password, clientId = null }) {
   });
   // 만든 사람은 바로 열린 상태로 시작한다.
   if (clientId) await grantUnlock(clientId, name);
+  // 잠긴 폴더의 문서는 confidential — 이미 분류 기록이 있는 문서를 맞춘다.
+  await syncSensitivity(name);
   return name;
 }
 
@@ -470,6 +481,8 @@ async function changeLock({
   } else {
     await prisma.folder_locks.delete({ where: { folder: name } });
     await prisma.folder_unlocks.deleteMany({ where: { folder: name } });
+    // 잠금이 풀려 공개 폴더가 됐으니 그 폴더 문서는 general 로 돌린다.
+    await syncSensitivity(name);
   }
   return { ok: true };
 }

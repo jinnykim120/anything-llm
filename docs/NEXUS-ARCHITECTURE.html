@@ -448,6 +448,16 @@ footer { margin-top: 60px; color: var(--muted); font-size: 12.5px; border-top: 1
   <tr><td>잠긴 폴더 문서가 근거에 없음</td><td>기존대로 공개 보관</td></tr>
 </table>
 
+<h3>4-7b. 민감도 분류 규칙</h3>
+<p>문서 분류의 민감도(<code>sensitivity</code>)는 <strong>비밀번호로 잠긴 폴더의 문서만 <code>confidential</code>, 나머지는 전부 <code>general</code></strong> 이다. 사람이 문서마다 고르는 값이 아니라 문서가 놓인 폴더로 정해진다 (<code>utils/classification/sensitivityRule.js</code>).</p>
+<ul>
+  <li>AI 분류 제안(<code>upsertProposal</code>)은 AI 가 낸 민감도를 쓰지 않고 이 규칙으로 정한다.</li>
+  <li>폴더를 잠그면 그 폴더 문서의 기존 분류가 <code>confidential</code> 로, 잠금을 풀면 <code>general</code> 로 같이 바뀐다 (<code>syncFolder</code>).</li>
+  <li>이미 쌓인 기록은 <code>server/scripts/apply-sensitivity-rule.js [--dry-run]</code> 로 한 번에 맞춘다 (멱등). 2026-11-02 에 227건 전체를 적용했다 — confidential 97건·uncertain 6건이 general 로 바뀌었다 (문서가 없는 기록 22건 포함).</li>
+  <li>분류 검수에서 사람이 직접 확정한 값은 그 자리에서는 존중하지만, 스크립트를 다시 돌리면 규칙으로 돌아간다.</li>
+  <li><strong>이 값은 지금 검색·답변·접근을 바꾸지 않는다.</strong> 검색 데이터에 저장된 민감도는 전부 <code>unclassified</code> 이고 어떤 코드도 읽지 않는다. 실제 보호는 폴더 비밀번호가 맡는다. 새 문서의 AI 분류 제안은 <code>CLASSIFY_ON_INGEST</code> 가 꺼져 있어 업로드 시 자동으로 만들어지지 않고, 분류 검수의 "분류 제안" 실행 때 만들어진다.</li>
+</ul>
+
 <h3>4-8. 관리자와 콘솔</h3>
 <ul>
   <li>관리자 비밀번호는 <code>secrets/admin.env</code> 의 <code>NEXUS_ADMIN_PASSWORD</code>. 서버가 시작할 때 읽는다 (<code>index.js</code>). 값이 없으면 관리자 기능은 꺼지고 기존처럼 모두 열린다.</li>
@@ -644,6 +654,7 @@ footer { margin-top: 60px; color: var(--muted); font-size: 12.5px; border-top: 1
 <h2 id="s13"><span class="no">13.</span>변경 이력 <span class="tag">새 항목은 맨 위에</span></h2>
 <table>
   <tr><th class="nowrap">날짜</th><th class="nowrap">커밋</th><th>내용</th></tr>
+  <tr><td>2026-11-02</td><td><code>이 문서</code></td><td>민감도 규칙 도입 — 잠긴 폴더 문서만 confidential, 나머지 general (§4-7b). 기존 분류 227건 일괄 적용, 새 분류 제안과 폴더 잠금·해제에 규칙 연결</td></tr>
   <tr><td>2026-10-29</td><td><code>이 문서</code></td><td>질문 전 대기 화면 하단 중앙에 "새로운 인사이트 보기" 버튼 추가 (주소는 <code>VITE_NEXUS_INSIGHT_URL</code>, 새 창으로 열림, 대화 시작 시 숨김)</td></tr>
   <tr><td>2026-10-29</td><td><code>이 문서</code></td><td>업로드 창의 잠금 폴더 흐름 보강 — 폴더를 만든 직후에도 그 폴더를 고른 상태로 두고, 이미 있는 폴더 이름이면 입력한 비밀번호로 열어 이어서 올림, 잠겨서 거부되면 비밀번호 칸을 바로 보여 줌. 거부된 업로드는 서버 로그에 폴더·브라우저가 남음</td></tr>
   <tr><td>2026-10-27</td><td><code>이 문서</code></td><td>아키텍처 문서를 Markdown 에서 HTML 로 전환 — 구성도·요청 순서·검색 필터 위치·관리자 권한 조건을 그림으로 추가. 기준 파일은 <code>NEXUS-ARCHITECTURE.html</code> 하나</td></tr>

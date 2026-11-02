@@ -4,6 +4,9 @@ const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 const { classifyDocument } = require("../utils/classification/classify");
 const {
+  sensitivityForHash,
+} = require("../utils/classification/sensitivityRule");
+const {
   normalizeSensitivity,
   normalizeWorkType,
 } = require("../utils/classification/taxonomy");
@@ -84,7 +87,9 @@ const DocumentClassification = {
     if (this._isComplete(existing)) return this._serialize(existing);
 
     const data = {
-      sensitivity: normalizeSensitivity(sensitivity),
+      // 민감도는 AI 가 아니라 폴더로 정한다: 잠긴 폴더 문서만 confidential, 나머지 general
+      // (utils/classification/sensitivityRule.js). AI 가 낸 값(sensitivity)은 쓰지 않는다.
+      sensitivity: await sensitivityForHash(contentHash),
       workType: normalizeWorkType(workType),
       businessUnit: businessUnit || null,
       docType: docType || null,
