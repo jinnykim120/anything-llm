@@ -1,27 +1,35 @@
-// 이 PC에서 사이트를 만들어 맥북으로 보낸다.
+// 사이트를 만들어 내보낸다. 이 PC 에서는 맥북으로 전송하고, 맥북 자체에서는(deploy/local.config.json 이 있으면) 서비스 폴더에 바로 복사한다.
 //   node insights-site/deploy.mjs            # 빌드 → 단일 파일 → 맥북 전송
 //   node insights-site/deploy.mjs --no-build # 이미 만든 dist/NEXUS-Insight.html 만 전송
 // 설정: insights-site/deploy/mac.config.json (mac.config.example.json 을 복사해 채운다. git 에는 안 들어감)
 // SSH 키 로그인(BatchMode)만 쓴다. 비밀번호는 다루지 않는다.
-import { existsSync, readFileSync } from "node:fs";
+// 맥북 로컬 모드: deploy/local.config.json = {"publishDir":"/Users/…/nexus-insight"} (git 에는 안 들어감)
+import { existsSync, readFileSync, mkdirSync, copyFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { here } from "./lib.mjs";
 
+const localCfg = join(here, "deploy", "local.config.json");
 const cfgFile = join(here, "deploy", "mac.config.json");
-if (!existsSync(cfgFile)) { console.error("deploy/mac.config.json 이 없습니다. deploy/mac.config.example.json 을 복사해 host, user 를 채우세요."); process.exit(1); }
-const { host, user, remoteDir = "nexus-insight" } = JSON.parse(readFileSync(cfgFile, "utf8"));
-if (!host || !user || /맥북/.test(host + user)) { console.error("mac.config.json 의 host, user 를 실제 값으로 채우세요."); process.exit(1); }
+if (!existsSync(localCfg) && !existsSync(cfgFile)) { console.error("deploy/mac.config.json 이 없습니다. deploy/mac.config.example.json 을 복사해 host, user 를 채우세요."); process.exit(1); }
+const { host, user, remoteDir = "nexus-insight" } = existsSync(localCfg) ? {} : JSON.parse(readFileSync(cfgFile, "utf8"));
+if (!existsSync(localCfg) && (!host || !user || /맥북/.test(host + user))) { console.error("mac.config.json 의 host, user 를 실제 값으로 채우세요."); process.exit(1); }
 const run = (cmd, args, label) => {
   const r = spawnSync(cmd, args, { stdio: "inherit" });
   if (r.status !== 0) { console.error(`실패: ${label}`); process.exit(r.status || 1); }
 };
 if (!process.argv.includes("--no-build")) {
-  run("node", [join(here, "build.mjs"), "--preview", "--no-banner"], "빌드");
-  run("node", [join(here, "bundle.mjs")], "단일 파일 만들기");
+  run(process.execPath, [join(here, "build.mjs"), "--preview", "--no-banner"], "빌드");
+  run(process.execPath, [join(here, "bundle.mjs")], "단일 파일 만들기");
 }
 const file = join(here, "dist", "NEXUS-Insight.html");
 if (!existsSync(file)) { console.error("dist/NEXUS-Insight.html 이 없습니다."); process.exit(1); }
+if (existsSync(localCfg)) {
+  const { publishDir } = JSON.parse(readFileSync(localCfg, "utf8"));
+  mkdirSync(publishDir, { recursive: true });
+  copyFileSync(file, join(publishDir, "index.html.tmp")); renameSync(join(publishDir, "index.html.tmp"), join(publishDir, "index.html"));
+  console.log(`게시 완료 → ${join(publishDir, "index.html")}`); process.exit(0);
+}
 const target = `${user}@${host}`, ssh = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"];
 run("ssh", [...ssh, target, `mkdir -p ~/${remoteDir}`], "맥북 접속(SSH 키 로그인이 설정됐는지 확인)");
 run("scp", [...ssh, file, `${target}:${remoteDir}/index.html.tmp`], "파일 전송");

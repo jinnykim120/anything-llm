@@ -32,7 +32,7 @@ const py = [
   "        im.convert('RGB').save(os.path.join(out,n+'.jpg'),quality=82,optimize=True,progressive=True)",
   "    except Exception as ex: print('skip',f,ex)",
 ].join("\n");
-const shrunk = spawnSync("python", ["-c", py, join(SITE, "media"), tmp, process.env.IMG_MAX || "1100"], { encoding: "utf8" });
+const shrunk = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c", py, join(SITE, "media"), tmp, process.env.IMG_MAX || "1100"], { encoding: "utf8" });
 const useShrunk = shrunk.status === 0;
 if (!useShrunk) console.log("이미지를 줄이지 못해 원본을 넣습니다(Pillow 필요):", (shrunk.stderr || "").trim().split("\n").pop());
 const mediaUri = {};
@@ -49,6 +49,8 @@ JSON.parse(data); // 깨졌는지 확인
 // ── 3) 폰트·CSS·JS
 const FONT = { FP: uri(join(SITE, "fonts", "PretendardVariable.woff2")), FO: uri(join(SITE, "fonts", "Outfit-latin-wght.woff2")) };
 const fontTokens = (s) => s.split('url("fonts/PretendardVariable.woff2")').join('url("@@FP@@")').split('url("fonts/Outfit-latin-wght.woff2")').join('url("@@FO@@")');
+const REGS = existsSync(join(SITE, "regs-data.js")) ? txt("regs-data.js").replace(/^window\.REGS_DATA=/, "").replace(/;\s*$/, "") : "null"; // 규제·법령 페이지에서만 쓴다(원문 사본이 들어 있어 큼)
+JSON.parse(REGS);
 const CSS = { common: fontTokens(txt("common.css")), ui: txt("ui-extra.css") };
 const JS = { common: txt("common.js") };
 
@@ -62,6 +64,7 @@ for (const f of readdirSync(SITE).filter((x) => x.endsWith(".html"))) {
        .replace(/<link rel="stylesheet" href="ui-extra\.css[^"]*">/, "@@CSS_UI@@")
        .replace(/<script src="site-data\.js[^"]*"><\/script>/, "@@DATA@@")
        .replace(/<script src="common\.js[^"]*"><\/script>/, "@@JS_COMMON@@")
+       .replace(/<script src="regs-data\.js[^"]*"><\/script>/, "@@REGS@@")
        .split("(window.__HASH||location.hash)").join("(window.__HASH||location.hash)") // 이미 치환된 경우 대비
        .split("location.hash.slice(1)").join("(window.__HASH||location.hash).slice(1)");
   // 파일 하나 안에서는 location.hash 대입 대신 해당 위치로 스크롤한다
@@ -84,7 +87,7 @@ ${ARTIFACT ? "" : "</head><body>"}
   "use strict";
   var PAGES = ${lit(PAGES)}, TITLES = ${lit(TITLES)};
   var CSS = ${lit(CSS)}, JS = ${lit(JS)}, FONT = ${lit(FONT)};
-  var DATA = ${lit(data)};
+  var DATA = ${lit(data)}, REGS = ${lit(REGS)};
   var f = document.getElementById("f");
   var HOOK = "document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href');" +
     "if(/^[a-z0-9-]+\\\\.html(#.*)?$/.test(h)){e.preventDefault();parent.postMessage({go:h},'*');}" +
@@ -95,6 +98,7 @@ ${ARTIFACT ? "" : "</head><body>"}
     h = sub(h, "@@CSS_COMMON@@", "<style>" + CSS.common + "</style>");
     h = sub(h, "@@CSS_UI@@", "<style>" + CSS.ui + "</style>");
     h = sub(h, "@@DATA@@", "<script>window.SITE_DATA=" + DATA + ";<\\/script>");
+    h = sub(h, "@@REGS@@", "<script>window.REGS_DATA=" + REGS + ";<\\/script>");
     h = sub(h, "@@JS_COMMON@@", "<script>" + JS.common + "<\\/script>");
     h = sub(h, "@@FP@@", FONT.FP); h = sub(h, "@@FO@@", FONT.FO);
     h = sub(h, "</head>", "<script>window.__HASH=" + JSON.stringify(hash || "") + ";<\\/script></head>");

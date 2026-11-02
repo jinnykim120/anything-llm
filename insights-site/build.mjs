@@ -3,7 +3,7 @@
 //   node insights-site/build.mjs --preview  # include unapproved drafts, banner-marked
 //   node insights-site/build.mjs --preview --no-banner  # same, without the draft banner
 // Output: index.html(이미지 피드) + 주제마다 <slug>.html + site-data.js + media/ — copy the `site/` folder to any web server.
-import { readFileSync, writeFileSync, readdirSync, existsSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { here, DATA, dir } from "./lib.mjs";
 
@@ -17,7 +17,8 @@ const isBoard = (x) => x.file.startsWith("board-");
 const isTopic = (x) => x.file.startsWith("topic-");
 
 const approved = load("approved");
-const drafts = load("drafts");
+const overlay = process.env.INSIGHTS_OVERLAY ? new Map(load(process.env.INSIGHTS_OVERLAY).map((x) => [x.file, x])) : new Map(); // 검토용: data/<폴더>의 같은 이름 카드로 바꿔 끼운다
+const drafts = load("drafts").map((d) => overlay.get(d.file) || d);
 const have = new Set(approved.map((x) => x.file));
 const pick = (pred) => [...approved.filter(pred), ...(preview ? drafts.filter((x) => pred(x) && !have.has(x.file)) : [])];
 
@@ -95,8 +96,18 @@ topics.forEach((t, ti) => {
 });
 // 메인에는 동작하는 카드만 둔다(빈 칸 없음). 상품 사례·영상 핀은 주제 페이지 안에만 둔다.
 
+// ── 규제·법령 동향: 담당자가 승인한 공개본(data/regs/published)이 있을 때만 페이지와 버튼을 만든다. 미리보기는 INSIGHTS_REGS=pending
+const regsDir = join(DATA, "regs", process.env.INSIGHTS_REGS === "pending" ? "pending" : "published");
+let regsData = null;
+if (existsSync(join(regsDir, "regs.json"))) {
+  const r = readJson(join(regsDir, "regs.json")), embed = (f) => ({ ...f, b64: readFileSync(join(regsDir, "files", f.fname)).toString("base64") });
+  const cmpFile = join(regsDir, "compare.json");
+  regsData = { ...r, compare: existsSync(cmpFile) ? readJson(cmpFile) : null, preview: process.env.INSIGHTS_REGS === "pending", laws: r.laws.map((l) => ({ ...l, files: l.files.map(embed) })) };
+}
+
+if (!regsData) for (const f of ["regs.html", "regs-data.js"]) rmSync(join(out, f), { force: true }); // 승인 전에는 파일도 남기지 않는다
 const draftCount = [...boards, ...topics].filter((x) => x.status !== "approved").length;
-writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview: preview && !process.argv.includes("--no-banner"), weekLabel, draftCount, feed, boards, forecast, topics })};`);
+writeFileSync(join(out, "site-data.js"), `window.SITE_DATA=${JSON.stringify({ builtAt: new Date().toISOString(), preview: preview && !process.argv.includes("--no-banner"), hasRegs: !!regsData, weekLabel, draftCount, feed, boards, forecast, topics })};`);
 const T = (f) => join(here, "template", f);
 const V = Date.now(); // 정적 서버가 CSS·JS 를 캐시해도 새 빌드는 새로 받게 한다
 const ver = (h) => ["common.css", "common.js", "ui-extra.css"].reduce((x, f) => x.replace(`${f}"`, `${f}?v=${V}"`), h);
@@ -107,6 +118,7 @@ if (existsSync(T("fonts"))) { const fo = dir(join(out, "fonts")); for (const f o
 copyFileSync(T("common.js"), join(out, "common.js"));
 copyFileSync(T("ui-extra.css"), join(out, "ui-extra.css"));
 writeFileSync(join(out, "index.html"), page("feed.html", (h) => h.split("@@GSLOGO@@").join("data:image/png;base64," + readFileSync(T("gsretail-logo.png")).toString("base64"))));
+if (regsData) { writeFileSync(join(out, "regs-data.js"), `window.REGS_DATA=${JSON.stringify(regsData)};`); writeFileSync(join(out, "regs.html"), page("regs.html")); }
 for (const b of boards) writeFileSync(join(out, `${b.slug}.html`), page("board.html"));
 for (const t of topics) writeFileSync(join(out, `${t.slug}.html`), page("topic.html", (h) => h.replace('<html lang="ko">', `<html lang="ko" data-slug="${t.slug}">`)));
 console.log(`site/ 생성: 피드 카드 ${feed.length} · 전망 보드 ${boards.length} · 트렌드 주제 ${topics.length} (${preview ? "미승인 초안 포함 미리보기" : "승인된 것만"})`);
