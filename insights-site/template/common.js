@@ -102,3 +102,22 @@ window.NX = (function () {
   }
   return { el: el, Grid: Grid, relayout: relayout, pin: pin, ytBox: ytBox, openSheet: openSheet };
 })();
+
+/* 라이트/다크 전환: 기본은 라이트(기기 설정을 따르지 않음). 선택은 이 브라우저에 기억 */
+(function () {
+  "use strict";
+  var KEY = "nx-theme", root = document.documentElement;
+  function get() { try { var v = localStorage.getItem(KEY); if (v === "dark" || v === "light") return v; } catch (e) {} try { return parent.__nxTheme === "dark" ? "dark" : "light"; } catch (e) { return "light"; } }
+  function save(v) { try { localStorage.setItem(KEY, v); } catch (e) {} try { parent.__nxTheme = v; } catch (e) {} }
+  var st = document.createElement("style");
+  st.textContent = ".nx-theme{position:fixed;right:16px;bottom:16px;z-index:60;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 16px;border-radius:999px;border:1.5px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--ink,#222);font:700 13px/1 inherit;font-family:inherit;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18)}.nx-theme:hover{border-color:var(--ink,#222)}.nx-theme:focus-visible{outline:2px solid var(--ink,#222);outline-offset:2px}";
+  document.head.appendChild(st);
+  var b = document.createElement("button"); b.type = "button"; b.className = "nx-theme";
+  function apply(t) {
+    if (t === "dark") root.setAttribute("data-theme", "dark"); else root.removeAttribute("data-theme");
+    b.textContent = t === "dark" ? "☀ 라이트 모드" : "☾ 다크 모드";
+    b.setAttribute("aria-label", t === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환");
+  }
+  b.addEventListener("click", function () { var t = root.getAttribute("data-theme") === "dark" ? "light" : "dark"; save(t); apply(t); });
+  apply(get()); document.body.appendChild(b);
+})();

@@ -6,12 +6,12 @@
   --hi:#d63a3a;--hi-s:#fde8e8;--mid:#c98a0b;--mid-s:#fcf1d8;--low:#5c6b80;--low-s:#e9edf2;
   --ink-card:#1f2a44;--ink-card-fg:#f3f5fb;
 }
-@media (prefers-color-scheme:dark){:root{
+:root[data-theme=dark]{color-scheme:dark;
   --bg:#15130f;--surface:#211e19;--ink:#f1ede6;--mute:#a39c92;--line:#35302a;--shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.3);
   --conv:#7ba4ff;--conv-s:#1d2a4a;--super:#52d196;--super-s:#16301f;--home:#ff9560;--home-s:#3a2216;--corp:#b79cff;--corp-s:#2a2142;--etc:#8a8379;
   --hi:#ff7a7a;--hi-s:#3b1c1c;--mid:#f0b94a;--mid-s:#3a2d10;--low:#9fb0c6;--low-s:#252c35;
   --ink-card:#2a3556;--ink-card-fg:#f3f5fb;
-}}
+}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:76px}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Pretendard Variable",Pretendard,"SF Pro Text","Segoe UI Variable Text","Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;-webkit-font-smoothing:antialiased}

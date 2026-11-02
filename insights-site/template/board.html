@@ -14,12 +14,12 @@
     --hi:#d63a3a;--hi-s:#fde8e8;--mid:#c98a0b;--mid-s:#fcf1d8;--low:#5c6b80;--low-s:#e9edf2;
     --ink-card:#1f2a44;--ink-card-fg:#f3f5fb;
   }
-  @media (prefers-color-scheme:dark){:root{
+  :root[data-theme=dark]{color-scheme:dark;
     --bg:#15130f;--surface:#211e19;--ink:#f1ede6;--mute:#a39c92;--line:#35302a;--shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.3);
     --conv:#7ba4ff;--conv-s:#1d2a4a;--super:#52d196;--super-s:#16301f;--home:#ff9560;--home-s:#3a2216;--corp:#b79cff;--corp-s:#2a2142;--etc:#8a8379;
     --hi:#ff7a7a;--hi-s:#3b1c1c;--mid:#f0b94a;--mid-s:#3a2d10;--low:#9fb0c6;--low-s:#252c35;
     --ink-card:#2a3556;--ink-card-fg:#f3f5fb;
-  }}
+  }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth;scroll-padding-top:76px}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Pretendard Variable",Pretendard,"SF Pro Text","Segoe UI Variable Text","Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -145,6 +145,26 @@
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="상세"><div class="sheet" id="sheet"></div></div>
 
 <script src="site-data.js"></script>
+<script>
+/* 라이트/다크 전환: 기본은 라이트(기기 설정을 따르지 않음). 선택은 이 브라우저에 기억 */
+(function () {
+  "use strict";
+  var KEY = "nx-theme", root = document.documentElement;
+  function get() { try { var v = localStorage.getItem(KEY); if (v === "dark" || v === "light") return v; } catch (e) {} try { return parent.__nxTheme === "dark" ? "dark" : "light"; } catch (e) { return "light"; } }
+  function save(v) { try { localStorage.setItem(KEY, v); } catch (e) {} try { parent.__nxTheme = v; } catch (e) {} }
+  var st = document.createElement("style");
+  st.textContent = ".nx-theme{position:fixed;right:16px;bottom:16px;z-index:60;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 16px;border-radius:999px;border:1.5px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--ink,#222);font:700 13px/1 inherit;font-family:inherit;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18)}.nx-theme:hover{border-color:var(--ink,#222)}.nx-theme:focus-visible{outline:2px solid var(--ink,#222);outline-offset:2px}";
+  document.head.appendChild(st);
+  var b = document.createElement("button"); b.type = "button"; b.className = "nx-theme";
+  function apply(t) {
+    if (t === "dark") root.setAttribute("data-theme", "dark"); else root.removeAttribute("data-theme");
+    b.textContent = t === "dark" ? "☀ 라이트 모드" : "☾ 다크 모드";
+    b.setAttribute("aria-label", t === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환");
+  }
+  b.addEventListener("click", function () { var t = root.getAttribute("data-theme") === "dark" ? "light" : "dark"; save(t); apply(t); });
+  apply(get()); document.body.appendChild(b);
+})();
+</script>
 <script>
 (function () {
   "use strict";
