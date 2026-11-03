@@ -365,6 +365,7 @@ async function dropLockRow(folder) {
   if (!name) return;
   await prisma.folder_locks.deleteMany({ where: { folder: name } });
   await prisma.folder_unlocks.deleteMany({ where: { folder: name } });
+  console.log(`[folderLock] 폴더 삭제로 잠금 정리 folder="${name}"`);
 }
 
 /** 폴더를 잠그거나 풀었을 때 그 폴더 문서의 민감도 분류를 규칙에 맞춘다. 실패해도 잠금 동작은 막지 않는다. */
@@ -411,6 +412,32 @@ async function grantUnlock(clientId, folder) {
     update: { expiresAt },
     create: { clientId, folder, expiresAt },
   });
+  console.log(
+    `[folderLock] 열림 부여 folder="${folder}" client=${String(clientId).slice(0, 8)}`
+  );
+}
+
+/** 업로드 거부 원인 추적용: 잠금·열림 기록의 현재 상태를 한 줄로 설명한다. */
+async function explainDenial(clientId, folder) {
+  try {
+    const name = normalizeFolderName(folder);
+    const [lock, rows] = await Promise.all([
+      prisma.folder_locks.findUnique({ where: { folder: name } }),
+      clientId
+        ? prisma.folder_unlocks.findMany({ where: { clientId, folder: name } })
+        : [],
+    ]);
+    const now = Date.now();
+    return `lock=${lock ? `있음(만든이 ${String(lock.createdByClient || "-").slice(0, 8)})` : "없음"} 열림기록=${
+      rows.length
+        ? rows
+            .map((r) => (r.expiresAt.getTime() > now ? "유효" : "만료"))
+            .join(",")
+        : "없음"
+    }`;
+  } catch (e) {
+    return `원인 조회 실패: ${e.message}`;
+  }
 }
 
 /**
@@ -440,6 +467,9 @@ async function relockFolder({ clientId, folder }) {
   const name = normalizeFolderName(folder);
   if (!clientId || !name) return;
   await prisma.folder_unlocks.deleteMany({ where: { clientId, folder: name } });
+  console.log(
+    `[folderLock] 다시 잠금 folder="${name}" client=${String(clientId).slice(0, 8)}`
+  );
 }
 
 /**
@@ -478,7 +508,11 @@ async function changeLock({
     });
     // 비밀번호가 바뀌면 이전에 열었던 모든 브라우저는 다시 잠긴다.
     await prisma.folder_unlocks.deleteMany({ where: { folder: name } });
+    console.log(
+      `[folderLock] 비밀번호 변경 → 열림 전체 초기화 folder="${name}"`
+    );
   } else {
+    console.log(`[folderLock] 잠금 해제 folder="${name}"`);
     await prisma.folder_locks.delete({ where: { folder: name } });
     await prisma.folder_unlocks.deleteMany({ where: { folder: name } });
     // 잠금이 풀려 공개 폴더가 됐으니 그 폴더 문서는 general 로 돌린다.
@@ -551,6 +585,7 @@ async function accessContext(request, response, next) {
 }
 
 module.exports = {
+  explainDenial,
   als,
   accessContext,
   currentScope,

@@ -771,12 +771,12 @@ function workspaceEndpoints(app) {
         // Get threadId we are branching from if that request body is sent
         // and is a valid thread slug.
         const threadId = !!threadSlug
-          ? (
+          ? ((
               await WorkspaceThread.get({
                 slug: String(threadSlug),
                 workspace_id: workspace.id,
               })
-            )?.id ?? null
+            )?.id ?? null)
           : null;
         const chatsToFork = await WorkspaceChats.where(
           {
@@ -935,9 +935,12 @@ function workspaceEndpoints(app) {
           if (!(await FolderAccess.canAccessFolderAsync(lockName))) {
             // 어떤 브라우저가 어느 폴더에서 막혔는지 남겨 둔다 (사용자 문의 확인용).
             console.log(
-              `[folderLock] 업로드 거부 folder="${lockName}" client=${String(
+              `[folderLock] ${new Date().toISOString()} 업로드 거부 folder="${lockName}" client=${String(
                 response.locals.nexusScope?.clientId || "none"
-              ).slice(0, 8)}`
+              ).slice(0, 8)} ${await FolderAccess.explainDenial(
+                response.locals.nexusScope?.clientId,
+                lockName
+              )}`
             );
             response.status(403).json({
               success: false,

@@ -151,8 +151,12 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
     // 잠긴 폴더면 비밀번호로 먼저 연다.
     setFolderError(null);
     let targetFolder = category;
+    // 이번 저장에서 방금 입력해 알고 있는 폴더 비밀번호 — 서버가 "열린 상태"를 놓쳐
+    // 업로드를 거부해도 이 값으로 다시 열고 이어서 올린다.
+    let knownPassword = null;
     if (category === NEW_FOLDER) {
       targetFolder = newFolderName.trim();
+      knownPassword = newFolderPassword || null;
       if (!targetFolder) return setFolderError("새 폴더 이름을 입력하세요.");
       if (newFolderPassword && newFolderPassword.length < 4)
         return setFolderError("비밀번호는 4자 이상이어야 합니다.");
@@ -175,6 +179,9 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
               "이미 있는 폴더입니다. 입력한 비밀번호가 이 폴더의 비밀번호와 다릅니다."
             );
         }
+      } else if (newFolderPassword) {
+        // 만든 직후 서버의 자동 열림에만 기대지 않고, 방금 입력한 비밀번호로 직접 한 번 더 연다.
+        await NexusAccess.unlock(targetFolder, newFolderPassword);
       }
       // 이 뒤로는 만든(또는 이미 있는) 폴더를 그대로 골라 둔다 — 저장이 실패해 다시
       // 눌러도 "새 폴더 만들기"가 아니라 기존 폴더 경로로 이어진다.
@@ -184,6 +191,7 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
       setNewFolderName("");
       setNewFolderPassword("");
     } else if (needsUnlock) {
+      knownPassword = unlockPassword || null;
       const r = await NexusAccess.unlock(category, unlockPassword);
       if (!r.ok) return setFolderError(r.message || "폴더를 열지 못했습니다.");
     }
@@ -217,10 +225,23 @@ export default function ArchiveUploadButton({ workspaceSlug }) {
         formData.append("file", file, file.name);
 
         try {
-          const { response, data } = await Workspace.uploadAndEmbedFile(
+          let { response, data } = await Workspace.uploadAndEmbedFile(
             workspaceSlug,
             formData
           );
+          if (
+            response.status === 403 &&
+            knownPassword &&
+            /잠긴 폴더/.test(data?.error || "")
+          ) {
+            // 거부되면 아는 비밀번호로 다시 열고 한 번만 재시도한다.
+            const r = await NexusAccess.unlock(targetFolder, knownPassword);
+            if (r.ok)
+              ({ response, data } = await Workspace.uploadAndEmbedFile(
+                workspaceSlug,
+                formData
+              ));
+          }
           if (!response.ok || !data?.success) {
             const error =
               data?.error || "자료를 아카이브에 저장하지 못했습니다.";
