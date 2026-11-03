@@ -1,0 +1,6 @@
+{
+  "_note": "‘서버 경로로 가져오기’ 설정. 서버(이 PC)가 읽어도 되는 폴더의 ‘상위 경로’ 목록이다. 목록에 없는 경로는 절대 읽지 않는다(심볼릭 링크·.. 로 벗어나는 경로도 막는다). 바꾸는 방법: 이 파일의 allowedImportRoots 에 절대 경로를 추가한 뒤 저장하면 바로 적용된다(서버 재시작 불필요). 임시로 덮어쓰려면 환경변수 RISK_IMPORT_ROOTS(세미콜론 구분)를 쓴다. 비워 두면 가져오기는 모두 거부된다.",
+  "allowedImportRoots": ["D:\\ai factory"],
+  "deniedNames": [".git", ".svn", "node_modules", "secrets", ".env"],
+  "limits": { "maxFilesPerCase": 5000, "maxFileBytes": 524288000, "maxCandidates": 500 }
+}

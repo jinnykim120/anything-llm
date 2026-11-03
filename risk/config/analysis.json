@@ -1,0 +1,33 @@
+{
+  "_note": "AI 분석(사건 카드 추출) 설정. 코드에 하드코딩하지 않고 여기서 바꾼다. 비용 수치는 시범 사건 실측이며 확정 단가가 아니다.",
+  "model": "claude-sonnet-5-5",
+  "pricing": {
+    "card": { "low": 0.14, "high": 0.18, "scaleFromChars": 45000 },
+    "image": { "low": 0.02, "high": 0.03 },
+    "basis": "시범 사건(2026-11-03) 실측 기준 — 카드 생성 1회 $0.139(입력 14.3K·출력 8.1K 토큰)·$0.179~0.184, 이미지 비전은 8장 $0.197·38장 $0.889(장당 약 $0.023~0.025). 입력 글자 수가 약 4.5만 자를 넘으면 카드 비용을 비례해 늘려 잡았습니다. 이미 읽은 이미지(같은 해시)는 다시 읽지 않아 0원입니다. 실제 비용은 문서 양에 따라 달라집니다."
+  },
+  "limits": {
+    "maxImagesPerRun": 80,
+    "imageBatchSize": 8,
+    "maxCharsPerFile": 30000,
+    "maxCharsTotal": 120000,
+    "procedureRefChars": 600,
+    "xlsxRows": 60,
+    "minImageBytes": 15000,
+    "minImageSide": 250,
+    "maxImageBytes": 20000000,
+    "cardTimeoutMs": 590000,
+    "visionTimeoutMs": 590000
+  },
+  "rules": {
+    "textExts": ["docx", "pptx", "pdf", "txt", "md", "csv", "xlsx"],
+    "imageExts": ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
+    "legacyExts": { "doc": "구형 Word(.doc)", "ppt": "구형 PowerPoint(.ppt)", "xls": "구형 Excel(.xls)", "hwp": "한글(HWP) — 보류", "hwpx": "한글(HWPX) — 보류", "msg": "메일(.msg)" },
+    "piiNameWords": ["고객", "명단", "리스트", "발송", "주문자", "수취", "회원", "연락처", "개인정보", "배송지", "수령", "구매자"],
+    "piiNameExts": ["xlsx", "xls", "csv"],
+    "piiHeaderWords": ["이름", "성명", "전화", "연락처", "휴대", "핸드폰", "주소", "주민", "생년", "이메일", "e-mail", "email"],
+    "piiPhoneThreshold": 5,
+    "piiRrnThreshold": 3,
+    "procedureNameWords": ["프로세스", "가이드", "매뉴얼", "지침", "절차", "체크리스트"]
+  }
+}

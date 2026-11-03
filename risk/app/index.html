@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Risk Monitor · NEXUS</title>
+<link rel="stylesheet" href="/app/ui.css">
+<link rel="stylesheet" href="/app/dash.css">
+<script>try{var t=localStorage.getItem("rk-theme");if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
+</head>
+<body>
+<div class="top"><div class="top-in">
+  <a class="logo" href="#home" aria-label="Home" title="Home">NEXUS <b>Risk Monitor</b></a>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <button class="thm" id="thm" type="button" aria-label="화면 모드 전환">다크 모드</button>
+  <a class="lg" href="/logout">나가기</a>
+</div></div>
+<div class="wrap">
+  <section class="pane" id="p-home">
+    <div class="front">
+      <div class="ey">NEXUS · 리스크 담당자용</div>
+      <h1><span>Risk</span><span class="ac2">Monitor</span></h1>
+      <div class="tag">리스크를 먼저 알고, 이력으로 대응합니다</div>
+      <p class="sub">센싱된 이슈를 사건으로 올리고, 과거 사건 이력과 절차를 근거로 대응합니다. 종결된 사건은 아카이브에 쌓여 다음 대응의 기준이 됩니다.</p>
+      <button class="go" type="button" id="goDash">Dashboard 보기 <span aria-hidden="true">→</span></button>
+      <div class="hsum" id="hsum" aria-label="오늘의 요약"></div>
+      <button class="more" type="button" id="goGates"><span>들어가기</span><i aria-hidden="true">↓</i></button>
+    </div>
+    <div class="hgate" id="gates">
+      <div class="rs"><span class="no">01</span><div class="hd"><h2>들어가기</h2><small>하고 싶은 일을 골라 들어갑니다. 위쪽 메뉴로도 언제든 이동할 수 있습니다.</small></div></div>
+      <div class="gates" id="gateList"></div>
+      <div class="rs"><span class="no">02</span><div class="hd"><h2>이렇게 이어집니다</h2><small>센싱에서 시작해 아카이브로 돌아오는 한 바퀴입니다.</small></div></div>
+      <div class="flow">
+        <div><b>Sensing</b>매일 이슈를 수집하고 유형·사업부문을 분류합니다.</div>
+        <div><b>사건화</b>번질 가능성이 있는 이슈를 사건으로 올립니다. 아닌 것은 사유를 남기고 보류합니다.</div>
+        <div><b>Incident Response <small>(준비 중)</small></b>단계별로 과거 대응·법규·타사 사례를 참고해 진행합니다.</div>
+        <div><b>Archive</b>종결하면 요약과 자료가 사건 폴더로 저장되어 다음에 다시 쓰입니다.</div>
+      </div>
+    </div>
+  </section>
+  <section class="pane" id="p-dash" hidden><div id="dashRoot"></div></section>
+  <section class="pane" id="p-sens" hidden>
+    <div class="ptitle"><div class="pt"><h2>Sensing</h2><p>매일 센싱된 이슈를 확인하고, 사건으로 올리거나 보류 사유를 남깁니다.</p></div></div>
+    <div class="rs"><span class="no">01</span><div class="hd"><h2>오늘의 이슈</h2><small id="todaySub"></small></div></div>
+    <div class="list" id="today"></div>
+    <div class="rs"><span class="no">02</span><div class="hd"><h2>이슈 분류</h2><small>이슈를 사건으로 올리거나 보류 사유를 남깁니다. 키워드 검색·관심 키워드는 ‘상세 카드’에 있습니다.</small></div></div>
+    <div class="row" style="margin-bottom:12px"><span id="sSub"></span></div>
+    <div id="sTriage"><div class="row" id="sFilter" style="margin-bottom:12px"></div><div class="list" id="sList"></div></div>
+    <iframe class="sens" id="sFrame" title="센싱 이슈 상세" hidden></iframe>
+  </section>
+  <section class="pane" id="p-arch" hidden><div id="archRoot"></div></section>
+  <section class="pane" id="p-case" hidden>
+    <div class="ptitle"><div class="pt"><h2>Incident Response</h2><p>단계별로 대응을 진행하는 화면입니다. 센싱된 이슈를 사건으로 올리거나 직접 입력하면 아래 단계를 따라 진행하고, 종결하면 아카이브에 저장됩니다.</p></div></div>
+    <div class="card ph"><h3>준비 중입니다</h3><p>단계마다 당사 과거 대응(아카이브), 타사 사례, 법규·사규 대조를 제안하는 화면이 들어옵니다. (단계는 임시 초안이며 설정 파일에서 바꿉니다)</p><div class="steps" id="stepsPh"></div></div>
+  </section>
+</div>
+<dialog id="dlg"><form class="md" method="dialog" id="dlgForm"></form></dialog>
+<script src="/app/ui.js"></script>
+<script src="/app/archive.js"></script>
+<script src="/app/dash.js"></script>
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function api(path,body){return fetch(path,body?{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:undefined).then(function(r){if(r.status===401){location.reload();throw new Error("login")}return r.json().then(function(j){if(!r.ok)throw new Error(j.error||"오류");return j})})}
+var CFG=null,ISS=[],HOME=null;
+var nameOf=function(list,id){var x=list.filter(function(t){return t.id===id})[0];return x?x.name:id};
+var typeName=function(id){return id==="unclassified"?"미분류":id==="hold"?"분류 보류":nameOf(CFG.issueTypes,id)},buName=function(id){return id==="none"?"미지정":nameOf(CFG.businessUnits,id)};
+var pct=function(x){return typeof x==="number"?Math.round(x*100)+"%":""};
+
+/* ── 탭 */
+var TABS=[["dash","Dashboard","grid"],["sens","Sensing","pulse"],["arch","Archive","archive"],["case","Incident Response","shield"]],ALLV=["home","dash","sens","arch","case"];
+function showTab(k){if(ALLV.indexOf(k)<0)k="home";ALLV.forEach(function(v){$("p-"+v).hidden=v!==k});TABS.forEach(function(t){var b=document.querySelector('[data-tab="'+t[0]+'"]');if(b)b.setAttribute("aria-selected",t[0]===k)});
+  if(location.hash!=="#"+k)history.replaceState(null,"","#"+k);window.scrollTo(0,0);
+  if(k==="home")renderHome();if(k==="dash"&&window.RiskDash)window.RiskDash.show();if(k==="sens")renderSens();
+  if(k==="arch"&&window.RiskArchive)window.RiskArchive.mount({el:el,api:api,$:$,cfg:CFG,typeName:typeName,buName:buName,pct:pct,onChange:refresh})}
+window.addEventListener("hashchange",function(){showTab((location.hash||"").slice(1))});
+/* 화면 모드(라이트/다크): 기본은 라이트, 선택은 이 브라우저에만 기억 */
+(function(){var b=$("thm");function sync(){var d=document.documentElement.getAttribute("data-theme")==="dark";b.textContent=d?"라이트 모드":"다크 모드"}sync();b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";if(d)document.documentElement.removeAttribute("data-theme");else document.documentElement.setAttribute("data-theme","dark");try{localStorage.setItem("rk-theme",d?"light":"dark")}catch(e){}sync()}})();
+TABS.forEach(function(t){var b=el("button","tab",t[1]);b.type="button";b.setAttribute("role","tab");b.dataset.tab=t[0];b.onclick=function(){showTab(t[0])};if(window.RiskUI)RiskUI.ic(b,t[2]);$("tabs").appendChild(b)});
+
+/* ── 이슈 카드·사건화·보류 */
+function issueCard(i){
+  var c=el("article","is l-"+(i.level||"낮음")),b=el("div","badges");
+  if(i.level)b.appendChild(el("span","b lv","위험도 "+i.level));b.appendChild(el("span","b",i.area||"-"));
+  if(i.newToday)b.appendChild(el("span","b new","오늘 신규"));
+  if(i.state==="사건화")b.appendChild(el("span","b ok","사건화 · "+(i.caseName||"#"+i.caseId)));
+  if(i.state==="보류")b.appendChild(el("span","b hold","보류"));
+  if(i.state==="사건화"&&i.typeId)b.appendChild(el("span","b",typeName(i.typeId)));
+  if(i.state!=="사건화"){
+    if(i.typeSource==="ai"){var ab=el("span","b ai","AI 제안 "+pct(i.aiType&&i.aiType.confidence));if(i.aiType&&i.aiType.why)ab.title=i.aiType.why;b.appendChild(ab)}
+    else if(!i.typeId&&i.aiType&&i.aiType.status==="hold"){var hb=el("span","b hl","분류 보류");if(i.aiType.why)hb.title=i.aiType.why;b.appendChild(hb)}}
+  c.appendChild(b);c.appendChild(el("h3",null,i.title));
+  c.appendChild(el("p",null,(i.summary||"").length>160?i.summary.slice(0,160)+"…":i.summary||""));
+  var meta=(CFG.labels&&CFG.labels.issueStartDate||"기사 게재일")+" "+(i.startDate||"-")+" · 출처 "+i.sourcesCount+"건";if(i.state==="보류")meta+=" · 보류 사유: "+i.holdReason;
+  c.appendChild(el("div","meta",meta));
+  if(i.state!=="사건화")c.appendChild(classRow(i));
+  var a=el("div","act");
+  if(i.state!=="사건화"){var p=el("button","btn sm","사건화");if(window.RiskUI)RiskUI.ic(p,"up");p.type="button";p.onclick=function(){promoteDlg(i)};a.appendChild(p)}
+  if(i.state==="센싱됨"){var h=el("button","btn warn sm","보류");if(window.RiskUI)RiskUI.ic(h,"pause");h.type="button";h.onclick=function(){holdDlg(i)};a.appendChild(h)}
+  if(i.state==="보류"){var r=el("button","btn sec sm","보류 해제");if(window.RiskUI)RiskUI.ic(r,"undo");r.type="button";r.onclick=function(){api("/api/issues/"+i.id+"/restore",{}).then(refresh).catch(function(e){alert(e.message)})};a.appendChild(r)}
+  if(a.children.length)c.appendChild(a);return c}
+/* 유형·사업부문 선택칸: 담당자가 바꾸면 출처가 '담당자'가 되어 AI 제안 배지가 사라진다. 사업부문은 AI 힌트만 보여 주고 미리 채우지 않는다. */
+function classRow(i){
+  var r=el("div","cls");
+  function save(body){api("/api/issues/"+i.id+"/classify",body).then(refresh).catch(function(e){alert(e.message);refresh()})}
+  var ts=el("select");ts.setAttribute("aria-label","리스크 유형");
+  opt(ts,CFG.issueTypes,i.typeId,i.aiType&&i.aiType.status==="hold"?"분류 보류 (AI 확신 낮음)":"미분류");
+  ts.onchange=function(){if(ts.value)save({typeId:ts.value});else refresh()};
+  r.appendChild(field("유형",ts));
+  if(i.typeSource==="ai"&&i.typeId){var ok=el("button","btn sec sm","AI 제안 확정");if(window.RiskUI)RiskUI.ic(ok,"check");ok.type="button";ok.onclick=function(){save({typeId:i.typeId})};r.appendChild(ok)}
+  var bs=el("select");bs.setAttribute("aria-label","사업부문");opt(bs,CFG.businessUnits,i.buId,"미지정");
+  bs.onchange=function(){save({buId:bs.value||null})};
+  r.appendChild(field("사업부문",bs));
+  if(i.aiBu&&!i.buId){var h=el("span","hint","AI 힌트: "+buName(i.aiBu.id)+" (담당자가 선택)");if(i.aiBu.why)h.title=i.aiBu.why;r.appendChild(h)}
+  return r}
+function openDlg(build){var f=$("dlgForm");f.textContent="";build(f);$("dlg").showModal()}
+function opt(sel,list,sel0,blank){if(blank!=null){var o=el("option",null,blank);o.value="";sel.appendChild(o)}list.forEach(function(x){var o=el("option",null,x.name);o.value=x.id;if(x.id===sel0)o.selected=true;sel.appendChild(o)})}
+function field(lbl,node){var l=el("label",null,lbl);l.appendChild(node);return l}
+function promoteDlg(i){openDlg(function(f){
+  f.appendChild(el("h3",null,"사건화: "+i.title.slice(0,60)));
+  var unconf=!i.typeConfirmed,armed=false;
+  if(unconf)f.appendChild(el("div","note",i.typeId?"이 유형은 AI 제안("+pct(i.aiType&&i.aiType.confidence)+")이고 아직 담당자가 확인하지 않았습니다. 확인 후 사건화하세요.":"유형이 아직 정해지지 않았습니다"+(i.aiType&&i.aiType.status==="hold"?"(AI가 분류를 보류했습니다)":"")+". 선택한 뒤 확인하세요."));
+  var ty=el("select");opt(ty,CFG.issueTypes,i.typeId,"유형 선택(필수)");f.appendChild(field("주 유형 (필수)",ty));
+  var tg=el("div","tg");CFG.issueTypes.forEach(function(t){var l=el("label"),c=el("input");c.type="checkbox";c.value=t.id;l.appendChild(c);l.appendChild(document.createTextNode(t.name));tg.appendChild(l)});f.appendChild(field("부 유형 태그 (선택)",tg));
+  var bu=el("select");opt(bu,CFG.businessUnits,i.buId,"미지정");f.appendChild(field("사업부문",bu));
+  if(i.aiBu&&!i.buId){var bh=el("div","hint","AI 힌트: "+buName(i.aiBu.id)+(i.aiBu.why?" — "+i.aiBu.why:"")+" (제안일 뿐이며 담당자가 직접 선택합니다)");f.appendChild(bh)}
+  var lv=el("select");opt(lv,CFG.levels,i.level);f.appendChild(field("위험도",lv));
+  var ti=el("input");ti.type="text";ti.value=i.title;ti.maxLength=200;f.appendChild(field("사건 제목",ti));
+  var er=el("div","er");f.appendChild(er);var ft=el("div","ft"),cn=el("button","btn sec","취소"),ok=el("button","btn","사건으로 올리기");if(window.RiskUI)RiskUI.ic(ok,"up");cn.type="button";cn.onclick=function(){$("dlg").close()};ok.type="submit";ft.appendChild(cn);ft.appendChild(ok);f.appendChild(ft);
+  ty.onchange=function(){armed=false;ok.textContent="사건으로 올리기";er.textContent=""};
+  f.onsubmit=function(e){e.preventDefault();if(!ty.value){er.textContent="주 유형을 선택하세요";return}
+    if(unconf&&!armed){armed=true;ok.textContent="확인했습니다, 사건으로 올리기";er.textContent="유형 ‘"+typeName(ty.value)+"’을(를) 이 사건의 주 유형으로 확정합니다. 맞으면 한 번 더 누르세요.";return}
+    ok.disabled=true;api("/api/issues/"+i.id+"/promote",{typeId:ty.value,typeConfirmed:true,buId:bu.value||null,level:lv.value,title:ti.value,tags:[].map.call(tg.querySelectorAll("input:checked"),function(c){return c.value})}).then(function(){$("dlg").close();refresh()}).catch(function(x){er.textContent=x.message;ok.disabled=false})}})}
+function holdDlg(i){openDlg(function(f){
+  f.appendChild(el("h3",null,"보류: "+i.title.slice(0,60)));
+  var ta=el("textarea");ta.maxLength=500;ta.placeholder="보류 사유를 남겨 주세요 (필수)";f.appendChild(field("보류 사유 (필수)",ta));
+  var pr=el("div","tg");(CFG.holdReasonPresets||[]).forEach(function(r){var c=el("button","chip",r);c.type="button";c.onclick=function(){ta.value=r};pr.appendChild(c)});f.appendChild(pr);
+  var er=el("div","er");f.appendChild(er);var ft=el("div","ft"),cn=el("button","btn sec","취소"),ok=el("button","btn warn","보류");if(window.RiskUI)RiskUI.ic(ok,"pause");cn.type="button";cn.onclick=function(){$("dlg").close()};ok.type="submit";ft.appendChild(cn);ft.appendChild(ok);f.appendChild(ft);
+  f.onsubmit=function(e){e.preventDefault();if(ta.value.trim().length<2){er.textContent="보류 사유를 입력하세요";return}
+    ok.disabled=true;api("/api/issues/"+i.id+"/hold",{reason:ta.value}).then(function(){$("dlg").close();refresh()}).catch(function(x){er.textContent=x.message;ok.disabled=false})}})}
+
+/* ── 오늘의 이슈(리스크 센싱 탭 최상단) */
+function renderToday(){var box=$("today");box.textContent="";
+  var td=ISS.filter(function(i){return(i.newToday||i.updatedToday)&&i.state!=="사건화"}),list=td,sub="";
+  if(td.length)sub=td.length+"건";else{list=ISS.filter(function(i){return i.state==="센싱됨"}).slice(0,5);sub="오늘 새로 센싱·갱신된 이슈가 없습니다"+(list.length?" — 분류 대기 중인 이슈 상위 5건을 대신 보여줍니다":"")}
+  $("todaySub").textContent=sub;
+  list.forEach(function(i){box.appendChild(issueCard(i))});if(!list.length)box.appendChild(el("div","empty","보여줄 이슈가 없습니다."))}
+
+/* ── 대문(로그인 직후 첫 화면): 가벼운 요약 3개 + 4개 영역 입구 */
+var GATES=[["dash","g1","01","Dashboard","대시보드","연도·월·유형·사업부문별 건수와 센싱→사건화 전환율을 한눈에 봅니다.",["연도 → 월 추이","유형·사업부문 구성","센싱 → 사건화 전환율"]],
+  ["sens","g2","02","Sensing","리스크 센싱","오늘 센싱된 이슈를 확인하고 사건으로 올리거나 보류 사유를 남깁니다.",["오늘의 이슈","유형·사업부문 분류","키워드 직접 검색"]],
+  ["arch","g3","03","Archive","리스크 아카이브","과거 사건 이력과 절차·보고서를 사건 폴더로 보관하고 사건 카드를 확인합니다.",["사건 폴더·자료 업로드","사건 카드 확정","폴더 구조 그대로 내려받기"]],
+  ["case","g4","04","Incident Response","사건 대응 · 준비 중","단계별로 대응을 진행하고, 종결하면 아카이브에 자동 저장됩니다.",["단계별 진행","과거 대응·법규·타사 사례 제안","종결 요약 Word·PDF"],true]];
+function renderGates(){var L=$("gateList");if(L.children.length)return;GATES.forEach(function(g){var b=el("button","gate "+g[1]);b.type="button";b.appendChild(el("span","n",g[2]));var t=el("h3",null,g[3]);t.appendChild(el("span","kr",g[4]));b.appendChild(t);b.appendChild(el("p",null,g[5]));var u=el("ul");g[6].forEach(function(x){u.appendChild(el("li",null,x))});b.appendChild(u);var go=el("span","gb",g[7]?"준비 중":"열기");if(!g[7]&&window.RiskUI)go.appendChild(RiskUI.icon("arrow"));b.appendChild(go);if(g[7])b.disabled=true;else b.onclick=function(){showTab(g[0])};L.appendChild(b)})}
+function renderHome(d){if(d)HOME=d.home;renderGates();var S=$("hsum");S.textContent="";if(!HOME)return;
+  function add(v,l,hot,t){var s=el("span","hs"+(hot?" hot":""));s.appendChild(el("b",null,String(v)));s.appendChild(document.createTextNode(l));if(t)s.title=t;S.appendChild(s)}
+  add(HOME.todayNew,"오늘 센싱");add(HOME.pending,"확인 필요",HOME.pending>0,"분류 대기 중인 이슈");add(HOME.openCases,"진행 중 사건")}
+
+/* ── 센싱 탭 */
+var SS={view:"triage",st:"센싱됨",type:"",bu:"",unconf:false};
+function sensRows(){return ISS.filter(function(i){
+  if(SS.st&&i.state!==SS.st)return false;
+  if(SS.type){var t=i.typeId||(i.aiType&&i.aiType.status==="hold"?"hold":"unclassified");if(t!==SS.type)return false}
+  if(SS.bu&&(i.buId||"none")!==SS.bu)return false;
+  if(SS.unconf&&i.typeSource!=="ai")return false;return true})}
+function filterSel(label,val,list,onchange){var s=el("select");s.setAttribute("aria-label",label);list.forEach(function(x){var o=el("option",null,x[1]);o.value=x[0];if(x[0]===val)o.selected=true;s.appendChild(o)});s.onchange=function(){onchange(s.value)};return s}
+function renderSens(){
+  var sub=$("sSub");sub.textContent="";[["triage","이슈 분류"],["cards","상세 카드(기존 센싱 페이지)"]].forEach(function(v){var b=el("button","chip",v[1]);b.type="button";b.setAttribute("aria-pressed",SS.view===v[0]);b.onclick=function(){SS.view=v[0];renderSens()};sub.appendChild(b)});
+  $("sTriage").hidden=SS.view!=="triage";var fr=$("sFrame");fr.hidden=SS.view!=="cards";if(SS.view==="cards"){if(!fr.getAttribute("src"))fr.src="/sensing?embed=1";return}
+  var fl=$("sFilter");fl.textContent="";[["센싱됨","분류 대기"],["보류","보류"],["사건화","사건화됨"],["","전체"]].forEach(function(s){var n=ISS.filter(function(i){return!s[0]||i.state===s[0]}).length,b=el("button","chip",s[1]+" "+n);b.type="button";b.setAttribute("aria-pressed",SS.st===s[0]);b.onclick=function(){SS.st=s[0];renderSens()};fl.appendChild(b)});
+  var f2=el("div","frow");f2.style.width="100%";
+  f2.appendChild(el("span","lab","유형"));f2.appendChild(filterSel("유형 필터",SS.type,[["","전체"]].concat(CFG.issueTypes.map(function(t){return[t.id,t.name]})).concat([["hold","분류 보류"],["unclassified","미분류"]]),function(v){SS.type=v;renderSens()}));
+  f2.appendChild(el("span","lab","사업부문"));f2.appendChild(filterSel("사업부문 필터",SS.bu,[["","전체"]].concat(CFG.businessUnits.map(function(b){return[b.id,b.name]})).concat([["none","미지정"]]),function(v){SS.bu=v;renderSens()}));
+  var un=ISS.filter(function(i){return i.typeSource==="ai"&&i.state!=="사건화"&&(!SS.st||i.state===SS.st)}).length,ub=el("button","chip","AI 제안 미확인 "+un);ub.type="button";ub.setAttribute("aria-pressed",SS.unconf);ub.onclick=function(){SS.unconf=!SS.unconf;renderSens()};f2.appendChild(ub);
+  fl.appendChild(f2);
+  var l=$("sList");l.textContent="";var rows=sensRows();rows.forEach(function(i){l.appendChild(issueCard(i))});if(!rows.length)l.appendChild(el("div","empty","해당하는 이슈가 없습니다."))}
+
+function refresh(){return Promise.all([api("/api/issues").then(function(r){ISS=r.issues}),window.RiskDash?window.RiskDash.refresh():null]).then(function(){renderToday();if(!$("p-sens").hidden)renderSens()})}
+api("/api/config").then(function(c){CFG=c;
+  var sp=$("stepsPh");c.caseStages.forEach(function(s,i){var d=el("div","step",(i+1)+". "+s.name);d.appendChild(el("em",null,s.desc));sp.appendChild(d)});
+  window.RiskDash.mount({root:$("dashRoot"),api:api,cfg:CFG,typeName:typeName,buName:buName,nav:showTab,onData:function(d){renderHome(d)}});
+  $("goDash").onclick=function(){showTab("dash")};$("goGates").onclick=function(){$("gates").scrollIntoView({behavior:"smooth"})};
+  return refresh()}).then(function(){showTab("home")}).catch(function(e){document.body.appendChild(el("p",null,"불러오지 못했습니다: "+e.message))});
+})();
+</script>
+</body>
+</html>

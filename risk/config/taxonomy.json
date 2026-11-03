@@ -1,0 +1,69 @@
+{
+  "_note": "리스크 시스템 분류 체계. 화면·API·시드가 모두 이 파일을 읽는다(하드코딩 금지). id 는 저장된 데이터가 참조하므로 한 번 정하면 바꾸지 말고, 이름·순서·색은 자유롭게 고친다. 항목 추가는 배열 끝에 붙이면 된다.",
+  "issueTypes": [
+    { "id": "sys-ops", "name": "시스템/운영 오류", "order": 1 },
+    { "id": "store-dispute", "name": "점포 분쟁", "order": 2 },
+    { "id": "product-quality", "name": "제품 품질/서비스", "order": 3 },
+    { "id": "legal-policy", "name": "법률/정책 위반", "order": 4 },
+    { "id": "partner", "name": "협력사 이슈", "order": 5 },
+    { "id": "privacy-security", "name": "개인정보∙보안", "order": 6 },
+    { "id": "marketing-content", "name": "마케팅∙컨텐츠 이슈", "order": 7 },
+    { "id": "hr-labor", "name": "인사/노무", "order": 8 },
+    { "id": "other", "name": "기타", "order": 9 }
+  ],
+  "businessUnits": [
+    { "id": "PBU", "name": "PBU", "aliases": ["PBU", "PBU>개발사업"], "hint": "편의점·슈퍼 등 점포 사업", "order": 1 },
+    { "id": "HBU", "name": "HBU", "aliases": ["HBU"], "hint": "홈쇼핑·온라인 판매(GS SHOP)", "order": 2 },
+    { "id": "networks", "name": "네트웍스", "aliases": ["네트웍스"], "hint": "물류·배송(리테일네트웍스)", "order": 3 },
+    { "id": "cookat", "name": "쿠캣", "aliases": ["쿠캣"], "hint": "쿠캣", "order": 4 },
+    { "id": "yogiyo", "name": "요기요", "aliases": ["요기요"], "hint": "요기요 배달 플랫폼", "order": 5 },
+    { "id": "aboutpet", "name": "어바웃펫", "aliases": ["어바웃펫"], "hint": "어바웃펫 반려동물", "order": 6 }
+  ],
+  "caseStages": [
+    { "id": "intake", "name": "인지/접수", "desc": "이슈 등록, 출처 확인, 유형·사업부문·위험도 부여", "order": 1 },
+    { "id": "fact-check", "name": "사실확인·초기평가", "desc": "사실관계 정리, 확산 정도, 당사 책임 범위", "order": 2 },
+    { "id": "response-plan", "name": "대응방안 수립", "desc": "법규·사규·계약 검토, 유관부서 협의", "order": 3 },
+    { "id": "external", "name": "대외 대응", "desc": "해명, 고객·기관 대응, 언론 대응", "order": 4 },
+    { "id": "remediation", "name": "조치·재발방지", "desc": "개선 조치, 후속 점검", "order": 5 },
+    { "id": "closure", "name": "종결·보고", "desc": "종결 정리, 아카이브 자동 저장", "order": 6 }
+  ],
+  "stageExtras": [
+    { "id": "overall", "name": "종합", "desc": "전 과정을 요약한 종합 보고서처럼 단일 단계에 속하지 않는 자료(6개 단계 체계와 별도 구분값)" }
+  ],
+  "fileKinds": [
+    { "id": "case-doc", "name": "사건자료", "analyze": true, "desc": "이 사건의 사실관계·대응 자료" },
+    { "id": "procedure-ref", "name": "절차참고", "analyze": true, "desc": "일반 절차·가이드(사건 사실관계와 섞지 않음, 가이드 근거로 사용)" },
+    { "id": "keep-only", "name": "보관만", "analyze": false, "desc": "사건 폴더에 보관·다운로드만. 파싱·임베딩·AI 전송 모두 하지 않음(예: 고객 명단)" },
+    { "id": "ignore", "name": "무시", "analyze": false, "desc": "잘못 들어온 파일. 보관·분석 모두 제외" }
+  ],
+  "levels": [
+    { "id": "높음", "name": "높음", "order": 1 },
+    { "id": "중간", "name": "중간", "order": 2 },
+    { "id": "낮음", "name": "낮음", "order": 3 }
+  ],
+  "typeSources": [
+    { "id": "manual", "name": "담당자", "priority": 3 },
+    { "id": "document", "name": "문서 지정", "priority": 2 },
+    { "id": "ai", "name": "AI 제안", "priority": 1 }
+  ],
+  "aiClassification": {
+    "minConfidence": 0.6,
+    "examplesPerType": 2,
+    "maxExampleChars": 42
+  },
+  "labels": {
+    "caseStartDate": "최초 민원 접수일",
+    "issueStartDate": "기사 게재일"
+  },
+  "sensingAreas": ["식품안전", "가맹업", "유통규제", "소비자·사회", "기타"],
+  "holdReasonPresets": ["사실 아님", "당사 무관", "확산되지 않음", "이미 종결된 사안", "중복"],
+  "_assumptions": {
+    "holdReasonPresets": "보류 사유는 자유 입력이 필수이고, 위 목록은 빠른 채우기용 제안일 뿐이다(확정 아님).",
+    "sensingAreas": "센싱 검색 분야(risk.mjs 의 AREAS)와 같은 값. 세부 조율은 추후.",
+    "aiClassification": "minConfidence 미만이면 억지로 '기타'에 넣지 않고 '분류 보류'로 둔다. 0.6·예시 2건은 임시값이며 일치율(/api/accuracy)을 보고 조정한다.",
+    "typeSources": "유형 값 우선순위 manual > document > ai. AI 는 manual/document 값을 덮어쓰지 않는다. 과거이력 시드는 document.",
+    "labels": "사건 시작일 = 최초 민원 접수일(확정). 센싱 이슈의 날짜는 기사 게재일(기존 유지).",
+    "stageExtras": "'종합'은 단계 6개와 별도의 분류값이다. stage_id(진행 단계)에는 쓰지 않는다.",
+    "businessUnits.hint": "AI 힌트용 설명이며 엑셀 사례의 접두어(PBU=편의점·수퍼, HBU=홈쇼핑)에서 추정한 것이다. 담당자 확정 전까지 가정이다."
+  }
+}

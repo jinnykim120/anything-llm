@@ -1,0 +1,14 @@
+data/risk.db*
+data/issues.json
+data/watch.json
+data/seed/
+data/cases/
+data/*.bak-*
+pilot/
+data/.lock
+secrets/
+logs/
+site/
+reports/
+scripts/batch-run.mjs
+scripts/load-pilot-case.mjs
