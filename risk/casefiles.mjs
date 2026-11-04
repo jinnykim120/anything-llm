@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { deflateRawSync, crc32 } from "node:zlib";
 import { _db, HttpError, config, getCase, listCases, caseFolderName, updateStartDate, DATA } from "./store.mjs";
 import { verifyConfirm } from "./confirmpw.mjs";
+import * as N from "./nexus.mjs";
 
 const { q, q1, run, tx, nowIso } = _db;
 export const CASES = join(DATA, "cases");
@@ -43,11 +44,12 @@ export function ensureCaseDir(caseId) {
 }
 const inside = (dir, p) => { const r = resolve(p), d = resolve(dir) + sep; return r.startsWith(d); };
 
+export const hooks = { onAdded: null };   // nexussync 가 등록: 파일이 새로 저장되면 Mac 업로드 줄에 넣는다
 // ── 파일 행
 const fileRow = (r) => ({ id: r.id, name: r.name, relPath: r.rel_path, size: r.size, sha256: r.sha256, kind: r.kind, stage: r.stage || null, stageSource: r.stage ? r.stage_source || "manual" : null,
   analyze: !!kindOf(r.kind)?.analyze, dupOf: r.dup_of, dupGroup: r.dup_group, note: r.note, suspectOtherCase: !!r.suspect_other_case,
   aiStage: r.ai_stage ? { id: r.ai_stage, confidence: r.ai_stage_conf, why: r.ai_stage_why } : null, source: r.source, addedAt: r.added_at,
-  kindSource: r.kind_source || null, piiState: r.pii_state || null, piiNote: r.pii_note || null,
+  kindSource: r.kind_source || null, piiState: r.pii_state || null, piiNote: r.pii_note || null, nexusState: r.nexus_state || null, nexusErr: r.nexus_err || null,
   group: r.kind === "ignore" ? "ignore" : r.kind === "keep-only" ? "keep-only" : r.kind === "procedure-ref" ? "procedure-ref" : r.stage || "unassigned" });
 export const listFiles = (caseId) => q("SELECT * FROM case_files WHERE case_id=? ORDER BY id", caseId).map(fileRow);
 const getFileRow = (caseId, fid) => { const r = q1("SELECT * FROM case_files WHERE id=? AND case_id=?", fid, caseId); if (!r) throw new HttpError(404, "파일을 찾을 수 없습니다"); return r; };
@@ -117,7 +119,7 @@ export async function saveUpload(caseId, req, o = {}) {
   const name = rel.split("/").at(-1);
   const r = run("INSERT INTO case_files (case_id,rel_path,name,size,sha256,kind,kind_source,stage,stage_source,note,source,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", caseId, rel, name, info.size, info.sha256, kind, kind !== "case-doc" ? "manual" : null, stage, stage ? "manual" : null, o.note || null, "upload", nowIso());
   const id = Number(r.lastInsertRowid), dedupe = applyDedupe(caseId, id);
-  writeManifest(caseId);
+  writeManifest(caseId); try { hooks.onAdded?.(caseId, id); } catch { /* Mac 연결 실패는 PC 저장에 영향 없음 */ }
   return { file: fileRow(q1("SELECT * FROM case_files WHERE id=?", id)), dedupe, warnings: crossCaseWarnings(caseId, info.sha256), contentCheck: CONTENT_CHECK };
 }
 // 서버 디스크의 파일을 사건 폴더로 복사(스트림, 원본은 읽기만). 서버 경로 가져오기용. 같은 하위 경로가 이미 있으면 null(병합 시 건너뜀).
@@ -135,7 +137,7 @@ export async function addFileFromDisk(caseId, srcAbs, relPath, o = {}) {
   renameSync(tmp, dest);
   const sha = h.digest("hex"), name = rel0.split("/").at(-1);
   const r = run("INSERT INTO case_files (case_id,rel_path,name,size,sha256,kind,stage,note,source,added_at) VALUES (?,?,?,?,?,?,?,?,?,?)", caseId, rel0, name, size, sha, "case-doc", null, null, "import", nowIso());
-  const id = Number(r.lastInsertRowid), dedupe = applyDedupe(caseId, id);
+  const id = Number(r.lastInsertRowid), dedupe = applyDedupe(caseId, id); try { hooks.onAdded?.(caseId, id); } catch { /* 위와 같음 */ }
   return { id, size, sha256: sha, dedupe, warnings: crossCaseWarnings(caseId, sha) };
 }
 // 디스크에 이미 있는 파일을 등록(시범 사건 적재용): 복사하지 않고 해시·크기만 계산한다.
@@ -334,12 +336,13 @@ export function listArchive(f = {}) {
     .sort((a, b) => (key(a) < key(b) ? -dir : key(a) > key(b) ? dir : 0))
     .map((c) => ({ ...c, fileCount: cnt[c.id]?.m || 0, suspectCount: cnt[c.id]?.s || 0 }));
 }
+const nexusSummary = (files) => { const t = files.filter((f) => f.kind !== "ignore"); return { enabled: N.configured() && !!N.caseFolder(), ok: t.filter((f) => f.nexusState === "ok").length, failed: t.filter((f) => f.nexusState === "failed").length, pending: t.filter((f) => f.nexusState !== "ok").length, total: t.length }; };
 export function caseDetail(caseId) {
   ensureCaseDir(caseId);
   const c = getCase(caseId), files = listFiles(caseId), cd0 = getCard(caseId), embedded = listEmbedded(caseId);
   const cd = { ...cd0, card: cd0.card ? enrichSources(cd0.card, files, embedded) : null };
   const imports = q("SELECT source_path, file_count, total_bytes, skipped, imported_at FROM case_imports WHERE case_id=? ORDER BY id", caseId).map((i) => ({ path: i.source_path, files: i.file_count, bytes: i.total_bytes, skipped: i.skipped ? JSON.parse(i.skipped) : null, at: i.imported_at }));
-  return { case: c, files, card: cd, embedded, evidenceCount: cd0.card ? evidenceFileIds(caseId).length : 0, imports, stages: config().caseStages, stageExtras: config().stageExtras || [], fileKinds: kinds(), zipName: `${c.folderName}.zip` };
+  return { case: c, files, card: cd, embedded, nexus: nexusSummary(files), evidenceCount: cd0.card ? evidenceFileIds(caseId).length : 0, imports, stages: config().caseStages, stageExtras: config().stageExtras || [], fileKinds: kinds(), zipName: `${c.folderName}.zip` };
 }
 
 // 담당자가 최초 민원 접수일 확정 → 시작일 갱신 + 폴더 이름의 시작연월을 맞춘다(디렉터리 이름 변경). 진행 중인 AI 분석이 없을 때만(호출하는 쪽이 확인).

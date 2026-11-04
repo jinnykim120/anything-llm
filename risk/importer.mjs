@@ -135,7 +135,7 @@ export function preview({ path, mode = "auto" } = {}) {
 
 // ── 가져오기 1건
 const busy = new Set();
-export async function importOne({ path, key, title, ym, action = "new" } = {}) {
+export async function importOne({ path, key, title, ym, action = "new", closed = false } = {}) {
   const src = resolveSource(path), cfg = importConfig(), L = cfg.limits;
   const k = String(key ?? ".");
   let root = src.real;
@@ -163,7 +163,7 @@ export async function importOne({ path, key, title, ym, action = "new" } = {}) {
     else {
       const unknown = ym === "unknown", useYm = /^\d{4}-\d{2}$/.test(ym || "") ? ym : unknown && parsed.ymSource !== "folder-name" ? null : parsed.ym, useTitle = String(title || "").trim() || parsed.title;
       const yr = Number((newest ? ymOf(newest) : ymOf(Date.now())).slice(0, 4));
-      caseId = S.createImportedCase({ title: useTitle, ym: useYm, year: yr >= 2000 && yr <= 2100 ? yr : new Date().getFullYear() }).id; created = true;
+      caseId = S.createImportedCase({ title: useTitle, ym: useYm, year: yr >= 2000 && yr <= 2100 ? yr : new Date().getFullYear() }).id; created = true; if (closed) S.setCaseStatus(caseId, "종결");
       CF.ensureCaseDir(caseId);
     }
     const added = [], errors = []; let existingSkipped = 0, bytes = 0, same = 0, version = 0;

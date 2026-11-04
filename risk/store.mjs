@@ -111,13 +111,13 @@ const nowIso = () => new Date().toISOString();
 
 // ── 스키마 마이그레이션(v2: 유형 출처·AI 제안 보관). 기존 데이터가 있으면 먼저 VACUUM INTO 로 백업 복사본을 만든다.
 //    컬럼은 존재 여부를 확인하고 추가하므로 여러 번 실행해도 안전하다(멱등).
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((r) => r.name === c);
 const ISSUE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_type_status: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT", ai_type_at_confirm: "TEXT", type_confirmed_at: "TEXT" };
 const CASE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT",
   folder: "TEXT", card_json: "TEXT", card_status: "TEXT", card_by: "TEXT", card_at: "TEXT",   // v3: 사건 폴더 이름·사건 카드(초안/확정)
   start_provisional: "INTEGER" };   // v4: 1 = 시작일의 '연월'만 임시값(최초 민원 접수일 미확정 — 서버 경로 가져오기)
-const FILE_COLS = { kind_source: "TEXT", pii_state: "TEXT", pii_note: "TEXT" };   // v4: 종류를 누가 정했나(manual|auto) · 개인정보 의심(suspect|cleared)
+const FILE_COLS = { kind_source: "TEXT", pii_state: "TEXT", pii_note: "TEXT", nexus_state: "TEXT", nexus_loc: "TEXT", nexus_err: "TEXT", nexus_at: "TEXT" };   // v4: 종류를 누가 정했나(manual|auto) · 개인정보 의심(suspect|cleared)
 export let lastBackup = null;
 function migrate() {
   const v = q1("PRAGMA user_version").user_version;
@@ -373,6 +373,15 @@ export function closeCase(id, endDate) {
   if (!isDate(e)) throw new HttpError(400, "종료일 형식이 맞지 않습니다");
   if (c.startDate && e < c.startDate) throw new HttpError(400, "종료일이 시작일보다 앞입니다");
   run("UPDATE cases SET status='종결', end_date=?, stage_id=?, updated_at=? WHERE id=?", e, config().caseStages.at(-1)?.id || null, nowIso(), id);
+  return getCase(id);
+}
+
+// 이미 끝난 사건(과거 사건을 올린 경우): 종료일을 모르면 비워 둔 채 '종결'로 표시한다. 다시 진행으로 되돌릴 수도 있다.
+export function setCaseStatus(id, status) {
+  const c = getCase(id);
+  if (status === "종결") run("UPDATE cases SET status='종결', stage_id=?, updated_at=? WHERE id=?", config().caseStages.at(-1)?.id || null, nowIso(), id);
+  else if (status === "진행") run("UPDATE cases SET status='진행', end_date=NULL, updated_at=? WHERE id=?", nowIso(), id);
+  else throw new HttpError(400, "상태는 진행 또는 종결입니다");
   return getCase(id);
 }
 

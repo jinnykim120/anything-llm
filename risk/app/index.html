@@ -7,6 +7,7 @@
 <title>Risk Monitor · NEXUS</title>
 <link rel="stylesheet" href="/app/ui.css">
 <link rel="stylesheet" href="/app/dash.css">
+<link rel="stylesheet" href="/app/skin.css">
 <script>try{var t=localStorage.getItem("rk-theme");if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 </head>
 <body>
@@ -34,7 +35,7 @@
       <div class="flow">
         <div><b>Sensing</b>매일 이슈를 수집하고 유형·사업부문을 분류합니다.</div>
         <div><b>사건화</b>번질 가능성이 있는 이슈를 사건으로 올립니다. 아닌 것은 사유를 남기고 보류합니다.</div>
-        <div><b>Incident Response <small>(준비 중)</small></b>단계별로 과거 대응·법규·타사 사례를 참고해 진행합니다.</div>
+        <div><b>Incident Response</b>단계별로 과거 대응·법규·타사 사례를 참고해 진행합니다.</div>
         <div><b>Archive</b>종결하면 요약과 자료가 사건 폴더로 저장되어 다음에 다시 쓰입니다.</div>
       </div>
     </div>
@@ -51,13 +52,14 @@
   </section>
   <section class="pane" id="p-arch" hidden><div id="archRoot"></div></section>
   <section class="pane" id="p-case" hidden>
-    <div class="ptitle"><div class="pt"><h2>Incident Response</h2><p>단계별로 대응을 진행하는 화면입니다. 센싱된 이슈를 사건으로 올리거나 직접 입력하면 아래 단계를 따라 진행하고, 종결하면 아카이브에 저장됩니다.</p></div></div>
-    <div class="card ph"><h3>준비 중입니다</h3><p>단계마다 당사 과거 대응(아카이브), 타사 사례, 법규·사규 대조를 제안하는 화면이 들어옵니다. (단계는 임시 초안이며 설정 파일에서 바꿉니다)</p><div class="steps" id="stepsPh"></div></div>
+    <div class="ptitle"><div class="pt"><h2>Incident Response</h2><p>진행 중인 사건을 6단계로 기록하고, 단계마다 제안을 받아 대응합니다. 종결하면 요약 보고서(Word·PDF)가 만들어지고 Archive에 보관됩니다.</p></div></div>
+    <div id="respRoot"></div>
   </section>
 </div>
 <dialog id="dlg"><form class="md" method="dialog" id="dlgForm"></form></dialog>
 <script src="/app/ui.js"></script>
 <script src="/app/archive.js"></script>
+<script src="/app/respond.js"></script>
 <script src="/app/dash.js"></script>
 <script>
 (function(){
@@ -75,7 +77,8 @@ var TABS=[["dash","Dashboard","grid"],["sens","Sensing","pulse"],["arch","Archiv
 function showTab(k){if(ALLV.indexOf(k)<0)k="home";ALLV.forEach(function(v){$("p-"+v).hidden=v!==k});TABS.forEach(function(t){var b=document.querySelector('[data-tab="'+t[0]+'"]');if(b)b.setAttribute("aria-selected",t[0]===k)});
   if(location.hash!=="#"+k)history.replaceState(null,"","#"+k);window.scrollTo(0,0);
   if(k==="home")renderHome();if(k==="dash"&&window.RiskDash)window.RiskDash.show();if(k==="sens")renderSens();
-  if(k==="arch"&&window.RiskArchive)window.RiskArchive.mount({el:el,api:api,$:$,cfg:CFG,typeName:typeName,buName:buName,pct:pct,onChange:refresh})}
+  if(k==="arch"&&window.RiskArchive)window.RiskArchive.mount({el:el,api:api,$:$,cfg:CFG,typeName:typeName,buName:buName,pct:pct,onChange:refresh});
+  if(k==="case"&&window.RiskRespond)window.RiskRespond.mount({cfg:CFG,nav:showTab,onChange:refresh})}
 window.addEventListener("hashchange",function(){showTab((location.hash||"").slice(1))});
 /* 화면 모드(라이트/다크): 기본은 라이트, 선택은 이 브라우저에만 기억 */
 (function(){var b=$("thm");function sync(){var d=document.documentElement.getAttribute("data-theme")==="dark";b.textContent=d?"라이트 모드":"다크 모드"}sync();b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";if(d)document.documentElement.removeAttribute("data-theme");else document.documentElement.setAttribute("data-theme","dark");try{localStorage.setItem("rk-theme",d?"light":"dark")}catch(e){}sync()}})();
@@ -153,7 +156,7 @@ function renderToday(){var box=$("today");box.textContent="";
 var GATES=[["dash","g1","01","Dashboard","대시보드","연도·월·유형·사업부문별 건수와 센싱→사건화 전환율을 한눈에 봅니다.",["연도 → 월 추이","유형·사업부문 구성","센싱 → 사건화 전환율"]],
   ["sens","g2","02","Sensing","리스크 센싱","오늘 센싱된 이슈를 확인하고 사건으로 올리거나 보류 사유를 남깁니다.",["오늘의 이슈","유형·사업부문 분류","키워드 직접 검색"]],
   ["arch","g3","03","Archive","리스크 아카이브","과거 사건 이력과 절차·보고서를 사건 폴더로 보관하고 사건 카드를 확인합니다.",["사건 폴더·자료 업로드","사건 카드 확정","폴더 구조 그대로 내려받기"]],
-  ["case","g4","04","Incident Response","사건 대응 · 준비 중","단계별로 대응을 진행하고, 종결하면 아카이브에 자동 저장됩니다.",["단계별 진행","과거 대응·법규·타사 사례 제안","종결 요약 Word·PDF"],true]];
+  ["case","g4","04","Incident Response","사건 대응","단계별로 대응을 진행하고, 종결하면 아카이브에 자동 저장됩니다.",["단계별 진행","과거 사건 기반 제안","종결 요약 Word·PDF"]]];
 function renderGates(){var L=$("gateList");if(L.children.length)return;GATES.forEach(function(g){var b=el("button","gate "+g[1]);b.type="button";b.appendChild(el("span","n",g[2]));var t=el("h3",null,g[3]);t.appendChild(el("span","kr",g[4]));b.appendChild(t);b.appendChild(el("p",null,g[5]));var u=el("ul");g[6].forEach(function(x){u.appendChild(el("li",null,x))});b.appendChild(u);var go=el("span","gb",g[7]?"준비 중":"열기");if(!g[7]&&window.RiskUI)go.appendChild(RiskUI.icon("arrow"));b.appendChild(go);if(g[7])b.disabled=true;else b.onclick=function(){showTab(g[0])};L.appendChild(b)})}
 function renderHome(d){if(d)HOME=d.home;renderGates();var S=$("hsum");S.textContent="";if(!HOME)return;
   function add(v,l,hot,t){var s=el("span","hs"+(hot?" hot":""));s.appendChild(el("b",null,String(v)));s.appendChild(document.createTextNode(l));if(t)s.title=t;S.appendChild(s)}
@@ -180,7 +183,6 @@ function renderSens(){
 
 function refresh(){return Promise.all([api("/api/issues").then(function(r){ISS=r.issues}),window.RiskDash?window.RiskDash.refresh():null]).then(function(){renderToday();if(!$("p-sens").hidden)renderSens()})}
 api("/api/config").then(function(c){CFG=c;
-  var sp=$("stepsPh");c.caseStages.forEach(function(s,i){var d=el("div","step",(i+1)+". "+s.name);d.appendChild(el("em",null,s.desc));sp.appendChild(d)});
   window.RiskDash.mount({root:$("dashRoot"),api:api,cfg:CFG,typeName:typeName,buName:buName,nav:showTab,onData:function(d){renderHome(d)}});
   $("goDash").onclick=function(){showTab("dash")};$("goGates").onclick=function(){$("gates").scrollIntoView({behavior:"smooth"})};
   return refresh()}).then(function(){showTab("home")}).catch(function(e){document.body.appendChild(el("p",null,"불러오지 못했습니다: "+e.message))});

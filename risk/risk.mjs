@@ -10,8 +10,8 @@ import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { MODEL, claude, lastJson } from "./lib.mjs";
-import { search, unknownNumbers, cleanRefs } from "./archive.mjs";
+import { MODEL, claude, lastJson, usage, noteUsage } from "./lib.mjs";
+import { searchAny, remote, lastSearch, unknownNumbers, cleanRefs } from "./archive.mjs";
 import { typeGuide, SCHEMA_FRAGMENT, normalizeAi } from "./classify.mjs";
 
 const here = join(fileURLToPath(import.meta.url), "..");
@@ -42,7 +42,7 @@ function claudeWeb(prompt, timeoutMs = 25 * 60e3) {
     const t = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("claude 시간 초과")); }, timeoutMs);
     child.stdout.on("data", (d) => (out += d)); child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => { clearTimeout(t); reject(e); });
-    child.on("close", (code) => { clearTimeout(t); if (code !== 0) return reject(new Error(`claude 종료 ${code}: ${(err || out).slice(0, 300)}`)); try { const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop()); if (o.is_error) return reject(new Error(String(o.result).slice(0, 300))); resolve(String(o.result || "")); } catch { reject(new Error("CLI 응답을 읽지 못함")); } });
+    child.on("close", (code) => { clearTimeout(t); if (code !== 0) return reject(new Error(`claude 종료 ${code}: ${(err || out).slice(0, 300)}`)); try { const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop()); if (o.is_error) return reject(new Error(String(o.result).slice(0, 300))); noteUsage("수집", o); resolve(String(o.result || "")); } catch { reject(new Error("CLI 응답을 읽지 못함")); } });
     child.stdin.write(prompt); child.stdin.end();
   });
 }
@@ -112,7 +112,7 @@ JSON: {"relation":"당사와의 관계: 이 이슈가 우리 사업·취급 상�
     const ids = new Set(passages.map((p) => p.id));
     if (!["높음", "중간", "낮음"].includes(out.level)) problems.push("level 은 높음|중간|낮음");
     for (const c of out.cites || []) if (!ids.has(c)) problems.push(`없는 발췌 번호 ${c}`);
-    const u = unknownNumbers([out.relation, ...(out.exposure || [])].join(" ")); if (u.length) problems.push(`아카이브·이슈에 없는 숫자: ${u.join(", ")}`);
+    const u = unknownNumbers([out.relation, ...(out.exposure || [])].join(" "), remote() ? passages.map((p) => p.text).join(" ") + " " + [it.title, it.summary].join(" ") : undefined); if (u.length) problems.push(`아카이브·이슈에 없는 숫자: ${u.join(", ")}`);
     if (!problems.length) break;
   }
   if (!out) throw new Error("관계 분석 실패");
@@ -129,6 +129,12 @@ async function pool(list, n, fn) { const res = []; let i = 0; await Promise.all(
 // 동시에 두 수집(예약 실행·직접 검색)이 저장소를 건드리지 않게 한다
 const LOCK = join(DATA, ".lock");
 async function lock() { for (let i = 0; i < 270; i++) { try { writeFileSync(LOCK, process.pid + " " + Date.now(), { flag: "wx" }); return; } catch { try { if (Date.now() - Number(readFileSync(LOCK, "utf8").split(" ")[1]) > 45 * 60e3) rmSync(LOCK, { force: true }); } catch {} await new Promise((r) => setTimeout(r, 10000)); } } throw new Error("앞선 수집이 끝나지 않아 대기 시간을 넘겼습니다"); }
+function logUsage() {
+  const by = {}; for (const u of usage) { const b = (by[u.kind] ||= { calls: 0, usd: 0, turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, sec: 0 }); b.calls++; for (const k of ["usd", "turns", "input", "output", "cacheRead", "cacheWrite", "sec"]) b[k] += u[k] || 0; }
+  for (const [k, b] of Object.entries(by)) log(`[사용량] ${k}: 호출 ${b.calls}회 · 비용 US$${b.usd.toFixed(2)} · 대화턴 ${b.turns} · 입력 ${b.input} · 출력 ${b.output} · 캐시읽기 ${b.cacheRead} · 캐시쓰기 ${b.cacheWrite} · ${b.sec}초`);
+  log(`[사용량] 합계 US$${usage.reduce((a, u) => a + u.usd, 0).toFixed(2)}`);
+  try { appendFileSync(join(here, "logs", "sensing-cost.jsonl"), JSON.stringify({ at: runAt, calls: usage }) + "\n"); } catch {}
+}
 async function main() {
   if (!arg("--build-only")) await lock();
   try { await run(); } finally { if (!arg("--build-only")) rmSync(LOCK, { force: true }); }
@@ -140,7 +146,7 @@ async function run() {
     log(`시작 ${runAt} (모델 ${MODEL}) · 누적 이슈 ${Object.keys(store.issues).length}건`);
     const found = await collect(store, manualKw);
     const analyzed = await pool(found, 3, async (it) => {
-      const { passages } = search(it.keywords || []);
+      const { passages } = await searchAny(it.keywords || []); if (remote()) log(`  [NEXUS 검색] ${it.title.slice(0, 30)} → 가져옴 ${lastSearch.fetched} · 사용 ${lastSearch.allowed} · 허용 목록 밖 제외 ${lastSearch.dropped}`);
       const a = await analyze(it, passages); log(`  ✓ [${a.level}] ${it.title}`); return { it, a };
     });
     for (const r of analyzed) {
@@ -161,6 +167,7 @@ async function run() {
       }
     }
     store.runs.push({ at: runAt, slot: manualKw.length ? "수동" : slotLabel, keywords: manualKw, found: found.length, added, updated, finishedAt: new Date().toISOString() }); store.runs = store.runs.slice(-200);
+    logUsage();
     save(store); log(`저장: 신규 ${added} · 업데이트 ${updated} · 누적 ${Object.keys(store.issues).length}`);
   }
   build(store);

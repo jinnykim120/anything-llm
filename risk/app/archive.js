@@ -67,7 +67,10 @@ function renderList() {
   tools.appendChild(selectBox("정렬", [{ id: "new", name: "시작일 최신순" }, { id: "old", name: "시작일 오래된순" }], S.f.sort, null, function (v) { S.f.sort = v; reload(); }));
   tools.appendChild(h("span", { class: "grow" }));
   tools.appendChild(ico(h("button", { class: "btn sec", type: "button", text: "서버 경로로 가져오기", onclick: importDlg }), "folder"));
-  tools.appendChild(ico(h("button", { class: "btn", type: "button", text: "새 사건 폴더", onclick: createDlg }), "plus"));
+  var pickIn = h("input", { type: "file", hidden: true }); pickIn.setAttribute("webkitdirectory", ""); pickIn.setAttribute("directory", "");
+  pickIn.onchange = function () { var fs = [].slice.call(pickIn.files); pickIn.value = ""; if (fs.length) folderDlg(fs); };
+  tools.appendChild(ico(h("button", { class: "btn sec", type: "button", text: "새 사건 폴더", onclick: createDlg }), "plus"));
+  tools.appendChild(ico(h("button", { class: "btn", type: "button", text: "폴더 선택해서 올리기", title: "내 PC의 사건 폴더를 골라 사건을 만들고 파일까지 올립니다", onclick: function () { pickIn.click(); } }), "upload")); tools.appendChild(pickIn);
   root.appendChild(tools);
   root.appendChild(h("div", { class: "agroups", id: "aCases" }));
   renderCards();
@@ -128,6 +131,35 @@ function createDlg() {
   });
 }
 
+/* ───────── 폴더 선택해서 올리기 (사건 자동 생성 + 업로드) ───────── */
+function folderDlg(fs) {
+  var rootName = (fs[0].webkitRelativePath || fs[0].name).split("/")[0];
+  var items = fs.map(function (f) { var p = (f.webkitRelativePath || f.name).split("/"); return { file: f, rel: p.length > 1 ? p.slice(1).join("/") : f.name }; })
+    .filter(function (it) { return !/(^|\/)(Thumbs\.db|\.DS_Store|desktop\.ini|~\$[^/]*)$/i.test(it.rel); });
+  var bytes = items.reduce(function (a, it) { return a + it.file.size; }, 0);
+  openDlg(function (f) {
+    f.appendChild(h("h3", { text: "폴더로 사건 올리기" }));
+    f.appendChild(h("div", { class: "hint", text: "선택한 폴더: " + rootName + " · 파일 " + items.length + "개 · " + fmtSize(bytes) }));
+    var ti = h("input", { type: "text", maxlength: "200", value: rootName }), ym = h("input", { type: "month" });
+    f.appendChild(lab("사건 제목 (폴더 이름에서 가져왔습니다. 고쳐도 됩니다)", ti)); f.appendChild(lab("시작연월 (모르면 비워 두세요)", ym));
+    post("/api/archive/parse-name", { name: rootName }).then(function (r) { if (!ti.dataset.edited) ti.value = r.title; if (r.ym && !ym.value) ym.value = r.ym; }).catch(function () {});
+    ti.oninput = function () { ti.dataset.edited = "1"; };
+    var ks = opts(h("select", { "aria-label": "파일 종류" }), C.cfg.fileKinds, S.up.kind || "case-doc");
+    f.appendChild(lab("파일 종류(전체에 적용, 올린 뒤 파일별로 바꿀 수 있습니다)", ks));
+    var cl = h("input", { type: "checkbox", id: "fdClosed" }); cl.checked = true;
+    f.appendChild(h("label", { class: "chk", for: "fdClosed" }, [cl, h("span", { text: "이미 끝난 사건입니다(종결로 올림). 진행 중인 사건이면 체크를 끄세요." })]));
+    f.appendChild(h("div", { class: "hint", text: "리스크 유형·사업부문은 비워 둔 채 ‘미분류’로 만들어집니다. 업로드만 하고 AI는 호출하지 않으며, 분석은 사건 상세의 ‘AI 분석’ 버튼으로 시작합니다. 하위 폴더 구조는 그대로 보관됩니다." }));
+    var er = h("div", { class: "er" }), ok = h("button", { class: "btn", type: "submit", text: "사건 만들고 올리기" }); ico(ok, "upload");
+    f.appendChild(er); f.appendChild(h("div", { class: "ft" }, [h("button", { class: "btn sec", type: "button", text: "취소", onclick: closeDlg }), ok]));
+    f.onsubmit = function (e) {
+      e.preventDefault(); if (!ti.value.trim()) { er.textContent = "제목을 입력하세요"; return; } ok.disabled = true;
+      post("/api/archive/cases/quick", { title: ti.value, ym: ym.value || undefined, closed: cl.checked }).then(function (d) {
+        closeDlg(); reflect(); S.id = d.case.id; S.detail = d; S.view = "detail"; S.up.log = []; S.up.kind = ks.value; renderDetail(); start(items);
+      }).catch(function (x) { er.textContent = x.message; ok.disabled = false; });
+    };
+  });
+}
+
 /* ───────── 상세 ───────── */
 function openCase(id) { S.id = id; S.view = "detail"; S.up.log = []; return loadDetail().catch(fail); }
 function loadDetail() { return get("/api/archive/cases/" + S.id).then(function (d) { S.detail = d; renderDetail(); }); }
@@ -139,7 +171,9 @@ function renderDetail() {
       c.level ? h("span", { class: "b lv l-" + c.level, text: "위험도 " + c.level }) : null, h("span", { class: "b", text: c.status }),
       c.isPilot ? h("span", { class: "b pilot", text: "시범 · 초안" }) : null, d.card.status ? h("span", { class: "b " + (d.card.status === "확정" ? "conf" : "draft"), text: "카드 " + d.card.status }) : null]),
     h("div", { class: "hbtn" }, [ico(h("a", { class: "btn sec", href: "/api/archive/cases/" + c.id + "/zip", text: "전체 다운로드 (zip)" }), "download"),
-      ico(h("button", { class: "btn", type: "button", text: d.card.card ? "AI 분석 — 새로 만들기" : "AI 분석", onclick: analyzeDlg }), "check")])]);
+      ico(h("button", { class: "btn", type: "button", text: d.card.card ? "AI 분석 — 새로 만들기" : "AI 분석", onclick: analyzeDlg }), "check"),
+      d.nexus && d.nexus.enabled && d.nexus.pending ? ico(h("button", { class: "btn sec", type: "button", text: "Mac NEXUS에 올리기 (" + d.nexus.pending + ")", title: "이 사건의 파일 중 아직 Mac 에 없는 것을 Mac 의 잠금 폴더(리스크관리)로 올립니다. 올린 뒤 Mac 이 읽은 본문은 AI 분석에 쓰입니다.", onclick: function () { post("/api/archive/cases/" + c.id + "/nexus-sync").then(function (r) { alert(r.queued + "개를 Mac 으로 올리는 중입니다. 잠시 뒤 새로고침하면 상태가 보입니다."); setTimeout(function () { loadDetail(); }, 4000); }).catch(fail); } }), "upload") : null,
+      h("button", { class: "btn sec", type: "button", text: c.status === "종결" ? "진행 중으로 되돌리기" : "종결 사건으로 표시", title: c.status === "종결" ? "사건 대응(Incident Response)의 진행 중 목록에 다시 나타납니다" : "이미 끝난 사건이면 종결로 표시합니다(종료일은 비워 둡니다)", onclick: function () { post("/api/archive/cases/" + c.id + "/status", { status: c.status === "종결" ? "진행" : "종결" }).then(function (x) { S.detail = x; reflect(); renderDetail(); }).catch(fail); } })])]);
   root.appendChild(hero);
   root.appendChild(h("div", { class: "aipanel", id: "aiPanel" }));
   AN.last = null; AN.state = null; startPoll();
@@ -259,6 +293,7 @@ function fileRow(f, d) {
     h("div", { class: "sub" }, [fmtSize(f.size), h("span", { class: "b kind", text: kindName(f.kind) }), f.kindSource === "auto" ? h("span", { class: "b ai", title: "파일 이름·형식 규칙으로 자동 분류했습니다. 종류를 바꾸면 담당자 지정이 됩니다.", text: "자동 분류" }) : null,
       f.piiState === "suspect" ? h("span", { class: "b warn", text: "개인정보 의심" }) : null,
       f.stage && f.stageSource === "ai" ? h("span", { class: "b ai", title: f.aiStage && f.aiStage.why || "", text: "단계 AI 제안" + aiPct }) : null,
+      f.nexusState === "ok" ? h("span", { class: "b conf", title: "Mac NEXUS 의 잠금 폴더(리스크관리)에도 보관되어 있습니다", text: "Mac 보관" }) : f.nexusState === "failed" ? h("span", { class: "b warn", title: f.nexusErr || "Mac 에 올리지 못했습니다", text: "Mac 실패" }) : null,
       f.dupOf ? h("span", { class: "b hold", text: "중복" }) : null, f.note ? h("span", { text: f.note }) : null])]));
   var ed = h("div", { class: "ed" });
   ed.appendChild(selectBox("단계", d.stages.concat(d.stageExtras || []), f.stage || "", "단계 미지정", function (v) { patchFile(f, { stage: v || null }); }));
@@ -543,6 +578,8 @@ function renderPreview(out, r, path) {
     body.appendChild(tr); rows.push({ c: c, chk: chk, ti: ti, ym: ym, act: act });
   });
   tb.appendChild(body); out.appendChild(tb);
+  var clImp = h("input", { type: "checkbox", id: "impClosed" }); clImp.checked = true;
+  out.appendChild(h("label", { class: "chk", for: "impClosed" }, [clImp, h("span", { text: "새로 만드는 사건은 이미 끝난 사건(종결)으로 가져옵니다. 진행 중이면 체크를 끄세요." })]));
   var go = h("button", { class: "btn", type: "button", text: "선택한 폴더 가져오기" }), res = h("div", { class: "impres" }); ico(go, "upload");
   go.onclick = function () {
     var sel = rows.filter(function (x) { return x.chk.checked && (!x.c.imported || x.act.value === "merge"); });
@@ -551,7 +588,7 @@ function renderPreview(out, r, path) {
     sel.forEach(function (x) {
       var line = h("div", { text: x.c.name + " — 가져오는 중…" }); res.appendChild(line);
       seq = seq.then(function () {
-        return post("/api/archive/import/run", { path: path, key: x.c.key, title: x.ti.value, ym: x.ym.value || undefined, action: x.c.imported ? "merge" : "new" }).then(function (rr) {
+        return post("/api/archive/import/run", { path: path, key: x.c.key, title: x.ti.value, ym: x.ym.value || undefined, action: x.c.imported ? "merge" : "new", closed: clImp.checked }).then(function (rr) {
           line.className = "ok"; line.textContent = "✔ " + x.c.name + " → 파일 " + rr.added + "개 가져옴" + (rr.existingSkipped ? " (기존 " + rr.existingSkipped + "개 그대로)" : "") + (rr.errors.length ? " · 실패 " + rr.errors.length + "개" : "") + " ";
           line.appendChild(h("button", { class: "btn sec sm", type: "button", text: "사건 열기", onclick: function () { closeDlg(); openCase(rr.caseId); } }));
         }).catch(function (e) { line.className = "er2"; line.textContent = "✘ " + x.c.name + " — " + e.message; });

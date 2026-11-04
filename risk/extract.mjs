@@ -5,9 +5,10 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openZip } from "./zipread.mjs";
+import { archiveRoot } from "./nexus.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ARCHIVE_ROOT = process.env.ARCHIVE_ROOT || "D:\\ai factory\\auto docu\\anything-llm";
+const ARCHIVE_ROOT = archiveRoot();
 
 export class Unsupported extends Error {}
 

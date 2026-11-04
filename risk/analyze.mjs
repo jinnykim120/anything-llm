@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import * as S from "./store.mjs";
 import * as CF from "./casefiles.mjs";
@@ -31,7 +32,9 @@ async function textOf(dir, f) {
   if (existsSync(cp)) return JSON.parse(readFileSync(cp, "utf8"));
   const R = cfg().rules, L = cfg().limits;
   const buf = readFileSync(join(dir, "원본", ...f.relPath.split("/")));
-  const r = await X.extractText(buf, extOf(f.name), L);
+  // Mac NEXUS 가 파싱한 본문이 있으면 PDF 에 쓰고(이 PC 에는 PDF 파서가 없다), 다른 형식은 이 PC 추출이 실패할 때만 쓴다.
+  const mac = existsSync(join(dir, ".nexus", `${f.sha256}.txt`)) ? readFileSync(join(dir, ".nexus", `${f.sha256}.txt`), "utf8") : null;
+  let r; if (mac && extOf(f.name) === "pdf") r = { text: mac }; else { try { r = await X.extractText(buf, extOf(f.name), L); } catch (e) { if (mac) r = { text: mac }; else throw e; } }
   const out = { text: r.text, chars: r.text.length, pii: X.piiScan(r.text, r.rows, R) };
   mkdirSync(dirname(cp), { recursive: true });
   writeFileSync(cp, JSON.stringify(out));
@@ -595,3 +598,10 @@ export function recover() {
   kick();
 }
 if (process.env.RISK_WORKER !== "0") recover();
+
+// 사건 대응 탭 등 다른 모듈이 한 번짜리 질의를 할 때 쓴다(도구 없음, 버튼으로만 호출).
+export async function askClaude({ system, user, timeoutMs = 180000 }) {
+  const { result, meta } = await callClaude({ system, user, cwd: tmpdir(), timeoutMs });
+  return { result, cost: Number(meta?.total_cost_usd || 0) };
+}
+export { lastJson };

@@ -27,6 +27,9 @@ import * as CF from "./casefiles.mjs";
 import { confirmPwInfo, setConfirmPassword, resetConfirmPassword } from "./confirmpw.mjs";
 import * as A from "./analyze.mjs";
 import * as I from "./importer.mjs";
+import * as R from "./respond.mjs";
+import * as NX from "./nexussync.mjs";
+CF.hooks.onAdded = (caseId, fileId) => NX.enqueue(caseId, fileId);
 
 const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf" };
 const INLINE_OK = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf"]);   // 이미지·PDF 는 새 탭 미리보기(inline), 나머지는 내려받기
@@ -43,9 +46,31 @@ export async function handleArchive(req, res, p, url, { body, json }) {
       if (m === "POST") { const b = await bodyJson(); return json(res, 200, b.reset ? resetConfirmPassword(b.current, ip) : setConfirmPassword(b.current, b.next, ip)), true; }
       return false;
     }
+    // ── 사건 대응(Incident Response)
+    if (p.startsWith("/api/respond")) {
+      if (p === "/api/respond/cases" && m === "GET") { json(res, 200, { cases: R.list(url.searchParams.get("status") || "진행") }); return true; }
+      const rm = p.match(/^\/api\/respond\/cases\/(\d+)(\/.*)?$/); if (!rm) return false;
+      const cid = Number(rm[1]), rs = rm[2] || "", sm = rs.match(/^\/steps\/([\w-]+)(\/suggest)?$/);
+      if (!rs && m === "GET") { json(res, 200, R.detail(cid)); return true; }
+      if (sm && !sm[2] && m === "POST") { json(res, 200, { step: R.saveStep(cid, sm[1], await bodyJson()) }); return true; }
+      if (sm && sm[2] && m === "POST") { json(res, 200, { step: await R.suggest(cid, sm[1]) }); return true; }
+      if (rs === "/summary/generate" && m === "POST") { json(res, 200, await R.makeSummary(cid)); return true; }
+      if (rs === "/summary" && m === "POST") { json(res, 200, R.saveSummary(cid, await bodyJson())); return true; }
+      if (rs === "/summary/confirm" && m === "POST") { json(res, 200, R.confirmClose(cid, await bodyJson(), ip)); return true; }
+      if (rs === "/report.docx" && m === "GET") { const b = R.buildDocx(cid); res.writeHead(200, { ...base, "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-length": b.length, "content-disposition": dispo(R.reportName(cid) + ".docx", false) }); res.end(b); return true; }
+      if (rs === "/report.pdf" && m === "GET") { const b = await R.buildPdf(cid); res.writeHead(200, { ...base, "content-type": "application/pdf", "content-length": b.length, "content-disposition": dispo(R.reportName(cid) + ".pdf", false) }); res.end(b); return true; }
+      return false;
+    }
     if (p === "/api/archive/import/config" && m === "GET") { const c = I.importConfig(); json(res, 200, { roots: c.roots, fromEnv: c.fromEnv, limits: c.limits }); return true; }
     if (p === "/api/archive/import/preview" && m === "POST") { json(res, 200, I.preview(await bodyJson())); return true; }
     if (p === "/api/archive/import/run" && m === "POST") { json(res, 200, await I.importOne(await bodyJson())); return true; }
+    // 브라우저에서 폴더를 직접 고른 경우: 폴더 이름 → 제목·시작연월 미리보기, 빠른 사건 생성(유형·사업부문 미지정, AI 호출 없음)
+    if (p === "/api/archive/parse-name" && m === "POST") { const b = await bodyJson(); json(res, 200, I.parseFolderName(String(b.name || ""), null)); return true; }
+    if (p === "/api/archive/cases/quick" && m === "POST") {
+      const b = await bodyJson(), ym = /^\d{4}-\d{2}$/.test(b.ym || "") ? b.ym : null;
+      const c = S.createImportedCase({ title: b.title, ym, year: Number(b.year) || Number(S.todayKst().slice(0, 4)) }); if (b.closed) S.setCaseStatus(c.id, "종결"); CF.ensureCaseDir(c.id); CF.writeManifest(c.id);
+      json(res, 200, CF.caseDetail(c.id)); return true;
+    }
     if (p === "/api/archive/cases" && m === "GET") { json(res, 200, { cases: CF.listArchive(Object.fromEntries(url.searchParams)), today: S.todayKst() }); return true; }
     if (p === "/api/archive/cases" && m === "POST") {
       const c = S.createCase(await bodyJson()); CF.ensureCaseDir(c.id); CF.writeManifest(c.id);
@@ -65,6 +90,8 @@ export async function handleArchive(req, res, p, url, { body, json }) {
       res.writeHead(200, { ...base, "content-type": inline ? MIME[ext] : "application/octet-stream", "content-length": size, "content-disposition": dispo(name, inline) });
       createReadStream(abs).pipe(res); return true;
     }
+    if (sub === "/nexus-sync" && m === "POST") { S.getCase(id); json(res, 200, NX.syncCase(id)); return true; }
+    if (sub === "/status" && m === "POST") { const st = String((await bodyJson()).status || ""); S.setCaseStatus(id, st); CF.writeManifest(id); json(res, 200, CF.caseDetail(id)); return true; }
     if (sub === "/zip" && m === "GET") {
       const z = CF.buildZip(id, url.searchParams.has("evidence") ? { onlyIds: CF.evidenceFileIds(id) } : {}), len = z.parts.reduce((n, b) => n + b.length, 0);
       res.writeHead(200, { ...base, "content-type": "application/zip", "content-length": len, "content-disposition": dispo(z.name, false) });

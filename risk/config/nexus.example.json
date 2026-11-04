@@ -1,0 +1,8 @@
+{
+  "_note": "NEXUS 연결 설정. 이 파일을 nexus.json 으로 복사해 고친다(nexus.json 은 git 에 올리지 않는다). 경로는 슬래시(/)로 쓴다. 환경변수 ARCHIVE_ROOT 가 있으면 그 값이 우선한다.",
+  "archiveRoot": "D:/path/to/NEXUS/app",
+  "caCert": "",
+  "baseUrl": "http://<NEXUS 주소>:3001",
+  "workspace": "",
+  "keyFile": "secrets/nexus-key.txt"
+}

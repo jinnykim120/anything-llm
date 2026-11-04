@@ -1,0 +1,103 @@
+/* 우리동네GS design.md 를 따른 스킨. 기능·구조는 그대로, 색·면·모서리·버튼만 바꾼다.
+   값의 등급: (A) 정확값 primary-dark #1E2530 · signature-cyan #00D4EA · white / neutral 램프(#F4F5FB #D6D9E1 #C0C4CD #515160) / navy-deep #001C43 / webview-blue #0072BB.
+   규칙: 1차 버튼은 어두운 채움+흰 글자, 청록은 브랜드 면(로고 원·히어로·선택 배경)에만, 깊이는 그림자가 아니라 면 분리(헤어라인), 카드 16~20px, 컨트롤은 알약·원형.
+   리스크 유형 색(--ty-*)·위험도 색(--hi/--mid/--low)은 데이터 구분용이라 바꾸지 않는다. 되돌리려면 index.html 에서 이 파일 링크만 지운다. */
+:root{
+  --bg:#F4F5FB;--surface:#fff;--ink:#1E2530;--mute:#515160;--line:#D6D9E1;
+  --shadow:0 0 0 1px #E1E4EC;
+  --conv:#0072BB;--conv-s:#DDF8FC;--bar:#0072BB;--bar2:#B6DDF0;
+  --brand:#00D4EA;--brand-s:#DDF8FC;--dark:#1E2530;--dark-h:#2D3748;--navy:#001C43;--n300:#C0C4CD;
+  --ink-card:#C9F5FA;--ink-card-fg:#1E2530;--btn-h:44px}
+:root[data-theme=dark]{
+  --bg:#10151D;--surface:#1A212C;--ink:#EEF1F6;--mute:#A9B1C0;--line:#2D3646;--shadow:0 0 0 1px #2A3342;
+  --conv:#4DB3EA;--conv-s:#12333A;--bar:#4DB3EA;--bar2:#2B4A60;
+  --brand:#00D4EA;--brand-s:#12333A;--dark:#F4F5FB;--dark-h:#FFFFFF;--navy:#001C43;--n300:#3A4557;
+  --ink-card:#0E3D44;--ink-card-fg:#EEF1F6}
+a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--conv);outline-offset:2px}
+
+/* 상단 바·탭: 흰 알약 + 선택은 어두운 채움 */
+.top{background:color-mix(in srgb,var(--bg) 92%,transparent)}
+.logo{display:inline-flex;align-items:center;gap:9px}
+.logo::before{content:"";width:24px;height:24px;border-radius:50%;background:var(--brand);box-shadow:inset 0 0 0 6px var(--brand),inset 0 0 0 9px var(--dark);flex:none}
+.logo b{color:var(--conv)}
+.tab{background:var(--surface);box-shadow:none;transition:background .15s,border-color .15s,color .15s}
+.tab:hover{transform:none;box-shadow:none;border-color:var(--dark);color:var(--ink)}
+.tab[aria-selected=true]{background:var(--dark);color:var(--bg);border-color:var(--dark);box-shadow:none}
+:root[data-theme=dark] .tab[aria-selected=true]{background:var(--brand);color:#06222a;border-color:var(--brand)}
+.tab[aria-selected=true] .ic{opacity:1}
+
+/* 버튼: 1차 = 어두운 채움, 보조 = 흰 바탕 + 회색 테두리. 그라데이션·그림자 제거 */
+.btn,.gcta{background:var(--dark);color:var(--bg);border:1px solid var(--dark);box-shadow:none;font-weight:700;letter-spacing:-.005em}
+:root[data-theme=dark] .btn,:root[data-theme=dark] .gcta{color:#10151D}
+:root[data-theme=dark] .btn.sec,:root[data-theme=dark] .btn.wh,:root[data-theme=dark] .btn.ghost,:root[data-theme=dark] .btn.warn{color:var(--ink)}
+:root[data-theme=dark] .btn.warn{color:var(--mid)}
+:root[data-theme=dark] .btn[disabled],:root[data-theme=dark] .btn:disabled{color:var(--mute)}
+.btn:hover,.gcta:hover{background:var(--dark-h);border-color:var(--dark-h);transform:none;box-shadow:none}
+.btn:active{box-shadow:none;transform:scale(.985)}
+.btn:focus-visible{outline:3px solid var(--conv);outline-offset:3px}
+.btn.sec,.btn.wh,.btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--n300);box-shadow:none}
+.btn.sec:hover,.btn.wh:hover,.btn.ghost:hover{background:var(--surface);color:var(--ink);border-color:var(--dark);box-shadow:none}
+.btn.warn{background:var(--surface);box-shadow:none}.btn.warn:hover{box-shadow:none}
+.btn.danger,.btn.red{background:var(--hi);border-color:var(--hi);box-shadow:none}
+.btn[disabled],.btn:disabled{background:var(--line);border-color:var(--line);color:var(--mute);cursor:not-allowed}
+
+/* 칩·알약: 선택 = 청록 면 + 어두운 테두리 */
+.chip[aria-pressed=true]{background:var(--brand-s);color:var(--ink);box-shadow:inset 0 0 0 2px var(--dark)}
+.chip:hover{box-shadow:inset 0 0 0 1.5px var(--dark)}
+.chip.f{background:var(--brand-s);color:var(--ink)}
+
+/* 면 분리: 그림자 대신 헤어라인, 카드 20px */
+.card,.rcase,.rpanel,.empty,.upl{box-shadow:var(--shadow)}
+.rcase:hover{transform:none;box-shadow:0 0 0 2px var(--dark)}
+.rghero{border-radius:24px;box-shadow:none;background:var(--ink-card);color:var(--ink-card-fg)}
+.rghero::after{background:radial-gradient(circle at 30% 30%,rgba(0,212,234,.38),rgba(0,212,234,0) 68%)}
+.rghero .ey{opacity:.7}
+
+/* 제목 체계: 페이지 제목 큼 + 청록 막대, 섹션 제목은 18px/700, 큰 번호 숨김 */
+.pt h2::after{background:var(--brand);width:44px}
+.rs{margin:40px 0 14px;align-items:baseline}
+.rs .no{display:none}
+.rs h2{font-size:18px;font-weight:700;letter-spacing:-.02em}
+.rs small{font-size:13px}
+
+/* 대문: 청록 브랜드 면 + 어두운 글자, 단일 어두운 CTA */
+.front{min-height:0;margin:20px 0 0;padding:clamp(36px,6vw,76px) clamp(18px,4vw,48px) clamp(34px,5vw,60px);border-radius:28px;background:var(--brand);color:#1E2530;overflow:hidden}
+:root[data-theme=dark] .front{background:#0B3B42;color:#EEF1F6}
+.front .ey{color:#1E2530;opacity:.8}
+.front h1{color:#1E2530}
+.front h1 .ac2{color:#1E2530;font-weight:300;letter-spacing:-.04em}
+:root[data-theme=dark] .front h1,:root[data-theme=dark] .front h1 .ac2,:root[data-theme=dark] .front .ey{color:#EEF1F6}
+.front .tag{color:#1E2530}.front .sub{color:#1E2530;opacity:.82}
+:root[data-theme=dark] .front .tag,:root[data-theme=dark] .front .sub{color:#EEF1F6}
+.front .go{background:#1E2530;color:#fff;box-shadow:none}
+:root[data-theme=dark] .front .go{background:#F4F5FB;color:#1E2530}
+.front .go:hover{transform:none;background:#2D3748}
+.hsum .hs{background:#fff;box-shadow:none;color:#515160}
+:root[data-theme=dark] .hsum .hs{background:var(--surface);color:var(--mute)}
+
+/* 들어가기 카드: 색 윗줄 대신 청록 원 번호 + 어두운 버튼 */
+.gate{border-top:0;border-radius:20px;box-shadow:var(--shadow)}
+.gate:hover:not([disabled]){transform:none;box-shadow:0 0 0 2px var(--dark)}
+.gate .n{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--brand);color:#1E2530;letter-spacing:0;font-size:13px}
+.gate .gb{background:var(--dark);color:var(--bg)}
+:root[data-theme=dark] .gate .gb{color:#10151D}
+.flow div{box-shadow:var(--shadow)}
+.flow div::before{background:var(--brand);color:#1E2530}
+
+/* 대시보드 타일 */
+.tile{border-radius:20px;box-shadow:var(--shadow)}
+.tile.kpi{border-top:0;background:var(--surface)}
+.tile.kpi::before{content:"";display:block;width:28px;height:4px;border-radius:4px;background:var(--brand);margin-bottom:6px}
+
+/* 배지·입력 */
+.b.conf{background:var(--brand-s);color:#06525c}
+:root[data-theme=dark] .b.conf{color:#7FE9F4}
+select,input[type=text],input[type=date],input[type=month],input[type=password],input[type=search],textarea{border-radius:12px}
+
+/* 사건 대응: 단계 카드 선택 = 청록 면 */
+.rstep button{box-shadow:var(--shadow)}
+.rstep button[aria-selected=true]{background:var(--brand-s);box-shadow:inset 0 0 0 2px var(--dark)}
+.rstep .s-doing .no{background:var(--dark);color:var(--bg)}
+.rclose{border-top:0;box-shadow:inset 0 0 0 2px var(--dark)}
+.rdots i.on{background:var(--brand)}
+.md .chk{display:flex;gap:8px;align-items:flex-start;color:var(--ink);font-weight:600;font-size:13px}

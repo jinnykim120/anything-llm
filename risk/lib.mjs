@@ -2,7 +2,7 @@
 // No OS-specific paths — everything resolves from this folder / env so the whole
 // folder can be copied to another machine (see README "이식").
 //
-//   ARCHIVE_ROOT   repo root holding server/storage (default: parent of this folder)
+//   ARCHIVE_ROOT   repo root holding server/storage (config/nexus.json 의 archiveRoot, nexus.mjs 참고)
 //   INSIGHTS_MODEL default "claude-sonnet-5-5"
 //   CLAUDE_CLI_BIN default "claude"
 
@@ -12,15 +12,23 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
+import { archiveRoot } from "./nexus.mjs";
 
 export const here = dirname(fileURLToPath(import.meta.url));
 // 독립 폴더(D:\ai factory\risk)로 분리됐으므로 NEXUS 앱 경로를 기본값으로 명시한다(환경변수로 덮어쓰기 가능).
-const ROOT = process.env.ARCHIVE_ROOT || "D:\\ai factory\\auto docu\\anything-llm";
+const ROOT = archiveRoot();   // config/nexus.json 또는 환경변수 ARCHIVE_ROOT (nexus.mjs)
 const DOC_DIR = join(ROOT, "server", "storage", "documents", "custom-documents");
 const DB_PATH = join(ROOT, "server", "storage", "anythingllm.db");
 export const DATA = join(here, "data");
 export const MODEL = process.env.INSIGHTS_MODEL || "claude-sonnet-5-5";
 const BIN = process.env.CLAUDE_CLI_BIN || "claude";
+
+// 호출별 사용량(토큰·비용) 기록: 센싱이 끝날 때 risk.mjs 가 요약을 로그와 logs/sensing-cost.jsonl 에 남긴다.
+export const usage = [];
+export function noteUsage(kind, o) {
+  const u = o?.usage || {};
+  usage.push({ kind, usd: Number(o?.total_cost_usd || 0), turns: o?.num_turns ?? null, sec: Math.round((o?.duration_ms || 0) / 1000), input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0 });
+}
 
 export const dir = (p) => (mkdirSync(p, { recursive: true }), p);
 
@@ -130,6 +138,7 @@ export function claude(system, prompt, timeoutMs = 600_000) {
       try {
         const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop());
         if (o.is_error) return reject(new Error(String(o.result).slice(0, 300)));
+        noteUsage("분석", o);
         resolve(String(o.result || ""));
       } catch {
         reject(new Error("unparseable CLI envelope"));

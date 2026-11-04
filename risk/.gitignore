@@ -12,3 +12,5 @@ site/
 reports/
 scripts/batch-run.mjs
 scripts/load-pilot-case.mjs
+config/nexus.json
+data/excluded-originals/

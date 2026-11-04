@@ -52,7 +52,7 @@
 .dgrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;align-items:stretch}
 .kgrid{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
 .tile{background:var(--surface);border-radius:16px;box-shadow:var(--shadow);padding:16px 18px 18px;min-width:0;position:relative}
-.s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}.s7{grid-column:span 7}.s8{grid-column:span 8}
+.s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}.s7{grid-column:span 7}.s8{grid-column:span 8}.s12{grid-column:1/-1}
 .tile.kpi{display:grid;gap:5px;align-content:start;border-top:3px solid var(--conv)}
 .kl{font-size:13px;font-weight:800;color:var(--mute)}
 .kv2{font:800 clamp(30px,3.2vw,44px)/1.05 "Outfit","Pretendard Variable",sans-serif;letter-spacing:-.02em;min-height:1.05em}

@@ -18,7 +18,7 @@ import { handleArchive } from "./archive-api.mjs";
 
 export async function handleApi(req, res, p, url, { body, json }) {
   if (!p.startsWith("/api/")) return false;
-  if (p.startsWith("/api/archive/") || p === "/api/archive" || p.startsWith("/api/settings/")) return handleArchive(req, res, p, url, { body, json });
+  if (p.startsWith("/api/archive/") || p === "/api/archive" || p.startsWith("/api/settings/") || p.startsWith("/api/respond")) return handleArchive(req, res, p, url, { body, json });
   const m = req.method;
   const bodyJson = async () => { const t = await body(req); try { return t ? JSON.parse(t) : {}; } catch { throw new S.HttpError(400, "JSON 형식이 맞지 않습니다"); } };
   let r, mm;
