@@ -99,6 +99,35 @@ async function taxonomyWithDocumentTypes() {
   };
 }
 
+/** 잠금 폴더 이름 집합 (NFC). */
+async function lockedFolderNames() {
+  return new Set(
+    (await FolderAccess.listFolderLocks()).map((l) => l.folder.normalize("NFC"))
+  );
+}
+
+/** 주어진 content_hash 중 잠금 폴더에 든 문서의 해시 집합. */
+async function lockedHashes(hashes) {
+  const wanted = new Set(hashes);
+  const locked = await lockedFolderNames();
+  if (!locked.size) return new Set();
+  const rows = await prisma.workspace_documents.findMany({
+    select: { docpath: true, metadata: true },
+  });
+  const out = new Set();
+  for (const r of rows) {
+    if (!locked.has(FolderAccess.folderOfDocpath(r.docpath))) continue;
+    let h = null;
+    try {
+      h = JSON.parse(r.metadata || "{}").content_hash;
+    } catch {
+      /* skip */
+    }
+    if (h && wanted.has(h)) out.add(h);
+  }
+  return out;
+}
+
 /**
  * Every distinct document currently in the archive, keyed by content_hash,
  * with the workspaces it appears in and a sample title. Reads the parsed doc
@@ -114,6 +143,7 @@ async function archiveDocuments(workspaceSlug = null) {
     await FolderAccess.filterDocpaths(allRows.map((r) => r.docpath))
   );
   const rows = allRows.filter((r) => visible.has(r.docpath));
+  const lockedFolders = await lockedFolderNames();
   const byHash = new Map();
   for (const wd of rows) {
     let meta = {};
@@ -152,6 +182,9 @@ async function archiveDocuments(workspaceSlug = null) {
     const slug = wd.workspace?.slug || String(wd.workspaceId);
     entry.workspaces.push({ slug, tier: wd.workspace?.tier || null });
     entry.docpaths.push(wd.docpath);
+    // [NEXUS 폴더 잠금] 잠금 폴더에 든 문서 — 분류 없이 태그만 지정한다.
+    if (lockedFolders.has(FolderAccess.folderOfDocpath(wd.docpath)))
+      entry.locked = true;
     if (!entry.byWorkspace.has(slug)) entry.byWorkspace.set(slug, []);
     entry.byWorkspace.get(slug).push({
       docId: wd.docId,
@@ -541,6 +574,7 @@ function classificationEndpoints(app) {
           return {
             contentHash: d.contentHash,
             title: d.title,
+            locked: !!d.locked,
             summary: summaryByHash.get(d.contentHash) || "",
             docSource: d.docSource,
             parsePath: d.parsePath,
@@ -628,7 +662,15 @@ function classificationEndpoints(app) {
 
         const userId = response.locals?.user?.id || null;
         const results = [];
+        // [NEXUS 폴더 잠금] 잠금 폴더 문서는 일괄 분류에서 제외한다 (태그만 지정).
+        const lockedSet = await lockedHashes(hashes);
         for (const contentHash of hashes) {
+          if (lockedSet.has(contentHash)) {
+            results.push({
+              error: "잠금 폴더 문서는 분류하지 않고 태그만 지정합니다.",
+            });
+            continue;
+          }
           results.push(
             await DocumentClassification.confirm({
               contentHash,
@@ -716,7 +758,9 @@ function classificationEndpoints(app) {
         const referenceDocs = docs
           .map((doc) => ({ ...doc, classification: existing[doc.contentHash] }))
           .filter((doc) => isDone(doc.classification));
+        // [NEXUS 폴더 잠금] 잠금 폴더 문서는 AI 분류 제안 대상이 아니다.
         const targets = docs.filter((d) => {
+          if (d.locked) return false;
           if (contentHash) return d.contentHash === contentHash;
           return !isDone(existing[d.contentHash]);
         });
@@ -778,13 +822,17 @@ function classificationEndpoints(app) {
         const { contentHash } = request.params;
         const { sensitivity, workType, businessUnit, docType, domain, tags } =
           reqBody(request);
+        // [NEXUS 폴더 잠금] 잠금 폴더 문서는 분류 항목 없이 태그만 받는다.
+        const isLocked = (await lockedHashes([contentHash])).has(contentHash);
+        if (isLocked && tags === undefined)
+          return response.status(400).json({
+            error: "잠금 폴더 문서는 분류 대신 태그만 지정할 수 있습니다.",
+          });
         const { classification, error } = await DocumentClassification.confirm({
           contentHash,
-          sensitivity,
-          workType,
-          businessUnit,
-          docType,
-          domain,
+          ...(isLocked
+            ? {}
+            : { sensitivity, workType, businessUnit, docType, domain }),
           tags,
           userId: response.locals?.user?.id ?? null,
         });

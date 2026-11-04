@@ -17,6 +17,8 @@ export default function DocRow({
   onTaxonomyUpdated,
 }) {
   const cls = doc.classification;
+  // 잠금 폴더 문서: 분류 항목은 비활성, 태그만 지정한다.
+  const locked = !!doc.locked;
   const [workType, setWorkType] = useState(cls?.workType || "");
   const [businessUnit, setBusinessUnit] = useState(cls?.businessUnit || "");
   const [docType, setDocType] = useState(cls?.docType || "");
@@ -73,19 +75,25 @@ export default function DocRow({
 
   async function confirm() {
     setSaving(true);
-    const res = await Classification.confirm(doc.contentHash, {
-      workType,
-      businessUnit,
-      docType: docType.trim(),
-      domain: domain.trim(),
-      tags: tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    });
+    const tagList = tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const res = await Classification.confirm(
+      doc.contentHash,
+      locked
+        ? { tags: tagList }
+        : {
+            workType,
+            businessUnit,
+            docType: docType.trim(),
+            domain: domain.trim(),
+            tags: tagList,
+          }
+    );
     setSaving(false);
     if (res?.error) return showToast(`확정 실패: ${res.error}`, "error");
-    showToast("분류 확정됨", "success");
+    showToast(locked ? "태그 저장됨" : "분류 확정됨", "success");
     onConfirmed(res.classification);
   }
 
@@ -395,73 +403,85 @@ export default function DocRow({
       )}
 
       {/* 필드 순서: 업무 분류 > 사업부 > 종류 > 분야 > 태그 */}
+      {locked && (
+        <p className="text-[11px] text-amber-400">
+          🔒 잠금 폴더 문서입니다. 분류는 하지 않고 태그만 지정합니다.
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">
-            업무 분류
-          </span>
-          {axisSelect("workType", workType, setWorkType, workTypeOptions)}
-        </label>
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">사업부</span>
-          {axisSelect(
-            "businessUnit",
-            businessUnit,
-            setBusinessUnit,
-            businessUnitOptions
-          )}
-        </label>
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">종류</span>
-          <div className="flex items-center gap-1">
-            <select
-              value={addingDocType ? "__custom__" : docType}
-              onChange={(e) => selectDocType(e.target.value)}
-              className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-            >
-              <option value="">— 선택 —</option>
-              {docTypeOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-              <option value="__custom__">＋ 문서 종류 직접 추가…</option>
-            </select>
-            {!!docType &&
-              !addingDocType &&
-              renderDeleteButton({
-                busy: deletingValue === `docType:${docType}`,
-                title: `“${docType}” 문서 종류 삭제`,
-                onClick: () => removeDocumentType(docType),
-              })}
-          </div>
-          {addingDocType && (
-            <div className="flex gap-1">
-              <input
-                autoFocus
-                value={newDocType}
-                onChange={(e) => setNewDocType(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addDocumentType();
-                }}
-                placeholder="예: 점검보고서"
+        <fieldset
+          disabled={locked}
+          className={`contents ${locked ? "opacity-40" : ""}`}
+        >
+          <label className="flex flex-col gap-y-1">
+            <span className="text-[11px] text-theme-text-secondary">
+              업무 분류
+            </span>
+            {axisSelect("workType", workType, setWorkType, workTypeOptions)}
+          </label>
+          <label className="flex flex-col gap-y-1">
+            <span className="text-[11px] text-theme-text-secondary">
+              사업부
+            </span>
+            {axisSelect(
+              "businessUnit",
+              businessUnit,
+              setBusinessUnit,
+              businessUnitOptions
+            )}
+          </label>
+          <label className="flex flex-col gap-y-1">
+            <span className="text-[11px] text-theme-text-secondary">종류</span>
+            <div className="flex items-center gap-1">
+              <select
+                value={addingDocType ? "__custom__" : docType}
+                onChange={(e) => selectDocType(e.target.value)}
                 className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
-              />
-              <button
-                type="button"
-                onClick={addDocumentType}
-                disabled={savingDocType}
-                className="shrink-0 rounded-md bg-theme-button-primary px-2 text-[11px] font-semibold text-white disabled:opacity-50"
               >
-                {savingDocType ? "추가 중…" : "추가"}
-              </button>
+                <option value="">— 선택 —</option>
+                {docTypeOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+                <option value="__custom__">＋ 문서 종류 직접 추가…</option>
+              </select>
+              {!!docType &&
+                !addingDocType &&
+                renderDeleteButton({
+                  busy: deletingValue === `docType:${docType}`,
+                  title: `“${docType}” 문서 종류 삭제`,
+                  onClick: () => removeDocumentType(docType),
+                })}
             </div>
-          )}
-        </label>
-        <label className="flex flex-col gap-y-1">
-          <span className="text-[11px] text-theme-text-secondary">분야</span>
-          {axisSelect("domain", domain, setDomain, domainOptions)}
-        </label>
+            {addingDocType && (
+              <div className="flex gap-1">
+                <input
+                  autoFocus
+                  value={newDocType}
+                  onChange={(e) => setNewDocType(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addDocumentType();
+                  }}
+                  placeholder="예: 점검보고서"
+                  className="min-w-0 flex-1 bg-theme-settings-input-bg text-theme-text-primary text-xs rounded-md px-2 py-1.5 border border-white/10 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={addDocumentType}
+                  disabled={savingDocType}
+                  className="shrink-0 rounded-md bg-theme-button-primary px-2 text-[11px] font-semibold text-white disabled:opacity-50"
+                >
+                  {savingDocType ? "추가 중…" : "추가"}
+                </button>
+              </div>
+            )}
+          </label>
+          <label className="flex flex-col gap-y-1">
+            <span className="text-[11px] text-theme-text-secondary">분야</span>
+            {axisSelect("domain", domain, setDomain, domainOptions)}
+          </label>
+        </fieldset>
         <label className="flex flex-col gap-y-1">
           <span className="text-[11px] text-theme-text-secondary">
             태그 (쉼표)
@@ -508,9 +528,11 @@ export default function DocRow({
             ? "저장 중…"
             : confirmed && !hasClassificationChanges
               ? "변경 후 저장"
-              : confirmed
-                ? "변경 저장"
-                : "확정"}
+              : locked
+                ? "태그 저장"
+                : confirmed
+                  ? "변경 저장"
+                  : "확정"}
         </button>
       </div>
     </div>

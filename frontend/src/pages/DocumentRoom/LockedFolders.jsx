@@ -86,12 +86,16 @@ function titleOf(item) {
  * 열린 잠금 폴더의 파일 목록. 디스크에 있는 파일을 그대로 보여 주고,
  * 검색 대상으로 올라간 문서인지(임베딩) 함께 표시한다.
  */
-export function LockedFolderFiles({ folder, searchableNames }) {
+export function LockedFolderFiles({ folder, searchableNames, onChanged }) {
   const [state, setState] = useState({ loading: true, items: [], error: null });
+  const [picked, setPicked] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setState({ loading: true, items: [], error: null });
+    setPicked(new Set());
     System.localFiles(folder, 0, "all").then((res) => {
       if (cancelled) return;
       if (!res || res.code !== 200)
@@ -107,11 +111,54 @@ export function LockedFolderFiles({ folder, searchableNames }) {
     return () => {
       cancelled = true;
     };
-  }, [folder]);
+  }, [folder, reloadKey]);
+
+  const allPicked =
+    state.items.length > 0 && picked.size === state.items.length;
+  function toggle(name) {
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  async function deletePicked() {
+    if (!picked.size || deleting) return;
+    if (
+      !window.confirm(
+        `선택한 ${picked.size}개 파일을 “${folder}” 폴더에서 삭제할까요?\n검색 대상에서도 함께 빠지며 되돌릴 수 없습니다.`
+      )
+    )
+      return;
+    setDeleting(true);
+    const ok = await System.deleteDocuments(
+      [...picked].map((name) => `${folder}/${name}`)
+    );
+    setDeleting(false);
+    if (!ok)
+      return window.alert(
+        "삭제하지 못했습니다. 폴더가 다시 잠겼는지 확인하세요."
+      );
+    setReloadKey((k) => k + 1);
+    onChanged?.();
+  }
 
   return (
     <section className="min-h-0 overflow-y-auto border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
+        <input
+          type="checkbox"
+          checked={allPicked}
+          disabled={state.items.length === 0}
+          onChange={() =>
+            setPicked(
+              allPicked ? new Set() : new Set(state.items.map((i) => i.name))
+            )
+          }
+          aria-label="전체 선택"
+        />
         <LockOpen size={15} className="text-emerald-600" />
         <p className="text-xs font-semibold">
           {folder}
@@ -119,6 +166,16 @@ export function LockedFolderFiles({ folder, searchableNames }) {
             {state.items.length}
           </span>
         </p>
+        {picked.size > 0 && (
+          <button
+            type="button"
+            onClick={deletePicked}
+            disabled={deleting}
+            className="ml-auto rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+          >
+            {deleting ? "삭제 중…" : `${picked.size}개 삭제`}
+          </button>
+        )}
       </div>
       {state.loading && (
         <p className="p-4 text-xs text-slate-500 dark:text-zinc-500">
@@ -141,6 +198,12 @@ export function LockedFolderFiles({ folder, searchableNames }) {
               key={item.name}
               className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 text-xs dark:border-zinc-800"
             >
+              <input
+                type="checkbox"
+                checked={picked.has(item.name)}
+                onChange={() => toggle(item.name)}
+                aria-label={`${titleOf(item)} 선택`}
+              />
               <span className="min-w-0 flex-1 truncate font-medium">
                 {titleOf(item)}
               </span>

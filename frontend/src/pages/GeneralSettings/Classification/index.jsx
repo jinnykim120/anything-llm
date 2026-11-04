@@ -17,6 +17,8 @@ const UNCLASSIFIED_LABEL = "미분류";
 // [auto-docu v14 P4] sensitivity is dormant — a document is "reviewed" once the
 // business axes are confirmed.
 function needsClassificationReview(doc) {
+  // 잠금 폴더 문서는 분류하지 않고 태그만 지정하므로 미확정으로 세지 않는다.
+  if (doc?.locked) return false;
   const classification = doc?.classification;
   return (
     !classification ||

@@ -697,6 +697,7 @@ export default function DocumentRoom() {
             {lockView ? (
               <LockedFolderFiles
                 folder={lockView}
+                onChanged={reloadDocuments}
                 searchableNames={
                   new Set(documents.map((d) => d.docpath.normalize("NFC")))
                 }
