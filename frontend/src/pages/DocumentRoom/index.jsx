@@ -18,6 +18,12 @@ import Classification from "@/models/classification";
 import { API_BASE } from "@/utils/constants";
 import { withClientParam } from "@/utils/nexusClient";
 import paths from "@/utils/paths";
+import {
+  LOCK_PREFIX,
+  LockedFolderFiles,
+  LockedFolderList,
+  useLockedFolders,
+} from "./LockedFolders";
 
 function safeMetadata(value) {
   if (!value) return {};
@@ -145,6 +151,10 @@ export default function DocumentRoom() {
   const [selected, setSelected] = useState(null);
   const [expanded, setExpanded] = useState(() => ({ "전체 문서": true }));
   const [selectedFolder, setSelectedFolder] = useState("전체 문서");
+  const lockedFolders = useLockedFolders();
+  const lockView = selectedFolder.startsWith(LOCK_PREFIX)
+    ? selectedFolder.slice(LOCK_PREFIX.length)
+    : null;
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedHashes, setSelectedHashes] = useState(() => new Set());
@@ -491,7 +501,11 @@ export default function DocumentRoom() {
       return;
     const failed = [];
     for (let i = 0; i < list.length; i++) {
-      setConverting({ done: i, total: list.length, current: filename(list[i]) });
+      setConverting({
+        done: i,
+        total: list.length,
+        current: filename(list[i]),
+      });
       const res = await Workspace.convertDocumentToPdf(list[i].docpath);
       if (!res?.success)
         failed.push(`${filename(list[i])}: ${res?.error || "알 수 없는 오류"}`);
@@ -507,7 +521,8 @@ export default function DocumentRoom() {
   }
 
   const selectedReparsable = documents.filter(
-    (document) => selectedHashes.has(contentHash(document)) && canReparse(document)
+    (document) =>
+      selectedHashes.has(contentHash(document)) && canReparse(document)
   );
 
   const selectedConvertible = documents.filter(
@@ -636,6 +651,14 @@ export default function DocumentRoom() {
                 문서가 없는 빈 폴더만 삭제할 수 있습니다. 문서가 있는 폴더는
                 문서를 다른 폴더로 옮긴 뒤 삭제하세요.
               </p>
+              <LockedFolderList
+                folders={lockedFolders}
+                selectedFolder={selectedFolder}
+                onSelect={async (key, { reload } = {}) => {
+                  if (reload) await reloadDocuments();
+                  setSelectedFolder(key);
+                }}
+              />
               {emptyFolders.length > 0 && (
                 <div className="mt-3 border-t border-slate-200 pt-2 dark:border-zinc-800">
                   <p className="px-2 pb-1 text-[11px] font-semibold text-slate-400 dark:text-zinc-600">
@@ -671,290 +694,319 @@ export default function DocumentRoom() {
               )}
             </aside>
 
-            <section className="min-h-0 overflow-y-auto border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
-                <div className="flex items-center gap-3">
-                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      ref={(el) => {
-                        if (el)
-                          el.indeterminate =
-                            selectedVisibleCount > 0 && !allVisibleSelected;
-                      }}
-                      onChange={toggleSelectAllVisible}
-                      disabled={visibleHashes.length === 0}
-                      aria-label="보이는 문서 전체 선택"
-                    />
-                    전체 선택
-                  </label>
-                  <p className="text-xs font-semibold">
-                    {selectedFolder}{" "}
-                    <span className="ml-1 font-normal text-slate-400 dark:text-zinc-600">
-                      {filteredDocuments.length}
-                    </span>
-                  </p>
-                  {selectedHashes.size > 0 && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={deleteSelected}
-                        disabled={deleting}
-                        className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
-                      >
-                        {deleting
-                          ? "삭제 중…"
-                          : `${selectedHashes.size}개 삭제`}
-                      </button>
-                      {selectedReparsable.length > 0 && (
+            {lockView ? (
+              <LockedFolderFiles
+                folder={lockView}
+                searchableNames={
+                  new Set(documents.map((d) => d.docpath.normalize("NFC")))
+                }
+              />
+            ) : (
+              <section className="min-h-0 overflow-y-auto border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
+                  <div className="flex items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        ref={(el) => {
+                          if (el)
+                            el.indeterminate =
+                              selectedVisibleCount > 0 && !allVisibleSelected;
+                        }}
+                        onChange={toggleSelectAllVisible}
+                        disabled={visibleHashes.length === 0}
+                        aria-label="보이는 문서 전체 선택"
+                      />
+                      전체 선택
+                    </label>
+                    <p className="text-xs font-semibold">
+                      {selectedFolder}{" "}
+                      <span className="ml-1 font-normal text-slate-400 dark:text-zinc-600">
+                        {filteredDocuments.length}
+                      </span>
+                    </p>
+                    {selectedHashes.size > 0 && (
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => reparseWithDocling(selectedReparsable)}
+                          onClick={deleteSelected}
+                          disabled={deleting}
+                          className="rounded bg-red-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                        >
+                          {deleting
+                            ? "삭제 중…"
+                            : `${selectedHashes.size}개 삭제`}
+                        </button>
+                        {selectedReparsable.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              reparseWithDocling(selectedReparsable)
+                            }
+                            disabled={!!converting}
+                            className="rounded border border-violet-600 px-2 py-1 text-[11px] font-semibold text-violet-700 disabled:opacity-50 dark:border-violet-400 dark:text-violet-300"
+                          >
+                            {converting?.mode === "docling"
+                              ? `Docling 처리 중 ${converting.done + 1}/${converting.total}…`
+                              : `${selectedReparsable.length}개 Docling으로 다시 읽기`}
+                          </button>
+                        )}
+                        {selectedConvertible.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => convertToPdf(selectedConvertible)}
+                            disabled={!!converting}
+                            className="rounded border border-blue-600 px-2 py-1 text-[11px] font-semibold text-blue-600 disabled:opacity-50 dark:border-blue-400 dark:text-blue-300"
+                          >
+                            {converting && converting.mode !== "docling"
+                              ? `변환 중 ${converting.done + 1}/${converting.total}…`
+                              : `${selectedConvertible.length}개 PDF로 변환`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {(unconvertedCount > 0 || onlyUnconverted) && (
+                      <button
+                        type="button"
+                        onClick={() => setOnlyUnconverted((v) => !v)}
+                        className={`rounded border px-2 py-1 text-[11px] font-semibold transition ${onlyUnconverted ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : "border-slate-300 text-slate-600 hover:border-amber-500 dark:border-zinc-700 dark:text-zinc-300"}`}
+                      >
+                        PPT 미변환만 보기 ({unconvertedCount})
+                      </button>
+                    )}
+                    <span className="text-[11px] text-slate-400 dark:text-zinc-600">
+                      최신 등록순
+                    </span>
+                  </div>
+                </div>
+                <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {[2].map((group) => (
+                      <div
+                        key={group}
+                        className="flex flex-wrap items-center gap-1.5"
+                      >
+                        <span className="text-[10px] font-semibold text-slate-400 dark:text-zinc-600">
+                          Docling 적재 현황
+                        </span>
+                        {PARSER_CHIPS.filter((c) => c.group === group).map(
+                          (chip) => {
+                            const active = parserFilter === chip.key;
+                            return (
+                              <button
+                                key={chip.key}
+                                type="button"
+                                onClick={() =>
+                                  setParserFilter(active ? null : chip.key)
+                                }
+                                className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${active ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300" : chip.highlight && parserCounts[chip.key] > 0 ? "border-amber-400 bg-amber-50 text-amber-800 hover:border-amber-500 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : "border-slate-200 text-slate-600 hover:border-violet-400 dark:border-zinc-700 dark:text-zinc-300"}`}
+                              >
+                                {chip.label}{" "}
+                                <span className="font-normal">
+                                  {parserCounts[chip.key]}
+                                </span>
+                              </button>
+                            );
+                          }
+                        )}
+                      </div>
+                    ))}
+                    {["basic", "docling-partial"].includes(parserFilter) &&
+                      filteredDocuments.some(canReparse) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            reparseWithDocling(
+                              filteredDocuments.filter(canReparse)
+                            )
+                          }
                           disabled={!!converting}
-                          className="rounded border border-violet-600 px-2 py-1 text-[11px] font-semibold text-violet-700 disabled:opacity-50 dark:border-violet-400 dark:text-violet-300"
+                          className="rounded bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
                         >
                           {converting?.mode === "docling"
                             ? `Docling 처리 중 ${converting.done + 1}/${converting.total}…`
-                            : `${selectedReparsable.length}개 Docling으로 다시 읽기`}
+                            : `표시된 ${filteredDocuments.filter(canReparse).length}개 모두 Docling으로 다시 읽기`}
                         </button>
                       )}
-                      {selectedConvertible.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => convertToPdf(selectedConvertible)}
-                          disabled={!!converting}
-                          className="rounded border border-blue-600 px-2 py-1 text-[11px] font-semibold text-blue-600 disabled:opacity-50 dark:border-blue-400 dark:text-blue-300"
-                        >
-                          {converting && converting.mode !== "docling"
-                            ? `변환 중 ${converting.done + 1}/${converting.total}…`
-                            : `${selectedConvertible.length}개 PDF로 변환`}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  {(unconvertedCount > 0 || onlyUnconverted) && (
                     <button
                       type="button"
-                      onClick={() => setOnlyUnconverted((v) => !v)}
-                      className={`rounded border px-2 py-1 text-[11px] font-semibold transition ${onlyUnconverted ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : "border-slate-300 text-slate-600 hover:border-amber-500 dark:border-zinc-700 dark:text-zinc-300"}`}
+                      onClick={() => setShowParserGuide((v) => !v)}
+                      className="ml-auto rounded-full border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-500 hover:border-violet-400 dark:border-zinc-700 dark:text-zinc-400"
+                      aria-expanded={showParserGuide}
                     >
-                      PPT 미변환만 보기 ({unconvertedCount})
+                      ? 표식 안내
                     </button>
-                  )}
-                  <span className="text-[11px] text-slate-400 dark:text-zinc-600">
-                    최신 등록순
-                  </span>
-                </div>
-              </div>
-              <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {[2].map((group) => (
-                    <div
-                      key={group}
-                      className="flex flex-wrap items-center gap-1.5"
-                    >
-                      <span className="text-[10px] font-semibold text-slate-400 dark:text-zinc-600">
-                        Docling 적재 현황
-                      </span>
-                      {PARSER_CHIPS.filter((c) => c.group === group).map(
-                        (chip) => {
-                          const active = parserFilter === chip.key;
-                          return (
-                            <button
-                              key={chip.key}
-                              type="button"
-                              onClick={() =>
-                                setParserFilter(active ? null : chip.key)
-                              }
-                              className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${active ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300" : chip.highlight && parserCounts[chip.key] > 0 ? "border-amber-400 bg-amber-50 text-amber-800 hover:border-amber-500 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : "border-slate-200 text-slate-600 hover:border-violet-400 dark:border-zinc-700 dark:text-zinc-300"}`}
-                            >
-                              {chip.label}{" "}
-                              <span className="font-normal">
-                                {parserCounts[chip.key]}
-                              </span>
-                            </button>
-                          );
-                        }
-                      )}
-                    </div>
-                  ))}
-                  {["basic", "docling-partial"].includes(parserFilter) &&
-                    filteredDocuments.some(canReparse) && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          reparseWithDocling(filteredDocuments.filter(canReparse))
-                        }
-                        disabled={!!converting}
-                        className="rounded bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
-                      >
-                        {converting?.mode === "docling"
-                          ? `Docling 처리 중 ${converting.done + 1}/${converting.total}…`
-                          : `표시된 ${filteredDocuments.filter(canReparse).length}개 모두 Docling으로 다시 읽기`}
-                      </button>
-                    )}
-                  <button
-                    type="button"
-                    onClick={() => setShowParserGuide((v) => !v)}
-                    className="ml-auto rounded-full border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-500 hover:border-violet-400 dark:border-zinc-700 dark:text-zinc-400"
-                    aria-expanded={showParserGuide}
-                  >
-                    ? 표식 안내
-                  </button>
-                </div>
-                {showParserGuide && (
-                  <div className="mt-3 space-y-2 rounded border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-                    <p className="font-semibold text-slate-700 dark:text-zinc-200">
-                      Docling으로 읽을 수 있는 형식(PDF·PPT/PPTX/ODP)을 실제로
-                      무엇으로 읽었나
-                    </p>
-                    <p className="text-slate-500 dark:text-zinc-500">
-                      HWP·DOCX·XLSX·MD는 전용 파서가 있어 Docling 대상이
-                      아닙니다. 목록에 흐린 &quot;대상 아님&quot; 표식이 붙고 아래
-                      칩에는 포함되지 않습니다. 조치할 것이 없습니다.
-                    </p>
-                    <p>
-                      <span className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS.docling}`}>Docling</span>
-                      Docling으로 읽음. 표 구조·소제목이 살아 있어 가장
-                      정확합니다.
-                    </p>
-                    <p>
-                      <span className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS["docling-partial"]}`}>Docling(일부)</span>
-                      큰 문서를 읽다 일부 구간만 실패해 그 부분은 기본 파서로
-                      읽음. Docling을 켜고 다시 읽으면 나아질 수 있습니다.
-                    </p>
-                    <p>
-                      <span className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS.basic}`}>기본 파서</span>
-                      Docling 없이 읽음(적재 때 꺼져 있었거나 실패). 글은
-                      읽히지만 표 구조는 약합니다. 이 칩으로 걸러 전체 선택한 뒤
-                      Docling을 켜고 &quot;Docling으로 다시 읽기&quot;를
-                      누르세요.
-                    </p>
-                    <p>
-                      <span className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS.image}`}>이미지 PDF</span>
-                      텍스트 층이 없는 스캔본. Docling으로도 한글 OCR이 약해
-                      본문이 비어 있습니다(향후 비전 처리 대상).
-                    </p>
-                    <p className="pt-1 text-slate-500 dark:text-zinc-500">
-                      Docling은 <b>적재할 때만</b> 쓰입니다. 적재가 끝난 문서는
-                      Docling을 꺼도 검색 결과가 그대로입니다. 칩을 누르면 해당
-                      문서만 걸러 보이고, 다시 누르면 해제됩니다.
-                    </p>
                   </div>
-                )}
-              </div>
-              {loading && (
-                <p className="p-5 text-sm text-slate-400 dark:text-zinc-600">
-                  문서 목록을 불러오는 중…
-                </p>
-              )}
-              {!loading && filteredDocuments.length === 0 && (
-                <p className="p-5 text-sm text-slate-400 dark:text-zinc-600">
-                  표시할 문서가 없습니다.
-                </p>
-              )}
-              {!loading &&
-                filteredDocuments.map((document) => {
-                  const active = selected?.id === document.id;
-                  const Icon = typeLabel(document) === "PDF" ? FilePdf : File;
-                  const metadata = safeMetadata(document.metadata);
-                  return (
-                    <div
-                      key={document.id || document.docpath}
-                      className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 dark:border-zinc-800/80 ${active ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-zinc-800/60"}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedHashes.has(contentHash(document))}
-                        onChange={() => toggleSelected(document)}
-                        onClick={(event) => event.stopPropagation()}
-                        aria-label={`${filename(document)} 선택`}
-                      />
-                      <Icon
-                        size={19}
-                        className={
-                          active
-                            ? "text-blue-600"
-                            : "text-slate-400 dark:text-zinc-500"
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setSelected(document)}
-                        className="min-w-0 flex-1 text-left"
-                      >
+                  {showParserGuide && (
+                    <div className="mt-3 space-y-2 rounded border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+                      <p className="font-semibold text-slate-700 dark:text-zinc-200">
+                        Docling으로 읽을 수 있는 형식(PDF·PPT/PPTX/ODP)을 실제로
+                        무엇으로 읽었나
+                      </p>
+                      <p className="text-slate-500 dark:text-zinc-500">
+                        HWP·DOCX·XLSX·MD는 전용 파서가 있어 Docling 대상이
+                        아닙니다. 목록에 흐린 &quot;대상 아님&quot; 표식이 붙고
+                        아래 칩에는 포함되지 않습니다. 조치할 것이 없습니다.
+                      </p>
+                      <p>
                         <span
-                          className={`block truncate text-xs font-medium ${active ? "text-blue-700 dark:text-blue-300" : "text-slate-700 dark:text-zinc-300"}`}
+                          className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS.docling}`}
                         >
-                          {filename(document)}
+                          Docling
                         </span>
-                        <span className="mt-1 block truncate text-[10px] text-slate-400 dark:text-zinc-600">
-                          {classificationFolder(
-                            document,
-                            classificationsByHash
-                          )}{" "}
-                          · {typeLabel(document)}
-                          {metadata?.title &&
-                          metadata.title !== filename(document)
-                            ? ` · ${metadata.title}`
-                            : ""}
+                        Docling으로 읽음. 표 구조·소제목이 살아 있어 가장
+                        정확합니다.
+                      </p>
+                      <p>
+                        <span
+                          className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS["docling-partial"]}`}
+                        >
+                          Docling(일부)
                         </span>
-                        {summaryByHash.get(contentHash(document)) ? (
-                          <span className="mt-1 block text-[11px] leading-snug text-slate-500 line-clamp-2 dark:text-zinc-400">
-                            {summaryByHash.get(contentHash(document))}
+                        큰 문서를 읽다 일부 구간만 실패해 그 부분은 기본 파서로
+                        읽음. Docling을 켜고 다시 읽으면 나아질 수 있습니다.
+                      </p>
+                      <p>
+                        <span
+                          className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS.basic}`}
+                        >
+                          기본 파서
+                        </span>
+                        Docling 없이 읽음(적재 때 꺼져 있었거나 실패). 글은
+                        읽히지만 표 구조는 약합니다. 이 칩으로 걸러 전체 선택한
+                        뒤 Docling을 켜고 &quot;Docling으로 다시 읽기&quot;를
+                        누르세요.
+                      </p>
+                      <p>
+                        <span
+                          className={`mr-1 rounded-full px-1.5 py-0.5 font-semibold ${PARSER_BADGE_CLASS.image}`}
+                        >
+                          이미지 PDF
+                        </span>
+                        텍스트 층이 없는 스캔본. Docling으로도 한글 OCR이 약해
+                        본문이 비어 있습니다(향후 비전 처리 대상).
+                      </p>
+                      <p className="pt-1 text-slate-500 dark:text-zinc-500">
+                        Docling은 <b>적재할 때만</b> 쓰입니다. 적재가 끝난
+                        문서는 Docling을 꺼도 검색 결과가 그대로입니다. 칩을
+                        누르면 해당 문서만 걸러 보이고, 다시 누르면 해제됩니다.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {loading && (
+                  <p className="p-5 text-sm text-slate-400 dark:text-zinc-600">
+                    문서 목록을 불러오는 중…
+                  </p>
+                )}
+                {!loading && filteredDocuments.length === 0 && (
+                  <p className="p-5 text-sm text-slate-400 dark:text-zinc-600">
+                    표시할 문서가 없습니다.
+                  </p>
+                )}
+                {!loading &&
+                  filteredDocuments.map((document) => {
+                    const active = selected?.id === document.id;
+                    const Icon = typeLabel(document) === "PDF" ? FilePdf : File;
+                    const metadata = safeMetadata(document.metadata);
+                    return (
+                      <div
+                        key={document.id || document.docpath}
+                        className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 dark:border-zinc-800/80 ${active ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-zinc-800/60"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedHashes.has(contentHash(document))}
+                          onChange={() => toggleSelected(document)}
+                          onClick={(event) => event.stopPropagation()}
+                          aria-label={`${filename(document)} 선택`}
+                        />
+                        <Icon
+                          size={19}
+                          className={
+                            active
+                              ? "text-blue-600"
+                              : "text-slate-400 dark:text-zinc-500"
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSelected(document)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span
+                            className={`block truncate text-xs font-medium ${active ? "text-blue-700 dark:text-blue-300" : "text-slate-700 dark:text-zinc-300"}`}
+                          >
+                            {filename(document)}
                           </span>
-                        ) : (
-                          active && (
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                makeSummary(contentHash(document));
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
+                          <span className="mt-1 block truncate text-[10px] text-slate-400 dark:text-zinc-600">
+                            {classificationFolder(
+                              document,
+                              classificationsByHash
+                            )}{" "}
+                            · {typeLabel(document)}
+                            {metadata?.title &&
+                            metadata.title !== filename(document)
+                              ? ` · ${metadata.title}`
+                              : ""}
+                          </span>
+                          {summaryByHash.get(contentHash(document)) ? (
+                            <span className="mt-1 block text-[11px] leading-snug text-slate-500 line-clamp-2 dark:text-zinc-400">
+                              {summaryByHash.get(contentHash(document))}
+                            </span>
+                          ) : (
+                            active && (
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(event) => {
                                   event.stopPropagation();
                                   makeSummary(contentHash(document));
-                                }
-                              }}
-                              className="mt-1 inline-block text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
-                            >
-                              {summarizing === contentHash(document)
-                                ? "요약 만드는 중…"
-                                : "요약 만들기"}
-                            </span>
-                          )
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.stopPropagation();
+                                    makeSummary(contentHash(document));
+                                  }
+                                }}
+                                className="mt-1 inline-block text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                              >
+                                {summarizing === contentHash(document)
+                                  ? "요약 만드는 중…"
+                                  : "요약 만들기"}
+                              </span>
+                            )
+                          )}
+                        </button>
+                        {parserInfo(document) && (
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${PARSER_BADGE_CLASS[parserInfo(document).kind]}`}
+                            title="이 문서를 읽을 때 사용한 파서"
+                          >
+                            {parserInfo(document).label}
+                          </span>
                         )}
-                      </button>
-                      {parserInfo(document) && (
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${PARSER_BADGE_CLASS[parserInfo(document).kind]}`}
-                          title="이 문서를 읽을 때 사용한 파서"
-                        >
-                          {parserInfo(document).label}
+                        {isConvertible(document) &&
+                          (isPdfConverted(document) ? (
+                            <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                              PDF 변환됨
+                            </span>
+                          ) : (
+                            <span className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              PDF 미변환
+                            </span>
+                          ))}
+                        <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                          적재됨
                         </span>
-                      )}
-                      {isConvertible(document) &&
-                        (isPdfConverted(document) ? (
-                          <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                            PDF 변환됨
-                          </span>
-                        ) : (
-                          <span className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                            PDF 미변환
-                          </span>
-                        ))}
-                      <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                        적재됨
-                      </span>
-                    </div>
-                  );
-                })}
-            </section>
+                      </div>
+                    );
+                  })}
+              </section>
+            )}
 
             <DocumentDetail
               document={selected}
@@ -1108,7 +1160,8 @@ function DocumentDetail({
                 : "PDF로 변환해 다시 읽기"}
           </button>
           <p className="mt-1.5 text-[10px] leading-4 text-slate-400 dark:text-zinc-600">
-            슬라이드를 쪽 단위로 다시 읽어 쪽 인용·원문 위치 표시가 가능해집니다. 10~30초 걸립니다.
+            슬라이드를 쪽 단위로 다시 읽어 쪽 인용·원문 위치 표시가
+            가능해집니다. 10~30초 걸립니다.
           </p>
         </div>
       )}
