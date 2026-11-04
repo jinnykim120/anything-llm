@@ -13,6 +13,7 @@ const {
   TableCell,
   WidthType,
 } = require("docx");
+const { isTableStart, readTable } = require("./markdownTable");
 
 /** "**굵게**"를 굵은 TextRun으로, 나머지는 평문 TextRun으로 쪼갠다.
  * forceBold(표 헤더 행 등)면 굵게가 아닌 조각도 전부 굵게 만든다. */
@@ -34,20 +35,6 @@ function inlineRuns(text, forceBold = false) {
   return runs.length ? runs : [new TextRun({ text, bold: forceBold })];
 }
 
-/** "| a | b |" 형태의 표 줄을 셀 문자열 배열로. */
-function splitTableRow(line) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
-function isTableSeparator(line) {
-  return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(line.trim());
-}
-
 function tableToDocx(rows) {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -57,11 +44,12 @@ function tableToDocx(rows) {
           children: cells.map(
             (cell) =>
               new TableCell({
-                children: [
-                  new Paragraph({
-                    children: inlineRuns(cell, rowIndex === 0),
-                  }),
-                ],
+                children: cell.split(/<br\s*\/?>/i).map(
+                  (part) =>
+                    new Paragraph({
+                      children: inlineRuns(part.trim(), rowIndex === 0),
+                    })
+                ),
               })
           ),
         })
@@ -87,19 +75,11 @@ function markdownToBlocks(markdown = "") {
       continue;
     }
 
-    // 표: "|"로 시작하는 줄 + 그 다음 구분줄(---)이 이어지면 표로 간주.
-    if (
-      trimmed.startsWith("|") &&
-      i + 1 < lines.length &&
-      isTableSeparator(lines[i + 1])
-    ) {
-      const tableRows = [splitTableRow(trimmed)];
-      i += 2; // 헤더 + 구분줄
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        tableRows.push(splitTableRow(lines[i]));
-        i++;
-      }
-      blocks.push(tableToDocx(tableRows));
+    // 표: 헤더줄 + 구분줄(---)이 이어지면 표 (앞뒤 "|" 가 없는 표도 받는다).
+    if (isTableStart(lines, i)) {
+      const table = readTable(lines, i);
+      blocks.push(tableToDocx(table.rows));
+      i = table.next;
       continue;
     }
 

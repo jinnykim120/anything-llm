@@ -5,19 +5,7 @@
 // 자료 추출하기 결과는 "문서 × 필드" 표 하나가 전부인 경우가 대부분이라,
 // 그 표를 실제 엑셀 셀(수식·필터 가능한 구조)로 그대로 옮기는 게 핵심 용도.
 const ExcelJS = require("exceljs");
-
-function splitTableRow(line) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim().replace(/\*\*([^*]+)\*\*/g, "$1"));
-}
-
-function isTableSeparator(line) {
-  return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(line.trim());
-}
+const { isTableStart, readTable } = require("./markdownTable");
 
 function stripInlineMarkdown(text) {
   return text.replace(/\*\*([^*]+)\*\*/g, "$1");
@@ -41,18 +29,13 @@ function markdownToBlocks(markdown = "") {
       continue;
     }
 
-    if (
-      trimmed.startsWith("|") &&
-      i + 1 < lines.length &&
-      isTableSeparator(lines[i + 1])
-    ) {
-      const tableRows = [splitTableRow(trimmed)];
-      i += 2;
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        tableRows.push(splitTableRow(lines[i]));
-        i++;
-      }
-      blocks.push({ type: "table", rows: tableRows });
+    if (isTableStart(lines, i)) {
+      const table = readTable(lines, i);
+      blocks.push({
+        type: "table",
+        rows: table.rows.map((row) => row.map(stripInlineMarkdown)),
+      });
+      i = table.next;
       continue;
     }
 
@@ -108,15 +91,15 @@ function jsonToRows(data) {
       if (!value.length) return;
       if (value.every(isScalar)) {
         rows.push([path || "값", ...value]);
-      } else if (value.every((v) => v && !Array.isArray(v) && isScalar(v) === false)) {
+      } else if (
+        value.every((v) => v && !Array.isArray(v) && isScalar(v) === false)
+      ) {
         const headers = [...new Set(value.flatMap((v) => Object.keys(v)))];
         if (path) rows.push([path]);
         rows.push(headers);
         value.forEach((v) =>
           rows.push(
-            headers.map((h) =>
-              isScalar(v[h]) ? v[h] : JSON.stringify(v[h])
-            )
+            headers.map((h) => (isScalar(v[h]) ? v[h] : JSON.stringify(v[h])))
           )
         );
         rows.push([]);
@@ -151,7 +134,11 @@ function addExtraSheet(workbook, { name = "추가", rows, json }) {
  * @param {{title:string, markdown:string, extraSheets?:Array<{name:string, rows?:any[][], json?:any}>}} params
  * @returns {Promise<Buffer>}
  */
-async function markdownToXlsx({ title = "문서", markdown = "", extraSheets = [] }) {
+async function markdownToXlsx({
+  title = "문서",
+  markdown = "",
+  extraSheets = [],
+}) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("결과", {
     views: [{ state: "frozen", ySplit: 0 }],
