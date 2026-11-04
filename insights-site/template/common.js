@@ -114,7 +114,7 @@ window.NX = (function () {
   document.head.appendChild(st);
   var b = document.createElement("button"); b.type = "button"; b.className = "nx-theme";
   function apply(t) {
-    if (t === "dark") root.setAttribute("data-theme", "dark"); else root.removeAttribute("data-theme");
+    root.setAttribute("data-theme", t === "dark" ? "dark" : "light");
     b.textContent = t === "dark" ? "☀ 라이트 모드" : "☾ 다크 모드";
     b.setAttribute("aria-label", t === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환");
   }

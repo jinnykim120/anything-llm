@@ -195,7 +195,10 @@ async function main() {
   log(`시작 ${slug} (모델 ${MODEL})`);
   // 1) 뉴스로 이슈를 고르고, 그 이슈가 우리 회사에 닿는 지점의 검색어를 받는다
   let issue, found;
-  for (let round = 1; round <= 2; round++) {
+  // 이슈를 직접 지정할 때만 쓴다(평소엔 환경변수가 없어 동작이 달라지지 않는다): INSIGHTS_ISSUE_FILE = {issue, field, keywords[]} JSON 파일
+  const forced = process.env.INSIGHTS_ISSUE_FILE ? JSON.parse(readFileSync(process.env.INSIGHTS_ISSUE_FILE, "utf8")) : null;
+  if (forced) { issue = forced; found = search(issue.keywords); log(`이슈(지정): ${issue.issue.slice(0, 120)} | 검색어 ${issue.keywords.length}개 → 아카이브 대목 ${found.passages.length}개(후보 ${found.count}) 관련도 ${found.relevance.toFixed(0)}`); }
+  for (let round = 1; !forced && round <= 2; round++) {
     const raw = await claudeWeb(round === 1 ? PROMPT_A : `${PROMPT_A}
 
 [이전 선택은 사내 문서에서 관련 대목을 거의 찾지 못했습니다. 검색어를 우리 회사 문서에 실제로 나오는 용어(법률명, 제도명, 사업부문, 재무·위험 항목)로 바꾸거나, 사업과 더 직접 이어지는 이슈를 고르세요]`);
@@ -217,7 +220,7 @@ async function main() {
 ${problems.join(" / ")}`);
     try { card = lastJson(raw, (o) => o && Array.isArray(o.sections) && o.title); } catch (e) { problems = [e.message]; log(`시도 ${attempt}: ${e.message}`); continue; }
     card.sources = (card.sources || []).filter((x) => !/^A\d+$/.test(x.id)); // A# 출처는 시스템이 붙인다
-    problems = [...validate(card, archIds, archText), ...overlaps(card, attempt < 3)]; // 마지막 시도에서는 "같은 분야"만 허용(주제·기사 겹침은 계속 불허)
+    problems = [...validate(card, archIds, archText), ...overlaps(card, attempt < 3 && !forced)]; // 마지막 시도에서는 "같은 분야"만 허용(주제·기사 겹침은 계속 불허)
     if (!problems.length) break;
     log(`시도 ${attempt}: 검증 실패 → ${problems.join(" / ")}`);
   }

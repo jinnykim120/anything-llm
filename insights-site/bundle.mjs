@@ -77,9 +77,10 @@ for (const f of readdirSync(SITE).filter((x) => x.endsWith(".html"))) {
 const lit = (v) => JSON.stringify(v).replace(/<\//g, "<\\/").replace(/<!--/g, "<\\!--");
 const HEAD_OPEN = ARTIFACT ? "" : `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
 `;
 const shell = `${HEAD_OPEN}<title>NEXUS Insight</title>
-<style>html,body{margin:0;height:100%;background:#fff}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>
+<style>html{color-scheme:light}html,body{margin:0;height:100%;background:#fff}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>
 ${ARTIFACT ? "" : "</head><body>"}
 <iframe id="f" title="NEXUS Insight"></iframe>
 <script>
