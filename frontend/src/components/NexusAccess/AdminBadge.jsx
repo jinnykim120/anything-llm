@@ -3,7 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ShieldCheck, ShieldSlash } from "@phosphor-icons/react";
 import NexusAccess from "@/models/nexusAccess";
 import { NEXUS_ACCESS_CHANGED_EVENT, notifyNexusAccessChanged } from "./events";
-import { ADMIN_LOGIN_PATH } from "@/utils/nexusClient";
+import {
+  ADMIN_LOGIN_PATH,
+  isAdminViewOn,
+  isAdminViewPath,
+  setAdminView,
+} from "@/utils/nexusClient";
 
 export { NEXUS_ACCESS_CHANGED_EVENT, notifyNexusAccessChanged };
 
@@ -36,22 +41,44 @@ export default function AdminBadge() {
 
   if (!state.adminEnabled || pathname.startsWith(ADMIN_LOGIN_PATH)) return null;
 
+  const showViewToggle = state.adminAuthed && isAdminViewPath(pathname);
+  const viewOn = isAdminViewOn();
+
   return (
-    <button
-      type="button"
-      onClick={() => navigate(ADMIN_LOGIN_PATH)}
-      title={state.adminAuthed ? "관리자 콘솔 (로그인됨)" : "관리자 콘솔"}
-      className={`fixed bottom-4 right-28 z-40 flex h-8 w-8 items-center justify-center rounded-full border text-sm shadow ${
-        state.adminAuthed
-          ? "border-emerald-500 bg-emerald-600/20 text-emerald-400"
-          : "border-zinc-700 bg-zinc-900/80 text-zinc-400 hover:text-zinc-100 light:border-slate-300 light:bg-white light:text-slate-500"
-      }`}
-    >
-      {state.adminAuthed ? (
-        <ShieldCheck size={18} />
-      ) : (
-        <ShieldSlash size={18} />
+    <>
+      {showViewToggle && (
+        <button
+          type="button"
+          onClick={() => {
+            setAdminView(!viewOn);
+            window.location.reload();
+          }}
+          title="잠긴 폴더 자료까지 모두 보고 관리합니다 (관리자 전용)"
+          className={`fixed bottom-4 right-40 z-40 flex h-8 items-center rounded-full border px-3 text-xs shadow ${
+            viewOn
+              ? "border-amber-500 bg-amber-600/20 text-amber-400"
+              : "border-zinc-700 bg-zinc-900/80 text-zinc-400 hover:text-zinc-100 light:border-slate-300 light:bg-white light:text-slate-500"
+          }`}
+        >
+          {viewOn ? "관리자 전체 보기 켜짐" : "관리자 전체 보기"}
+        </button>
       )}
-    </button>
+      <button
+        type="button"
+        onClick={() => navigate(ADMIN_LOGIN_PATH)}
+        title={state.adminAuthed ? "관리자 콘솔 (로그인됨)" : "관리자 콘솔"}
+        className={`fixed bottom-4 right-28 z-40 flex h-8 w-8 items-center justify-center rounded-full border text-sm shadow ${
+          state.adminAuthed
+            ? "border-emerald-500 bg-emerald-600/20 text-emerald-400"
+            : "border-zinc-700 bg-zinc-900/80 text-zinc-400 hover:text-zinc-100 light:border-slate-300 light:bg-white light:text-slate-500"
+        }`}
+      >
+        {state.adminAuthed ? (
+          <ShieldCheck size={18} />
+        ) : (
+          <ShieldSlash size={18} />
+        )}
+      </button>
+    </>
   );
 }

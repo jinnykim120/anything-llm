@@ -39,9 +39,37 @@ export function withClientParam(url) {
  * 관리자 콘솔·설정 화면인가. 이 화면들의 요청에만 X-Nexus-Console 헤더를 붙여서
  * 서버가 관리자 권한을 적용한다 — 평소 화면에서는 관리자도 일반 사용자처럼 동작한다.
  */
+const ADMIN_VIEW_KEY = "nexus_admin_view";
+// 문서함·문서 관리·분류 검수 화면: 평소엔 일반 사용자와 같지만, 관리자가 "전체 보기"를
+// 켜면 잠긴 폴더 자료까지 보고 관리한다 (서버는 관리자 로그인이 있을 때만 받아들인다).
+const ADMIN_VIEW_PATH =
+  /^\/(workspace\/[^/]+\/(library|manage)|settings\/classification)(\/|$)/;
+
+export function isAdminViewOn() {
+  try {
+    return window.localStorage.getItem(ADMIN_VIEW_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setAdminView(on) {
+  try {
+    if (on) window.localStorage.setItem(ADMIN_VIEW_KEY, "1");
+    else window.localStorage.removeItem(ADMIN_VIEW_KEY);
+  } catch {
+    /* 저장소가 막힌 환경 — 전체 보기는 쓸 수 없다 */
+  }
+}
+
+export function isAdminViewPath(pathname = window.location.pathname) {
+  return ADMIN_VIEW_PATH.test(pathname);
+}
+
 export function isConsolePath(pathname = window.location.pathname) {
   return (
     pathname.startsWith("/nexus-admin") ||
+    (isAdminViewOn() && isAdminViewPath(pathname)) ||
     // 분류 검수는 일반 사용자의 평소 작업이라 관리자 권한을 쓰지 않는다.
     (pathname.startsWith("/settings") &&
       !pathname.startsWith("/settings/classification")) ||
