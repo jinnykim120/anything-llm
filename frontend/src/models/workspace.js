@@ -580,6 +580,21 @@ const Workspace = {
       return { success: false, error: e.message };
     }
   },
+  // 아카이브 보관 결과를 사용자에게 알릴 문구 (실제 보관 위치를 그대로 말한다).
+  archiveNotice: function (res, publicMessage) {
+    if (!res?.success) return null;
+    if (res.archived === false)
+      return {
+        message: res.reason || "자동 보관하지 않았습니다.",
+        type: "warning",
+      };
+    if (res.folder)
+      return {
+        message: `잠금 폴더 “${res.folder}”에 보관했습니다 (검수 후 검색에 반영).`,
+        type: "info",
+      };
+    return { message: publicMessage, type: "info" };
+  },
   // [auto-docu 문서 연계성 학습] 채팅 답변이 여러 문서를 같이 인용했고, 그
   // 결과물이 실제로 다운로드까지 이어졌을 때만 부른다 — 단순 인용만으로는
   // 절대 호출하지 않는다(자기강화 편향 방지). 실패해도 조용히 넘어간다.

@@ -395,11 +395,13 @@ export default function DocRegen() {
       kind: "ppt_draft",
       sourceDocIds: baseDocs.map((d) => d.id),
     }).then((res) => {
-      if (res?.success)
-        showToast(
-          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
-          "info"
+      {
+        const notice = Workspace.archiveNotice(
+          res,
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영)."
         );
+        if (notice) showToast(notice.message, notice.type);
+      }
     });
   }
 
@@ -468,11 +470,13 @@ export default function DocRegen() {
       kind: "docregen",
       sourceDocIds: baseDocs.map((d) => d.id),
     }).then((res) => {
-      if (res?.success)
-        showToast(
-          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
-          "info"
+      {
+        const notice = Workspace.archiveNotice(
+          res,
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영)."
         );
+        if (notice) showToast(notice.message, notice.type);
+      }
     });
   }
 

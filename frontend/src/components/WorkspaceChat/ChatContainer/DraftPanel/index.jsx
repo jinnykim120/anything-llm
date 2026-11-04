@@ -424,11 +424,13 @@ export default function DraftPanel({
       kind: "draft",
       sourceDocIds: archiveSourceDocIds(),
     }).then((res) => {
-      if (res?.success)
-        showToast(
-          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
-          "info"
+      {
+        const notice = Workspace.archiveNotice(
+          res,
+          "내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영)."
         );
+        if (notice) showToast(notice.message, notice.type);
+      }
     });
     // [auto-docu 문서 연계성 학습] 이 답변이 여러 문서를 같이 인용했고,
     // 지금 실제로 결과물 다운로드까지 이어졌다 — "검증된 연계"로 기록한다.
@@ -546,11 +548,13 @@ export default function DraftPanel({
       kind: "ppt_draft",
       sourceDocIds: archiveSourceDocIds(),
     }).then((res) => {
-      if (res?.success)
-        showToast(
-          "PPT 세부 내용(글씨)을 내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영).",
-          "info"
+      {
+        const notice = Workspace.archiveNotice(
+          res,
+          "PPT 세부 내용(글씨)을 내부생성자료 폴더에 보관했습니다(검수 후 검색에 반영)."
         );
+        if (notice) showToast(notice.message, notice.type);
+      }
     });
   }
 

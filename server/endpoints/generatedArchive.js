@@ -106,7 +106,14 @@ function generatedArchiveEndpoints(app) {
           });
         }
 
-        return response.status(200).json({ success: true, title, contentHash });
+        return response.status(200).json({
+          success: true,
+          archived: true,
+          // 잠긴 폴더 자료로 만든 결과는 그 폴더에 보관된다 (공개 보관이면 null).
+          folder: restriction.folder || null,
+          title,
+          contentHash,
+        });
       } catch (e) {
         console.error("POST /workspace/:slug/archive-generated", e);
         return response.status(500).json({
