@@ -101,3 +101,13 @@ select,input[type=text],input[type=date],input[type=month],input[type=password],
 .rclose{border-top:0;box-shadow:inset 0 0 0 2px var(--dark)}
 .rdots i.on{background:var(--brand)}
 .md .chk{display:flex;gap:8px;align-items:flex-start;color:var(--ink);font-weight:600;font-size:13px}
+
+/* 사건 대응 목록: 카드 아래 작은 작업 링크 */
+.rcw{display:grid;gap:6px}.racts{display:flex;gap:14px;padding:0 6px}
+.lnk{border:0;background:none;padding:2px 0;font-size:12.5px;font-weight:700;color:var(--mute);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.lnk:hover{color:var(--ink)}.lnk.bad:hover{color:var(--hi)}
+
+/* 종합 요약 대화상자 */
+.sumv .sumb{display:grid;gap:12px;max-height:min(68vh,640px);overflow:auto;padding-right:4px}
+.sums h4{margin:6px 0 4px;font-size:14px}.sums p{margin:4px 0;font-size:14px}.sums ul{margin:4px 0;padding-left:20px;font-size:14px}.sums li{margin:3px 0}
+.sumdl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}

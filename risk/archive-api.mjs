@@ -29,6 +29,7 @@ import * as A from "./analyze.mjs";
 import * as I from "./importer.mjs";
 import * as R from "./respond.mjs";
 import * as NX from "./nexussync.mjs";
+import * as CD from "./casedelete.mjs";
 CF.hooks.onAdded = (caseId, fileId) => NX.enqueue(caseId, fileId);
 
 const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf" };
@@ -58,6 +59,7 @@ export async function handleArchive(req, res, p, url, { body, json }) {
       if (rs === "/summary" && m === "POST") { json(res, 200, R.saveSummary(cid, await bodyJson())); return true; }
       if (rs === "/summary/confirm" && m === "POST") { json(res, 200, R.confirmClose(cid, await bodyJson(), ip)); return true; }
       if (rs === "/report.docx" && m === "GET") { const b = R.buildDocx(cid); res.writeHead(200, { ...base, "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-length": b.length, "content-disposition": dispo(R.reportName(cid) + ".docx", false) }); res.end(b); return true; }
+      if (rs === "/report.html" && m === "GET") { const b = Buffer.from(R.buildHtml(cid), "utf8"); res.writeHead(200, { ...base, "content-type": "text/html; charset=utf-8", "content-length": b.length, "content-disposition": dispo(R.reportName(cid) + ".html", false) }); res.end(b); return true; }
       if (rs === "/report.pdf" && m === "GET") { const b = await R.buildPdf(cid); res.writeHead(200, { ...base, "content-type": "application/pdf", "content-length": b.length, "content-disposition": dispo(R.reportName(cid) + ".pdf", false) }); res.end(b); return true; }
       return false;
     }
@@ -90,6 +92,7 @@ export async function handleArchive(req, res, p, url, { body, json }) {
       res.writeHead(200, { ...base, "content-type": inline ? MIME[ext] : "application/octet-stream", "content-length": size, "content-disposition": dispo(name, inline) });
       createReadStream(abs).pipe(res); return true;
     }
+    if (sub === "/delete" && m === "POST") { json(res, 200, await CD.deleteCase(id, await bodyJson())); return true; }
     if (sub === "/nexus-sync" && m === "POST") { S.getCase(id); json(res, 200, NX.syncCase(id)); return true; }
     if (sub === "/status" && m === "POST") { const st = String((await bodyJson()).status || ""); S.setCaseStatus(id, st); CF.writeManifest(id); json(res, 200, CF.caseDetail(id)); return true; }
     if (sub === "/zip" && m === "GET") {

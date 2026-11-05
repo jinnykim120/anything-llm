@@ -103,4 +103,8 @@ createServer(async (req, res) => {
     if (p === "/api/jobs") return json(res, 200, { jobs: jobs.slice(-10).map(jobView), running });
     return send(res, 404, "text/plain; charset=utf-8", "not found");
   } catch (e) { log("오류", e.message); try { json(res, 500, { error: "server" }); } catch {} }
-}).listen(PORT, "0.0.0.0", () => log(`Risk Monitor 서버: http://0.0.0.0:${PORT}`));
+}).listen(PORT, "0.0.0.0", () => {
+  log(`Risk Monitor 서버: http://0.0.0.0:${PORT}`);
+  // Mac NEXUS 연결 문제로 못 올린 파일을 10분마다 다시 시도한다(Mac 가 켜져 있을 때만).
+  import("./nexussync.mjs").then((NX) => { const go = () => NX.retryNetworkFailures().then((r) => { if (r.retry) log(`Mac NEXUS 재시도: ${r.retry}개`); }).catch(() => {}); setTimeout(go, 60e3).unref(); setInterval(go, 10 * 60e3).unref(); }).catch(() => {});
+});

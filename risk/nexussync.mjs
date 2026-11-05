@@ -47,3 +47,16 @@ export const queueLength = () => queue.length + (working ? 1 : 0);
 
 // Mac 이 파싱한 본문 캐시(없으면 null)
 export function parsedText(dir, sha256) { const p = join(dir, ".nexus", `${sha256}.txt`); return existsSync(p) ? readFileSync(p, "utf8") : null; }
+
+// Mac 가 꺼졌다 켜졌을 때를 위한 자동 재시도: '연결 문제'로 실패한 파일만 다시 줄 세운다.
+// (NEXUS 가 직접 거부한 파일 — 예: 음성 파일 500 — 은 다시 해도 같으므로 제외. 한 번도 안 올린 기존 사건 파일도 자동으로 올리지 않는다.)
+const networkErr = (e) => !e || !/^NEXUS [0-9]/.test(e) || /^NEXUS 50[234]/.test(e);
+export async function retryNetworkFailures() {
+  if (!enabled()) return { skipped: "연결 설정 없음" };
+  const rows = q("SELECT id, case_id, nexus_err FROM case_files WHERE nexus_state='failed' AND kind!='ignore'").filter((r) => networkErr(r.nexus_err));
+  if (!rows.length) return { retry: 0 };
+  const p = await N.ping(); if (!p?.online) return { retry: 0, mac: "응답 없음" };
+  const inQ = new Set(queue.map((j) => j.fileId)); let c = 0;
+  for (const r of rows) if (!inQ.has(r.id)) { run("UPDATE case_files SET nexus_state=NULL WHERE id=?", r.id); queue.push({ caseId: r.case_id, fileId: r.id }); c++; }
+  kick(); return { retry: c };
+}

@@ -172,7 +172,9 @@ function renderDetail() {
       c.isPilot ? h("span", { class: "b pilot", text: "시범 · 초안" }) : null, d.card.status ? h("span", { class: "b " + (d.card.status === "확정" ? "conf" : "draft"), text: "카드 " + d.card.status }) : null]),
     h("div", { class: "hbtn" }, [ico(h("a", { class: "btn sec", href: "/api/archive/cases/" + c.id + "/zip", text: "전체 다운로드 (zip)" }), "download"),
       ico(h("button", { class: "btn", type: "button", text: d.card.card ? "AI 분석 — 새로 만들기" : "AI 분석", onclick: analyzeDlg }), "check"),
+      ico(h("button", { class: "btn sec", type: "button", text: "종합 요약 보기", title: "사건의 결론 내용을 요약해 보고 HTML·Word·PDF 로 내려받습니다(근거 자료·출처 제외)", onclick: function () { window.RiskSummary.open(c.id, c.title); } }), "download"),
       d.nexus && d.nexus.enabled && d.nexus.pending ? ico(h("button", { class: "btn sec", type: "button", text: "Mac NEXUS에 올리기 (" + d.nexus.pending + ")", title: "이 사건의 파일 중 아직 Mac 에 없는 것을 Mac 의 잠금 폴더(리스크관리)로 올립니다. 올린 뒤 Mac 이 읽은 본문은 AI 분석에 쓰입니다.", onclick: function () { post("/api/archive/cases/" + c.id + "/nexus-sync").then(function (r) { alert(r.queued + "개를 Mac 으로 올리는 중입니다. 잠시 뒤 새로고침하면 상태가 보입니다."); setTimeout(function () { loadDetail(); }, 4000); }).catch(fail); } }), "upload") : null,
+      h("button", { class: "btn sec", type: "button", text: "사건 삭제", title: "잘못 올라온 사건을 지웁니다(복구용 백업·휴지통 폴더 보관)", onclick: function () { deleteCaseDlg(c); } }),
       h("button", { class: "btn sec", type: "button", text: c.status === "종결" ? "진행 중으로 되돌리기" : "종결 사건으로 표시", title: c.status === "종결" ? "사건 대응(Incident Response)의 진행 중 목록에 다시 나타납니다" : "이미 끝난 사건이면 종결로 표시합니다(종료일은 비워 둡니다)", onclick: function () { post("/api/archive/cases/" + c.id + "/status", { status: c.status === "종결" ? "진행" : "종결" }).then(function (x) { S.detail = x; reflect(); renderDetail(); }).catch(fail); } })])]);
   root.appendChild(hero);
   root.appendChild(h("div", { class: "aipanel", id: "aiPanel" }));
@@ -542,6 +544,20 @@ function analyzeDlg() {
       if (!c.text && !c.imagesToRead) body.appendChild(h("div", { class: "note bad", text: "읽을 수 있는 자료가 없습니다. 보관만·개인정보 의심·무시 파일뿐이거나 지원하지 않는 형식입니다." }));
     }).catch(function (e) { body.textContent = ""; body.appendChild(h("div", { class: "note bad", text: e.message })); });
   }, true);
+}
+
+/* ───────── 사건 삭제 ───────── */
+function deleteCaseDlg(c) {
+  openDlg(function (f) {
+    f.appendChild(h("h3", { text: "사건 삭제" }));
+    f.appendChild(h("p", { text: "‘" + c.title + "’ 사건을 삭제합니다. 사건 카드·자료·단계 기록과 이 PC의 파일이 지워지고, Mac NEXUS에 올린 파일도 함께 지웁니다." }));
+    f.appendChild(h("div", { class: "hint", text: "복구용으로 DB 백업이 만들어지고 이 PC의 파일은 data/.trash 폴더에 보관됩니다(영구 삭제 아님). 센싱에서 사건화한 사건이면 센싱 목록으로 돌아갑니다." }));
+    var ci = h("input", { type: "text", placeholder: "삭제", autocomplete: "off", "aria-label": "확인 입력" }), er = h("div", { class: "er" }), ok = h("button", { class: "btn danger", type: "submit", text: "삭제", disabled: true });
+    ci.oninput = function () { ok.disabled = ci.value.trim() !== "삭제"; };
+    f.appendChild(lab("확인을 위해 ‘삭제’를 입력하세요", ci)); f.appendChild(er);
+    f.appendChild(h("div", { class: "ft" }, [h("button", { class: "btn sec", type: "button", text: "취소", onclick: closeDlg }), ok]));
+    f.onsubmit = function (e) { e.preventDefault(); ok.disabled = true; post("/api/archive/cases/" + c.id + "/delete", { confirm: "삭제" }).then(function () { closeDlg(); reflect(); S.id = null; S.detail = null; S.view = "list"; reload().then(renderList).catch(fail); }).catch(function (x) { er.textContent = x.message; ok.disabled = false; }); };
+  });
 }
 
 /* ───────── 서버 경로로 가져오기 ───────── */

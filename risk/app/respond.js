@@ -24,6 +24,21 @@ var dlg = null;
 function openDlg(build) { if (!dlg) { dlg = h("dialog", { id: "dlgR" }, [h("form", { class: "md", method: "dialog" })]); document.body.appendChild(dlg); } var f = dlg.querySelector("form"); f.textContent = ""; f.onsubmit = null; build(f); dlg.showModal(); }
 function closeDlg() { if (dlg) dlg.close(); }
 
+/* ───────── 사건 지우기·목록에서 빼기 ───────── */
+function sendToPast(id) { return post("/api/archive/cases/" + id + "/status", { status: "종결" }).then(function () { S.stage = null; return loadList().then(renderList); }).catch(fail); }
+function deleteDlg(id, title, after) {
+  openDlg(function (f) {
+    f.appendChild(h("h3", { text: "사건 삭제" }));
+    f.appendChild(h("p", { text: "‘" + title + "’ 사건을 삭제합니다. 사건 카드·단계 기록·종결 요약과 이 PC의 파일이 지워지고, Mac NEXUS에 올린 파일도 함께 지웁니다." }));
+    f.appendChild(h("div", { class: "hint", text: "복구용으로 DB 백업이 만들어지고 이 PC의 파일은 data/.trash 폴더에 보관됩니다(영구 삭제 아님). 센싱에서 사건화한 사건이면 센싱 목록으로 돌아갑니다. 이미 끝난 사건이 잘못 올라온 것이라면 삭제 대신 ‘과거 사건으로 보내기’를 쓰는 편이 안전합니다." }));
+    var ci = h("input", { type: "text", placeholder: "삭제", autocomplete: "off", "aria-label": "확인 입력" }), er = h("div", { class: "er" }), ok = h("button", { class: "btn danger", type: "submit", text: "삭제", disabled: true });
+    ci.oninput = function () { ok.disabled = ci.value.trim() !== "삭제"; };
+    f.appendChild(h("label", {}, ["확인을 위해 ‘삭제’를 입력하세요", ci])); f.appendChild(er);
+    f.appendChild(h("div", { class: "ft" }, [h("button", { class: "btn sec", type: "button", text: "취소", onclick: closeDlg }), ok]));
+    f.onsubmit = function (e) { e.preventDefault(); ok.disabled = true; post("/api/archive/cases/" + id + "/delete", { confirm: "삭제" }).then(function (r) { closeDlg(); if (C.onChange) { try { C.onChange(); } catch (x) {} } after(r); }).catch(function (x) { er.textContent = x.message; ok.disabled = false; }); };
+  });
+}
+
 /* ───────── 목록 ───────── */
 function loadList() { return req("/api/respond/cases?status=" + encodeURIComponent(S.status)).then(function (j) { S.list = j.cases; }); }
 function renderList() {
@@ -38,11 +53,14 @@ function renderList() {
   S.list.forEach(function (c) {
     var dots = h("div", { class: "rdots", "aria-label": "단계 " + c.doneStages + "/" + c.totalStages + " 완료" });
     for (var i = 0; i < c.totalStages; i++) dots.appendChild(h("i", { class: i < c.doneStages ? "on" : "" }));
-    g.appendChild(h("button", { class: "rcase", type: "button", onclick: function () { open(c.id); } }, [
+    var card = h("button", { class: "rcase", type: "button", onclick: function () { open(c.id); } }, [
       h("div", { class: "fd", text: c.folderName }),
       h("div", { class: "badges" }, [c.typeId ? h("span", { class: "b t-" + c.typeId, text: nameOf(C.cfg.issueTypes, c.typeId) }) : h("span", { class: "b", text: "유형 미분류" }),
         c.level ? h("span", { class: "b lv l-" + c.level, text: "위험도 " + c.level }) : null, c.activeStage ? h("span", { class: "b conf", text: "진행: " + nameOf(C.cfg.caseStages, c.activeStage) }) : null]),
-      dots, h("div", { class: "m", text: "완료 " + c.doneStages + " / " + c.totalStages + " 단계" })]));
+      dots, h("div", { class: "m", text: "완료 " + c.doneStages + " / " + c.totalStages + " 단계" })]);
+    var acts = h("div", { class: "racts" }, [S.status === "진행" ? h("button", { class: "lnk", type: "button", text: "과거 사건으로 보내기", title: "이미 끝난 사건이 잘못 올라온 경우: 이 목록에서 빼고 종결 사건으로 옮깁니다(자료는 그대로)", onclick: function () { sendToPast(c.id); } }) : null,
+      h("button", { class: "lnk bad", type: "button", text: "삭제", onclick: function () { deleteDlg(c.id, c.title, function () { loadList().then(renderList); }); } })]);
+    g.appendChild(h("div", { class: "rcw" }, [card, acts]));
   });
   root.appendChild(g);
 }
@@ -56,7 +74,10 @@ function render() {
   root.appendChild(h("div", { class: "rghero" }, [h("div", { class: "ey", text: c.folderName }), h("h1", { text: c.title }),
     h("div", { class: "badges", style: "position:relative;z-index:1" }, [c.typeId ? h("span", { class: "b t-" + c.typeId, text: nameOf(C.cfg.issueTypes, c.typeId) }) : h("span", { class: "b", text: "유형 미분류" }),
       h("span", { class: "b", text: c.buId ? nameOf(C.cfg.businessUnits, c.buId) : "사업부문 미지정" }), c.level ? h("span", { class: "b lv l-" + c.level, text: "위험도 " + c.level }) : null, h("span", { class: "b " + (closed ? "conf" : ""), text: c.status })]),
-    h("div", { class: "hbtn" }, [h("button", { class: "btn sec", type: "button", text: "Archive에서 자료·카드 보기", onclick: function () { C.nav("arch"); } })])]));
+    h("div", { class: "hbtn" }, [h("button", { class: "btn sec", type: "button", text: "Archive에서 자료·카드 보기", onclick: function () { C.nav("arch"); } }),
+      ico(h("button", { class: "btn", type: "button", text: closed ? "종합 요약·다운로드" : "현황 요약·다운로드", title: "지금까지의 내용을 요약해 보고 HTML·Word·PDF 로 내려받습니다(중간 현황 보고용, 근거 자료·출처 제외)", onclick: function () { window.RiskSummary.open(c.id, c.title, { onChange: function () { load(); } }); } }), "download"),
+      closed ? null : h("button", { class: "btn sec", type: "button", text: "과거 사건으로 보내기", title: "이미 끝난 사건이 잘못 올라온 경우: 진행 중 목록에서 빼고 종결 사건으로 옮깁니다", onclick: function () { sendToPast(c.id); } }),
+      h("button", { class: "btn sec", type: "button", text: "사건 삭제", onclick: function () { deleteDlg(c.id, c.title, function () { S.id = null; S.view = "list"; loadList().then(renderList); }); } })])]));
   var st = h("ol", { class: "rstep", role: "tablist", "aria-label": "대응 단계" });
   d.steps.forEach(function (s, i) {
     st.appendChild(h("li", {}, [h("button", { type: "button", role: "tab", class: "s-" + (s.state === "완료" ? "done" : s.state === "진행" ? "doing" : "todo"), "aria-selected": String(S.stage === s.id), onclick: function () { S.stage = s.id; render(); } },
@@ -86,7 +107,7 @@ function stagePanel(s, closed) {
 
 function suggestBox(s, closed, note) {
   var box = h("div", { class: "rsug" }), head = h("div", { class: "rsh" }, [h("b", { text: "제안 받기" }), h("span", { class: "hint", text: "버튼을 누를 때만 AI를 호출합니다. 제안은 참고용이며 채택은 담당자가 정합니다." })]);
-  var btn = ico(h("button", { class: "btn sec", type: "button", text: s.suggestion ? "다시 제안 받기" : "제안 받기", disabled: closed || !!S.busy["s" + s.id], onclick: function () { confirmAI("‘" + s.name + "’ 단계 제안", "같은 유형의 과거 사건과 이 사건의 카드·기록을 읽고 3~5개 제안을 만듭니다. 예상 비용 약 $0.05~0.15", function () {
+  var btn = ico(h("button", { class: "btn sec", type: "button", text: s.suggestion ? "다시 제안 받기" : "제안 받기", disabled: closed || !!S.busy["s" + s.id], onclick: function () { confirmAI("‘" + s.name + "’ 단계 제안", "같은 유형의 과거 사건과 이 사건의 카드·기록을 읽고 3~5개 제안을 만듭니다. 예상 비용 약 $0.03~0.10", function () {
     S.busy["s" + s.id] = true; render(); return post("/api/respond/cases/" + S.id + "/steps/" + s.id + "/suggest").then(function () { S.busy["s" + s.id] = false; return load(); }).catch(function (e) { S.busy["s" + s.id] = false; render(); alert(e.message); }); }); } }), "check");
   head.appendChild(btn); box.appendChild(head);
   if (S.busy["s" + s.id]) { box.appendChild(h("div", { class: "hint", text: "AI가 제안을 만드는 중입니다… (1~2분)" })); return box; }
@@ -115,7 +136,7 @@ function closePanel(d, closed) {
   box.appendChild(h("div", { class: "rph" }, [h("h2", { text: "종결 요약" }), h("p", { text: "단계별 기록과 사건 카드로 종결 보고서 초안을 만듭니다. 담당자가 고친 뒤 확정하면 사건이 종결되고 Archive에 보관됩니다." })]));
   if (!d.hasCard) box.appendChild(h("div", { class: "hint warn", text: "사건 카드가 없습니다. Archive에서 ‘AI 분석’을 먼저 하면 요약이 더 정확해집니다. 단계별 메모만으로도 만들 수 있습니다." }));
   if (!sm) {
-    box.appendChild(ico(h("button", { class: "btn", type: "button", text: "종결 요약 초안 만들기", disabled: !!S.busy.sum, onclick: function () { confirmAI("종결 요약 초안", "사건 카드와 단계별 메모를 읽고 개요·경과·대응·재발방지·시사점 초안을 만듭니다. 예상 비용 약 $0.05~0.15", genSummary); } }), "check"));
+    box.appendChild(ico(h("button", { class: "btn", type: "button", text: "종결 요약 초안 만들기", disabled: !!S.busy.sum, onclick: function () { confirmAI("종결 요약 초안", "사건 카드와 단계별 메모를 읽고 개요·경과·대응·재발방지·시사점 초안을 만듭니다. 예상 비용 약 $0.03~0.10", genSummary); } }), "check"));
     if (S.busy.sum) box.appendChild(h("div", { class: "hint", text: "AI가 요약을 만드는 중입니다… (1~2분)" }));
     return box;
   }
@@ -135,7 +156,7 @@ function closePanel(d, closed) {
   var saveB = ico(h("button", { class: "btn sec", type: "button", text: "요약 저장" }), "check");
   saveB.onclick = function () { saveB.disabled = true; post("/api/respond/cases/" + S.id + "/summary", body()).then(function (x) { S.d = x; msg.textContent = "저장했습니다"; saveB.disabled = false; }).catch(function (e) { msg.textContent = e.message; saveB.disabled = false; }); };
   var fin = ico(h("button", { class: "btn", type: "button", text: "확정하고 종결", onclick: function () { post("/api/respond/cases/" + S.id + "/summary", body()).then(function () { finDlg(); }).catch(function (e) { msg.textContent = e.message; }); } }), "check");
-  var re = h("button", { class: "btn sec", type: "button", text: "초안 다시 만들기", onclick: function () { confirmAI("종결 요약 다시 만들기", "지금 고친 내용은 사라지고 새 초안으로 바뀝니다. 예상 비용 약 $0.05~0.15", genSummary); } });
+  var re = h("button", { class: "btn sec", type: "button", text: "초안 다시 만들기", onclick: function () { confirmAI("종결 요약 다시 만들기", "지금 고친 내용은 사라지고 새 초안으로 바뀝니다. 예상 비용 약 $0.03~0.10", genSummary); } });
   box.appendChild(h("div", { class: "rsave" }, [saveB, fin, re, msg])); box.appendChild(dl);
   return box;
 }

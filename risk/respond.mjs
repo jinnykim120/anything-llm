@@ -86,17 +86,23 @@ export async function suggest(caseId, stageId) {
 }
 
 // ── 종결 요약
-const SUMMARY_SYS = `당신은 기업 리스크 사건의 종결 보고서를 정리합니다. 입력의 사건 카드와 단계별 대응 기록만 근거로 씁니다.
-규칙: 기록에 없는 내용은 만들지 않고 "기록 없음"으로 적습니다. 사실은 간결하게, 한국어, 존댓말 없이 개조식(~함/~임)으로 씁니다.
-출력은 JSON 하나만: {"overview":"사건 개요 3~5문장","timeline":[{"stage":"단계명","text":"그 단계에서 한 일 1~3문장"}],"actions":"주요 대응 내용","prevention":"원인과 재발방지","lessons":"다음 대응에 쓸 시사점"}
+const SUMMARY_SYS = `당신은 기업 리스크 사건의 보고서(종결 보고 또는 진행 중 현황 보고)를 정리합니다. 입력의 사건 카드와 단계별 대응 기록만 근거로 씁니다.
+규칙:
+- 기록에 없는 내용은 만들지 않습니다. 한국어, 존댓말 없이 개조식(~함/~임)으로 간결하게 씁니다.
+- 위험도·진행/종결 상태·담당자·단계 상태(완료/진행)는 보고서 표와 경과 표에 따로 있으므로 문장에 쓰지 않습니다.
+- "기록 없음"은 그 항목에 쓸 근거가 전혀 없을 때만 한 번 씁니다. 일부만 비어 있으면 있는 내용만 쓰고, 빈 부분을 일일이 나열하지 않습니다.
+- actions, prevention, lessons 는 한 줄에 한 항목씩 줄바꿈(\n)으로 나누고 각 줄은 "- "로 시작합니다. 항목은 한 문장이며 최대 6개입니다.
+출력은 JSON 하나만: {"overview":"사건 개요: 무슨 일이, 언제, 어떤 규모로, 원인이 무엇인지 3~4문장","timeline":[{"stage":"단계명","text":"그 단계에서 한 일(날짜·사실 중심) 1~2문장"}],"actions":"주요 대응 내용","prevention":"원인과 재발방지","lessons":"다음 대응에 쓸 시사점"}
 timeline 은 입력에 기록이 있는 단계만 넣습니다.`;
 
+const OPEN_RULE = "\n- 이 사건은 아직 진행 중입니다. 결과·종결을 단정하지 말고 현재까지의 사실과 대응만 쓰며, lessons 에는 남은 과제와 다음 대응을 씁니다.";
 export async function makeSummary(caseId) {
   const c = S.getCase(caseId); if (c.status === "종결" && q1("SELECT status FROM response_summary WHERE case_id=?", caseId)?.status === "확정") throw new HttpError(409, "이미 확정된 종결 요약입니다");
   const d = detail(caseId), card = CF.getCard(caseId).card;
+  if (!card && !d.steps.some((x) => x.note)) throw new HttpError(409, "요약할 자료가 없습니다. 사건 카드(Archive 의 AI 분석)나 단계별 기록이 있어야 만들 수 있습니다");
   const rec = d.steps.filter((s) => s.note || s.owner || s.state !== "미착수").map((s) => `[${s.name}] 상태:${s.state} 담당:${s.owner || "-"} 일자:${s.date || "-"}\n${s.note || "(메모 없음)"}`).join("\n\n") || "(대응 기록 없음)";
   const user = `[사건] ${c.title}\n시작일: ${c.startDate || c.startYear + "년"} / 위험도: ${c.level || "미지정"}\n[사건 카드]\n${card ? clip(JSON.stringify(card), 6000) : "(카드 없음)"}\n[단계별 대응 기록]\n${rec}`;
-  const { result, cost } = await A.askClaude({ system: SUMMARY_SYS, user, timeoutMs: 240000 });
+  const { result, cost } = await A.askClaude({ system: SUMMARY_SYS + (c.status === "종결" ? "" : OPEN_RULE), user, timeoutMs: 240000 });
   const o = A.lastJson(result, (x) => typeof x.overview === "string");
   const sum = { overview: clip(o.overview, 3000), timeline: (o.timeline || []).slice(0, 8).map((t) => ({ stage: clip(t.stage, 40), text: clip(t.text, 1500) })), actions: clip(o.actions, 3000), prevention: clip(o.prevention, 3000), lessons: clip(o.lessons, 3000), cost };
   run(`INSERT INTO response_summary (case_id,summary_json,status,updated_at) VALUES (?,?, '초안', ?) ON CONFLICT(case_id) DO UPDATE SET summary_json=excluded.summary_json, status='초안', by_name=NULL, confirmed_at=NULL, updated_at=excluded.updated_at`, caseId, JSON.stringify(sum), nowIso());
@@ -142,25 +148,51 @@ function zipParts(files) {
   const cd = Buffer.concat(central), end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16);
   return Buffer.concat([...local, cd, end]);
 }
+// 보고서 내용(Word·HTML 공통). 근거 자료·출처는 넣지 않는다(결론 내용만).
+export function reportModel(caseId) {
+  const d = detail(caseId), c = d.case, s = d.summary; if (!s) throw new HttpError(404, "종합 요약이 없습니다");
+  const cfg = S.config(), closed = c.status === "종결";
+  const tn = cfg.issueTypes.find((t) => t.id === c.typeId)?.name || "미분류", bn = cfg.businessUnits.find((x) => x.id === c.buId)?.name || "미지정";
+  const period = `${c.startDate || (c.startYear ? c.startYear + "년" : "-")} ~ ${c.endDate || (closed ? "종료일 미기록" : "진행 중")}`;
+  const state = closed ? (s.status === "확정" ? `종결 · 확정 (${s.by || "-"}, ${(s.confirmedAt || "").slice(0, 10)})` : "종결") : "진행 중 · 현황 보고";
+  const title = closed ? "사건 종결 보고서" : "사건 현황 보고서";
+  return { title, caseTitle: c.title, meta: [["기간", period], ["리스크 유형", tn], ["사업부문", bn], ["위험도", c.level || "미지정"], ["상태", state]],
+    sections: [["1. 사건 개요", s.overview, "text"], ["2. 대응 경과", s.timeline, "table"], ["3. 주요 대응 내용", s.actions, "text"], ["4. 원인 및 재발방지", s.prevention, "text"], [closed ? "5. 시사점" : "5. 남은 과제·시사점", s.lessons, "text"]],
+    footer: `작성: NEXUS Risk Monitor · ${S.todayKst()}${closed && s.status === "확정" ? "" : " · AI 초안, 담당자 검토 필요"}` };
+}
 export function buildDocx(caseId) {
-  const d = detail(caseId), c = d.case, s = d.summary; if (!s) throw new HttpError(404, "종결 요약이 없습니다");
-  const cfg = S.config(), tn = cfg.issueTypes.find((t) => t.id === c.typeId)?.name || "미분류", bn = cfg.businessUnits.find((b) => b.id === c.buId)?.name || "미지정";
-  const period = `${c.startDate || (c.startYear ? c.startYear + "년" : "-")} ~ ${c.endDate || "진행 중"}`;
-  const body = [para("사건 종결 보고서", { style: "Title" }), para(c.title, { bold: true, size: 26, after: 160 }),
-    tbl([["기간", period], ["리스크 유형", tn], ["사업부문", bn], ["위험도", c.level || "미지정"], ["상태", s.status === "확정" ? `확정 (${s.by || "-"}, ${(s.confirmedAt || "").slice(0, 10)})` : "초안 (담당자 확정 전)"]], [2000, 7000], false),
-    para("1. 사건 개요", { style: "Heading1" }), para(s.overview || "기록 없음"),
-    para("2. 대응 경과", { style: "Heading1" }),
-    s.timeline?.length ? tbl([["단계", "내용"], ...s.timeline.map((t) => [t.stage, t.text])], [2200, 6800], true) : para("기록 없음"),
-    para("3. 주요 대응 내용", { style: "Heading1" }), para(s.actions || "기록 없음"),
-    para("4. 원인 및 재발방지", { style: "Heading1" }), para(s.prevention || "기록 없음"),
-    para("5. 시사점", { style: "Heading1" }), para(s.lessons || "기록 없음"),
-    para(`작성: NEXUS Risk Monitor · ${S.todayKst()}${s.status === "확정" ? "" : " · 초안"}`, { size: 17, color: "5A6A86", after: 0 })].join("");
+  const m = reportModel(caseId);
+  const body = [para(m.title, { style: "Title" }), para(m.caseTitle, { bold: true, size: 26, after: 160 }), tbl(m.meta, [2000, 7000], false),
+    ...m.sections.flatMap(([h, v, kind]) => [para(h, { style: "Heading1" }), kind === "table" ? (v?.length ? tbl([["단계", "내용"], ...v.map((t) => [t.stage, t.text])], [2200, 6800], true) : para("기록 없음")) : para(v || "기록 없음")]),
+    para(m.footer, { size: 17, color: "5A6A86", after: 0 })].join("");
   const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1300" w:right="1300" w:bottom="1300" w:left="1300" w:header="700" w:footer="700" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   return zipParts([
     ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`],
     ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`],
     ["word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
     ["word/document.xml", doc], ["word/styles.xml", STYLES]]);
+}
+const hx = (t) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const hpara = (t) => {
+  const lines = String(t || "기록 없음").split("\n").filter((l) => l.trim());
+  if (lines.length && lines.every((l) => /^\s*-\s/.test(l))) return "<ul>" + lines.map((l) => "<li>" + hx(l.replace(/^\s*-\s+/, "")) + "</li>").join("") + "</ul>";
+  return lines.map((l) => "<p>" + hx(l) + "</p>").join("");
+};
+const HTML_CSS = "body{margin:0;background:#F4F5FB;color:#1E2530;font:15px/1.75 'Pretendard Variable',Pretendard,'Malgun Gothic','Apple SD Gothic Neo',system-ui,sans-serif}" +
+  "main{max-width:820px;margin:32px auto;background:#fff;border-radius:20px;padding:40px 44px;box-shadow:0 0 0 1px #E1E4EC}" +
+  ".brand{display:inline-block;width:10px;height:10px;border-radius:50%;background:#00D4EA;margin-right:8px}.ey{font-size:12px;font-weight:800;letter-spacing:.14em;color:#515160}" +
+  "h1{margin:6px 0 4px;font-size:28px;letter-spacing:-.03em}.sub{margin:0 0 20px;font-size:19px;font-weight:700}h2{margin:30px 0 8px;font-size:17px;border-bottom:2px solid #00D4EA;padding-bottom:6px}" +
+  "table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid #D6D9E1;padding:9px 12px;text-align:left;vertical-align:top}th{background:#F4F5FB}.meta th{width:130px}" +
+  "ul{margin:6px 0;padding-left:20px}li{margin:4px 0}p{margin:6px 0}.foot{margin-top:34px;font-size:12px;color:#515160}" +
+  "@media print{body{background:#fff}main{box-shadow:none;margin:0;padding:0}}@media(max-width:600px){main{margin:0;border-radius:0;padding:24px 18px}}";
+export function buildHtml(caseId) {
+  const m = reportModel(caseId);
+  const sec = m.sections.map(([h, v, kind]) => "<section><h2>" + hx(h) + "</h2>" + (kind === "table"
+    ? (v?.length ? "<table><thead><tr><th>단계</th><th>내용</th></tr></thead><tbody>" + v.map((t) => "<tr><td>" + hx(t.stage) + "</td><td>" + hx(t.text) + "</td></tr>").join("") + "</tbody></table>" : "<p>기록 없음</p>")
+    : hpara(v)) + "</section>").join("");
+  return "<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>" + hx(m.title + " · " + m.caseTitle) + "</title><style>" + HTML_CSS + "</style></head><body><main>" +
+    "<div class='ey'><span class='brand'></span>NEXUS RISK MONITOR</div><h1>" + hx(m.title) + "</h1><p class='sub'>" + hx(m.caseTitle) + "</p>" +
+    "<table class='meta'><tbody>" + m.meta.map(([k, v]) => "<tr><th>" + hx(k) + "</th><td>" + hx(v) + "</td></tr>").join("") + "</tbody></table>" + sec + "<p class='foot'>" + hx(m.footer) + "</p></main></body></html>";
 }
 const sofficeBin = () => [process.env.RISK_SOFFICE, "D:\\LibreOffice\\program\\soffice.exe", "C:\\Program Files\\LibreOffice\\program\\soffice.exe", "/Applications/LibreOffice.app/Contents/MacOS/soffice", "soffice"].find((p) => p && (p === "soffice" || existsSync(p)));
 export function buildPdf(caseId) {
