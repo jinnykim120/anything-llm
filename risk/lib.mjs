@@ -25,9 +25,9 @@ const BIN = process.env.CLAUDE_CLI_BIN || "claude";
 
 // 호출별 사용량(토큰·비용) 기록: 센싱이 끝날 때 risk.mjs 가 요약을 로그와 logs/sensing-cost.jsonl 에 남긴다.
 export const usage = [];
-export function noteUsage(kind, o) {
+export function noteUsage(kind, o, model = MODEL) {
   const u = o?.usage || {};
-  usage.push({ kind, usd: Number(o?.total_cost_usd || 0), turns: o?.num_turns ?? null, sec: Math.round((o?.duration_ms || 0) / 1000), input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0 });
+  usage.push({ kind, model, usd: Number(o?.total_cost_usd || 0), turns: o?.num_turns ?? null, sec: Math.round((o?.duration_ms || 0) / 1000), input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0 });
 }
 
 export const dir = (p) => (mkdirSync(p, { recursive: true }), p);
@@ -138,7 +138,7 @@ export function claude(system, prompt, timeoutMs = 600_000) {
       try {
         const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop());
         if (o.is_error) return reject(new Error(String(o.result).slice(0, 300)));
-        noteUsage("분석", o);
+        noteUsage("분석", o, MODEL);
         resolve(String(o.result || ""));
       } catch {
         reject(new Error("unparseable CLI envelope"));

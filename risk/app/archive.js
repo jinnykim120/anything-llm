@@ -173,6 +173,8 @@ function renderDetail() {
     h("div", { class: "hbtn" }, [ico(h("a", { class: "btn sec", href: "/api/archive/cases/" + c.id + "/zip", text: "전체 다운로드 (zip)" }), "download"),
       ico(h("button", { class: "btn", type: "button", text: d.card.card ? "AI 분석 — 새로 만들기" : "AI 분석", onclick: analyzeDlg }), "check"),
       ico(h("button", { class: "btn sec", type: "button", text: "종합 요약 보기", title: "사건의 결론 내용을 요약해 보고 HTML·Word·PDF 로 내려받습니다(근거 자료·출처 제외)", onclick: function () { window.RiskSummary.open(c.id, c.title); } }), "download"),
+      d.card.card ? h("button", { class: "btn sec", type: "button", text: "제목 자동 만들기", title: "카드 내용으로 ‘점포명_사건내용 키워드’ 제목을 만듭니다", onclick: function () { retitleDlg(c); } }) : null,
+      h("button", { class: "btn sec", type: "button", text: "제목 고치기", onclick: function () { editTitleDlg(c); } }),
       d.nexus && d.nexus.enabled && d.nexus.pending ? ico(h("button", { class: "btn sec", type: "button", text: "Mac NEXUS에 올리기 (" + d.nexus.pending + ")", title: "이 사건의 파일 중 아직 Mac 에 없는 것을 Mac 의 잠금 폴더(리스크관리)로 올립니다. 올린 뒤 Mac 이 읽은 본문은 AI 분석에 쓰입니다.", onclick: function () { post("/api/archive/cases/" + c.id + "/nexus-sync").then(function (r) { alert(r.queued + "개를 Mac 으로 올리는 중입니다. 잠시 뒤 새로고침하면 상태가 보입니다."); setTimeout(function () { loadDetail(); }, 4000); }).catch(fail); } }), "upload") : null,
       h("button", { class: "btn sec", type: "button", text: "사건 삭제", title: "잘못 올라온 사건을 지웁니다(복구용 백업·휴지통 폴더 보관)", onclick: function () { deleteCaseDlg(c); } }),
       h("button", { class: "btn sec", type: "button", text: c.status === "종결" ? "진행 중으로 되돌리기" : "종결 사건으로 표시", title: c.status === "종결" ? "사건 대응(Incident Response)의 진행 중 목록에 다시 나타납니다" : "이미 끝난 사건이면 종결로 표시합니다(종료일은 비워 둡니다)", onclick: function () { post("/api/archive/cases/" + c.id + "/status", { status: c.status === "종결" ? "진행" : "종결" }).then(function (x) { S.detail = x; reflect(); renderDetail(); }).catch(fail); } })])]);
@@ -203,7 +205,7 @@ function cardSection(d) {
     h("dt", { text: L.caseStartDate || "시작일" }), startDateCell(c, sd),
     h("dt", { text: "종료일" }), h("dd", { text: c.endDate || (ed && ed.value) || "진행 중" + (ed && ed.basis ? " (" + ed.basis + ")" : "") }),
     h("dt", { text: "리스크 유형" }), tyRow, h("dt", { text: "사업부문" }), buRow,
-    h("dt", { text: "위험도" }), h("dd", {}, [c.level ? h("span", { class: "b lv l-" + c.level, text: c.level }) : card && card.risk_level && card.risk_level.value ? h("span", { class: "b ai", text: "AI 제안 · " + card.risk_level.value }) : "미지정", card && card.risk_level && card.risk_level.reasoning ? h("div", { class: "hint", text: card.risk_level.reasoning }) : null]),
+    h("dt", { text: "최초 인지 경로" }), h("dd", { text: fdText(card) }), h("dt", { text: "위험도" }), h("dd", {}, [c.level ? h("span", { class: "b lv l-" + c.level, text: c.level }) : card && card.risk_level && card.risk_level.value ? h("span", { class: "b ai", text: "AI 제안 · " + card.risk_level.value }) : "미지정", card && card.risk_level && card.risk_level.reasoning ? h("div", { class: "hint", text: card.risk_level.reasoning }) : null]),
     h("dt", { text: "진행 단계" }), h("dd", { text: c.stageId ? stageName(c.stageId) : "-" }),
     h("dt", { text: "출처" }), h("dd", { text: c.source + (c.isPilot ? " (초안 · 담당자 검토 전)" : "") })]);
   left.appendChild(h("div", { class: "row", style: "justify-content:space-between;margin-bottom:12px" }, [h("h3", { style: "margin:0;font-size:19px", text: "사건 정보" }),
@@ -545,6 +547,28 @@ function analyzeDlg() {
     }).catch(function (e) { body.textContent = ""; body.appendChild(h("div", { class: "note bad", text: e.message })); });
   }, true);
 }
+
+/* ───────── 사건 제목 자동 만들기·고치기 ───────── */
+function retitleDlg(c) {
+  openDlg(function (f) {
+    f.appendChild(h("h3", { text: "제목 자동 만들기" }));
+    f.appendChild(h("p", { text: "사건 카드 내용을 읽고 ‘점포명_사건내용 키워드’ 제목을 만듭니다. 폴더 이름의 앞에는 시작연월이 자동으로 붙습니다." }));
+    f.appendChild(h("div", { class: "hint", text: "지금 제목: " + c.title + (c.titleSource === "manual" ? " (담당자가 직접 정한 제목)" : "") + " · Sonnet 5.5 로 한 번 호출합니다(약 $0.01 이하). 원본 자료는 다시 분석하지 않습니다." }));
+    var er = h("div", { class: "er" }), ok = h("button", { class: "btn", type: "submit", text: c.titleSource === "manual" ? "그래도 바꾸기" : "제목 만들기" });
+    f.appendChild(er); f.appendChild(h("div", { class: "ft" }, [h("button", { class: "btn sec", type: "button", text: "취소", onclick: closeDlg }), ok]));
+    f.onsubmit = function (e) { e.preventDefault(); ok.disabled = true; post("/api/archive/cases/" + c.id + "/retitle", { force: c.titleSource === "manual" }).then(function () { closeDlg(); reflect(); loadDetail(); }).catch(function (x) { er.textContent = x.message; ok.disabled = false; }); };
+  });
+}
+function editTitleDlg(c) {
+  openDlg(function (f) {
+    f.appendChild(h("h3", { text: "제목 고치기" }));
+    var ti = h("input", { type: "text", maxlength: "200", value: c.title }), er = h("div", { class: "er" }), ok = h("button", { class: "btn", type: "submit", text: "저장" });
+    f.appendChild(lab("사건 제목 (권장 형식: 점포명_사건내용 키워드)", ti)); f.appendChild(h("div", { class: "hint", text: "직접 고친 제목은 이후 AI 분석이나 ‘제목 자동 만들기’가 덮어쓰지 않습니다. 폴더 이름은 ‘시작연월_제목’으로 함께 바뀝니다." }));
+    f.appendChild(er); f.appendChild(h("div", { class: "ft" }, [h("button", { class: "btn sec", type: "button", text: "취소", onclick: closeDlg }), ok]));
+    f.onsubmit = function (e) { e.preventDefault(); if (!ti.value.trim()) { er.textContent = "제목을 입력하세요"; return; } ok.disabled = true; post("/api/archive/cases/" + c.id + "/title", { title: ti.value }).then(function () { closeDlg(); reflect(); loadDetail(); }).catch(function (x) { er.textContent = x.message; ok.disabled = false; }); };
+  });
+}
+function fdText(card) { var fd = card && card.first_detected_via; if (!fd) return "카드에 없음(다시 분석하면 채워집니다)"; return fd.channel + (fd.note ? " · " + fd.note : ""); }
 
 /* ───────── 사건 삭제 ───────── */
 function deleteCaseDlg(c) {

@@ -111,3 +111,15 @@ select,input[type=text],input[type=date],input[type=month],input[type=password],
 .sumv .sumb{display:grid;gap:12px;max-height:min(68vh,640px);overflow:auto;padding-right:4px}
 .sums h4{margin:6px 0 4px;font-size:14px}.sums p{margin:4px 0;font-size:14px}.sums ul{margin:4px 0;padding-left:20px;font-size:14px}.sums li{margin:3px 0}
 .sumdl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+
+/* 센싱 범위·목록 패널 */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.tbox{background:var(--surface);border-radius:20px;box-shadow:var(--shadow);padding:18px 20px;display:grid;gap:10px;align-content:start}
+.tbox h4{margin:0;font-size:15px}.tbox ul{margin:6px 0;padding-left:18px;font-size:13px}.tbox li{margin:4px 0}
+.tchips{display:flex;flex-wrap:wrap;gap:6px}
+.tchip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:var(--brand-s);font-size:12.5px;font-weight:700}
+.tchip.def{background:var(--bg);color:var(--mute)}.tchip.off{opacity:.45;text-decoration:line-through}
+.tchip button{border:0;background:none;cursor:pointer;color:var(--mute);font-size:15px;line-height:1;padding:0 0 0 2px}.tchip button:hover{color:var(--hi)}
+.trow{display:grid;grid-template-columns:1fr;gap:8px}.trow textarea{width:100%;min-height:54px}.trow .btn{justify-self:start}
+.xlsel{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.xlt{overflow:auto;max-height:200px}.xlt table{font-size:12px}
+.xlb .ok{color:var(--super);font-weight:800}

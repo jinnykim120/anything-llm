@@ -61,6 +61,7 @@
 <script src="/app/summary.js"></script>
 <script src="/app/archive.js"></script>
 <script src="/app/respond.js"></script>
+<script src="/app/sensset.js"></script>
 <script src="/app/dash.js"></script>
 <script>
 (function(){
@@ -79,6 +80,7 @@ function showTab(k){if(ALLV.indexOf(k)<0)k="home";ALLV.forEach(function(v){$("p-
   if(location.hash!=="#"+k)history.replaceState(null,"","#"+k);window.scrollTo(0,0);
   if(k==="home")renderHome();if(k==="dash"&&window.RiskDash)window.RiskDash.show();if(k==="sens")renderSens();
   if(k==="arch"&&window.RiskArchive)window.RiskArchive.mount({el:el,api:api,$:$,cfg:CFG,typeName:typeName,buName:buName,pct:pct,onChange:refresh});
+  if(k==="sens"&&window.RiskSensSet)window.RiskSensSet.mount({cfg:CFG,onChange:refresh});
   if(k==="case"&&window.RiskRespond)window.RiskRespond.mount({cfg:CFG,nav:showTab,onChange:refresh})}
 window.addEventListener("hashchange",function(){showTab((location.hash||"").slice(1))});
 /* 화면 모드(라이트/다크): 기본은 라이트, 선택은 이 브라우저에만 기억 */

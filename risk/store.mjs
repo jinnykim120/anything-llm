@@ -111,12 +111,12 @@ const nowIso = () => new Date().toISOString();
 
 // ── 스키마 마이그레이션(v2: 유형 출처·AI 제안 보관). 기존 데이터가 있으면 먼저 VACUUM INTO 로 백업 복사본을 만든다.
 //    컬럼은 존재 여부를 확인하고 추가하므로 여러 번 실행해도 안전하다(멱등).
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 7;
 const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((r) => r.name === c);
-const ISSUE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_type_status: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT", ai_type_at_confirm: "TEXT", type_confirmed_at: "TEXT" };
+const ISSUE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_type_status: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT", ai_type_at_confirm: "TEXT", type_confirmed_at: "TEXT", origin: "TEXT", signal: "TEXT" };
 const CASE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT",
   folder: "TEXT", card_json: "TEXT", card_status: "TEXT", card_by: "TEXT", card_at: "TEXT",   // v3: 사건 폴더 이름·사건 카드(초안/확정)
-  start_provisional: "INTEGER" };   // v4: 1 = 시작일의 '연월'만 임시값(최초 민원 접수일 미확정 — 서버 경로 가져오기)
+  start_provisional: "INTEGER" , title_source: "TEXT" };   // v4: 1 = 시작일의 '연월'만 임시값(최초 민원 접수일 미확정 — 서버 경로 가져오기)
 const FILE_COLS = { kind_source: "TEXT", pii_state: "TEXT", pii_note: "TEXT", nexus_state: "TEXT", nexus_loc: "TEXT", nexus_err: "TEXT", nexus_at: "TEXT" };   // v4: 종류를 누가 정했나(manual|auto) · 개인정보 의심(suspect|cleared)
 export let lastBackup = null;
 function migrate() {
@@ -217,7 +217,7 @@ function checkClass({ typeId, buId, tags, level }, { typeRequired = true } = {})
 // 유형: typeId(현재 값) + typeSource(manual|document|ai|null) + aiType(제안 원본). typeConfirmed = 담당자·문서가 확정한 값인가.
 // 사업부문: buId 는 담당자가 고른 확정값만. aiBu 는 힌트일 뿐 buId 를 미리 채우지 않는다.
 const issueRow = (r, caseNames = {}) => ({ id: r.id, title: r.title, summary: r.summary, area: r.area, level: r.level, typeId: r.type_id, buId: r.bu_id,
-  typeSource: r.type_source || null, typeConfirmed: r.type_source === "manual" || r.type_source === "document",
+  origin: r.origin || null, signal: r.signal || null, typeSource: r.type_source || null, typeConfirmed: r.type_source === "manual" || r.type_source === "document",
   aiType: r.ai_type_status ? { status: r.ai_type_status, id: r.ai_type_id, confidence: r.ai_type_conf, why: r.ai_type_why } : null,
   aiBu: r.ai_bu_id ? { id: r.ai_bu_id, why: r.ai_bu_why } : null,
   startDate: r.start_date, firstSeen: r.first_seen, lastSeen: r.last_seen, sourcesCount: r.sources_count, state: r.state, holdReason: r.hold_reason, heldAt: r.held_at, caseId: r.case_id, caseName: caseNames[r.case_id] || null,
@@ -250,6 +250,18 @@ export function classifyIssue(id, b = {}) {
 }
 export function issueStates() { syncSensing(); return Object.fromEntries(q("SELECT id,state,hold_reason,case_id FROM issues").map((r) => [r.id, { state: r.state, holdReason: r.hold_reason, caseId: r.case_id }])); }
 
+// 담당자가 직접 등록하는 내부 신호(웹 센싱으로는 안 잡히는 VOC·점포·시스템·인사 이슈). 센싱 목록에 같은 방식으로 나타나고 사건화·보류도 같다.
+const SIGNALS = ["고객VOC", "점주", "언론", "기관", "내부", "기타"];
+export function createInternalIssue(b = {}) {
+  const title = String(b.title || "").trim().slice(0, 200); if (!title) throw new HttpError(400, "제목을 입력하세요");
+  const summary = String(b.summary || "").trim().slice(0, 4000), signal = SIGNALS.includes(b.signal) ? b.signal : "내부";
+  const day = isDate(b.occurredAt) ? b.occurredAt : todayKst(), level = ["높음", "중간", "낮음"].includes(b.level) ? b.level : null;
+  const id = "in" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const typeOk = b.typeId && config().issueTypes.some((t) => t.id === b.typeId), buOk = b.buId && config().businessUnits.some((x) => x.id === b.buId);
+  run("INSERT INTO issues (id,title,summary,area,level,type_id,bu_id,type_source,type_confirmed_at,start_date,first_seen,last_seen,sources_count,state,synced_at,origin,signal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,'센싱됨',?,'internal',?)",
+    id, title, summary, "내부 등록", level, typeOk ? b.typeId : null, buOk ? b.buId : null, typeOk ? "manual" : null, typeOk ? nowIso() : null, day, nowIso(), nowIso(), nowIso(), signal);
+  return issueRow(q1("SELECT * FROM issues WHERE id=?", id));
+}
 export function promoteIssue(id, b = {}) {
   syncSensing();
   const i = q1("SELECT * FROM issues WHERE id=?", id);
@@ -293,7 +305,7 @@ export function restoreIssue(id) {
 const caseRow = (r) => ({ id: r.id, source: r.source, issueId: r.issue_id, title: r.title, summary: r.summary, level: r.level, typeId: r.type_id, typeSource: r.type_source || null, typeTags: JSON.parse(r.type_tags || "[]"),
   aiType: r.ai_type_id ? { id: r.ai_type_id, confidence: r.ai_type_conf, why: r.ai_type_why } : null, aiBu: r.ai_bu_id ? { id: r.ai_bu_id, why: r.ai_bu_why } : null,
   buId: r.bu_id, buRaw: r.bu_raw, status: r.status, stageId: r.stage_id, startDate: r.start_date, startYear: r.start_year, dateKnown: !!r.date_known, endDate: r.end_date, needsReview: r.needs_review, createdAt: r.created_at,
-  folderName: r.folder || caseFolderName({ title: r.title, startDate: r.start_date, startYear: r.start_year }),
+  titleSource: r.title_source || null, folderName: r.folder || caseFolderName({ title: r.title, startDate: r.start_date, startYear: r.start_year }),
   startProvisional: !!r.start_provisional,
   cardStatus: r.card_json ? r.card_status || "초안" : null, cardBy: r.card_by || null, cardAt: r.card_at || null, isPilot: r.source === "시범" });
 export { caseFolderName };

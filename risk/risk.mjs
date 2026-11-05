@@ -11,6 +11,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { MODEL, claude, lastJson, usage, noteUsage } from "./lib.mjs";
+import * as SCOPE from "./sensing-scope.mjs";
 import { searchAny, remote, lastSearch, unknownNumbers, cleanRefs } from "./archive.mjs";
 import { typeGuide, SCHEMA_FRAGMENT, normalizeAi } from "./classify.mjs";
 
@@ -25,7 +26,7 @@ const kst = new Date(Date.now() + 9 * 3600e3), today = kst.toISOString().slice(0
 const slot = argVal("--slot") || (kst.getUTCHours() < 12 ? "am" : "pm"), slotLabel = slot === "am" ? "08:00" : "14:00";
 const runAt = `${today} ${slotLabel}`;
 const LV = { 높음: 0, 중간: 1, 낮음: 2 };
-const AREAS = ["식품안전", "가맹업", "유통규제", "소비자·사회"];
+const AREAS = SCOPE.areaNames();   // config/sensing.json 의 분야(켜진 것)
 
 const load = () => (existsSync(STORE) ? JSON.parse(readFileSync(STORE, "utf8")) : { issues: {}, runs: [] });
 const save = (s) => writeFileSync(STORE, JSON.stringify(s, null, 2) + "\n");
@@ -33,16 +34,18 @@ const grams = (s) => { const t = String(s).replace(/[^\p{L}\p{N}]/gu, ""), g = n
 const jac = (a, b) => { const A = grams(a), B = grams(b); let n = 0; for (const x of A) if (B.has(x)) n++; return n / (A.size + B.size - n || 1); };
 const idOf = (title) => createHash("sha1").update(title.replace(/\s+/g, "")).digest("hex").slice(0, 10);
 
+// 웹 수집 단계 모델: 환경변수 INSIGHTS_WEB_MODEL (기본 claude-haiku-5-5). 이슈 분석 단계는 INSIGHTS_MODEL (기본 claude-sonnet-5-5).
+const WEB_MODEL = process.env.INSIGHTS_WEB_MODEL || "claude-haiku-5-5";
 // ── 웹 검색 호출(검색·열람만 허용)
 const SYS_WEB = "당신은 GS리테일(편의점 GS25, 슈퍼 GS더프레시, 홈쇼핑 GS SHOP 등 운영)의 리스크 관리 담당 리서처입니다. 한국어로 쓰고, 열어본 자료에 있는 사실만 쓰며 확인 못 한 것은 쓰지 않습니다. 공식 출처(정부 부처·지자체·기관 보도자료)를 우선합니다. 최종 응답은 JSON 객체 하나만 출력합니다(설명·코드펜스 없이).";
 function claudeWeb(prompt, timeoutMs = 25 * 60e3) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.CLAUDE_CLI_BIN || "claude", ["-p", "--model", MODEL, "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch", "--settings", '{"disableAllHooks":true}', "--output-format", "json", "--system-prompt", SYS_WEB], { env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
+    const child = spawn(process.env.CLAUDE_CLI_BIN || "claude", ["-p", "--model", WEB_MODEL, "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch", "--settings", '{"disableAllHooks":true}', "--output-format", "json", "--system-prompt", SYS_WEB], { env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
     let out = "", err = "";
     const t = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("claude 시간 초과")); }, timeoutMs);
     child.stdout.on("data", (d) => (out += d)); child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => { clearTimeout(t); reject(e); });
-    child.on("close", (code) => { clearTimeout(t); if (code !== 0) return reject(new Error(`claude 종료 ${code}: ${(err || out).slice(0, 300)}`)); try { const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop()); if (o.is_error) return reject(new Error(String(o.result).slice(0, 300))); noteUsage("수집", o); resolve(String(o.result || "")); } catch { reject(new Error("CLI 응답을 읽지 못함")); } });
+    child.on("close", (code) => { clearTimeout(t); if (code !== 0) return reject(new Error(`claude 종료 ${code}: ${(err || out).slice(0, 300)}`)); try { const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop()); if (o.is_error) return reject(new Error(String(o.result).slice(0, 300))); noteUsage("수집", o, WEB_MODEL); resolve(String(o.result || "")); } catch { reject(new Error("CLI 응답을 읽지 못함")); } });
     child.stdin.write(prompt); child.stdin.end();
   });
 }
@@ -55,8 +58,8 @@ async function alive(url) {
 // ── 1단계: 이슈 수집
 async function collectBy(store, label, focusText, tag) {
   const recent = Object.values(store.issues).filter((i) => i.status !== "종결" || (Date.now() - Date.parse(i.lastUpdated)) < 5 * 864e5).sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated)).slice(0, 40);
-  const prompt = `지금은 ${runAt} (KST) 입니다. 웹 검색·열람으로 최근 24시간(없으면 48시간) 안에 보도·발표된 리스크 이슈를 찾으세요. 우리 회사의 판매 상품·사업(편의점·슈퍼·홈쇼핑·가맹 운영, 식품·생활용품 판매, 협력사 거래)과 관련될 수 있는 것이면 모두 담습니다. 당사(GS리테일·GS25·GS더프레시·GS SHOP 등)가 직접 거론된 이슈도 빼지 마세요.
-분야: ①식품안전(식품·먹거리·생활용품의 위해·회수·표시·위생·이물, 식약처·지자체 점검·적발, 원산지) ②가맹업(가맹사업법, 점주 갈등, 본부·점주 분쟁, 공정위 가맹 조사·시정, 필수품목) ③유통규제(대규모유통업법, 납품·판촉·수수료, 공정위·산업부·중기부, 영업시간·출점 규제, 근로·안전 규제) ④소비자·사회(소비자원 경보·피해 사례, 가격·물가, 개인정보·보안 사고, 파업·재해·시스템 장애, 사회적 논란)
+  const prompt = `지금은 ${runAt} (KST) 입니다. 웹 검색·열람으로 최근 24시간(없으면 48시간) 안에 보도·발표된 리스크 이슈를 찾으세요.
+${SCOPE.promptText()}
 ${focusText} 같은 사건의 기사는 하나로 묶습니다. 이미 아래 목록에 있는 이슈의 새 전개(새 조치·새 피해·후속 발표)가 있으면 updateOf 에 그 id 를 적고, 새 내용만 summary 에 씁니다. 목록과 같은 내용이고 새 소식이 없으면 넣지 마세요.
 [이미 다룬 이슈]
 ${recent.map((i) => `- ${i.id} | ${i.title} | ${i.status}`).join("\n") || "(없음)"}
@@ -80,6 +83,25 @@ const collectKeywords = async (store, kws, type) => {
 const chunk = (a, n) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 const WATCH = join(DATA, "watch.json");
 const readWatch = () => { try { return JSON.parse(readFileSync(WATCH, "utf8")).keywords || []; } catch { return []; } };
+// 협력사·취급 품목 목록 검색: 이름 여러 개를 한 번에 묶어 검색한다. 이슈마다 어느 이름으로 찾았는지 keyword 에 적게 한다.
+const collectList = async (store, names, kind) => {
+  const q = names.map((k) => `"${k}"`).join(", ");
+  const focus = kind === "partner"
+    ? `이번 호출에서는 우리와 거래하는 협력사·제조사 ${q} 각각의 최근 이슈(위생·품질 사고, 회수·행정처분, 공정위 신고·갑질 분쟁, 산재·사망사고, 노조 단체행동, 불법 고용, 소송·계약 분쟁)를 찾습니다(업체마다 따로 검색).`
+    : `이번 호출에서는 우리가 홈쇼핑·편의점·슈퍼에서 파는 품목 ${q} 각각의 최근 안전·표시 문제(식약처 회수·판매중단·부적합·행정처분, 소비자원 위해정보, 이물·세균·곰팡이·유통기한·원산지·원재료 표시 오류)를 국내 유통 기준으로 찾습니다(품목마다 따로 검색).`;
+  const out = await collectBy(store, names.join(", "), `${focus} 최근 24~48시간 보도가 없으면 최근 1주 안으로 넓히고, 해당 이름과 직접 관련된 이슈만 담으며, 각 이슈의 keyword 에 해당 이름을 적습니다.`, null);
+  out.forEach((it) => { it.origin = { type: kind, keyword: names.includes(it.keyword) ? it.keyword : names.find((n) => String(it.keyword || "").includes(n)) || names[0] }; });
+  return out;
+};
+// 이번 회차에 어떤 호출을 하는지 미리 보기(AI 호출 없음): node risk.mjs --plan
+function printPlan() {
+  const lim = SCOPE.limits(), kw = chunk(readWatch(), 3), pb = SCOPE.nextBatches("partner"), prb = SCOPE.nextBatches("product");
+  log(`[계획] 분야 ${AREAS.length}개 호출: ${AREAS.join(" / ")}`);
+  log(`[계획] 관심 키워드 ${readWatch().length}개 → ${kw.length}회 호출`);
+  log(`[계획] 협력사 목록 ${SCOPE.allTerms("partner").length}개 중 이번에 ${pb.flat().length}개 → ${pb.length}회 호출 (한 바퀴 약 ${SCOPE.cycleRuns("partner")}회차)${pb.length ? ": " + pb.flat().join(", ") : ""}`);
+  log(`[계획] 품목 목록 ${SCOPE.allTerms("product").length}개 중 이번에 ${prb.flat().length}개 → ${prb.length}회 호출 (한 바퀴 약 ${SCOPE.cycleRuns("product")}회차): ${prb.flat().join(", ")}`);
+  log(`[계획] 웹 수집 호출 합계 ${AREAS.length + kw.length + pb.length + prb.length}회 (모델 ${WEB_MODEL}), 한도: 협력사 ${lim.partnerCallsPerRun}회·품목 ${lim.productCallsPerRun}회`);
+}
 // 분야마다 따로 검색해(2개씩 병렬) 빠지는 분야가 없게 한다. 같은 사건은 제목이 비슷하면 하나로 합친다.
 async function collect(store, manualKw) {
   const lists = [], fail = (a) => (e) => (log(`  [${a}] 수집 실패: ${e.message}`), []);
@@ -89,6 +111,10 @@ async function collect(store, manualKw) {
     for (let i = 0; i < AREAS.length; i += 2) lists.push(...(await Promise.all(AREAS.slice(i, i + 2).map((a) => collectArea(store, a).catch(fail(a))))));
     const groups = chunk(readWatch(), 3); // 관심 키워드: 등록한 전부를 매 회차에 같이 검색(3개씩 묶어 2묶음 병렬)
     for (let i = 0; i < groups.length; i += 2) lists.push(...(await Promise.all(groups.slice(i, i + 2).map((g) => collectKeywords(store, g, "watch").catch(fail(g.join(", ")))))).flat());
+    for (const kind of ["partner", "product"]) {   // 협력사·취급 품목 목록: 오래 검색하지 않은 순으로 한도만큼 돌려 가며 검색
+      const batches = SCOPE.nextBatches(kind);
+      for (let i = 0; i < batches.length; i += 2) lists.push(...(await Promise.all(batches.slice(i, i + 2).map((b) => collectList(store, b, kind).then((r) => (SCOPE.markChecked(kind, b), r)).catch(fail(kind + ": " + b.slice(0, 2).join(", ")))))));
+    }
   }
   const out = [];
   for (const it of lists.flat()) { const dup = out.find((o) => jac(o.title, it.title) >= 0.5 || o.sources.some((x) => it.sources.some((y) => y.url === x.url))); if (!dup) out.push(it); else if (it.origin && !dup.origin) dup.origin = it.origin; }
@@ -136,14 +162,15 @@ function logUsage() {
   try { appendFileSync(join(here, "logs", "sensing-cost.jsonl"), JSON.stringify({ at: runAt, calls: usage }) + "\n"); } catch {}
 }
 async function main() {
-  if (!arg("--build-only")) await lock();
-  try { await run(); } finally { if (!arg("--build-only")) rmSync(LOCK, { force: true }); }
+  const locked = !arg("--build-only") && !arg("--plan"); if (locked) await lock();
+  try { await run(); } finally { if (locked) rmSync(LOCK, { force: true }); }
 }
 async function run() {
+  if (arg("--plan")) { printPlan(); return; }
   const store = load(); let added = 0, updated = 0;
   const manualKw = (argVal("--keywords") || "").split(";").map((x) => x.trim()).filter(Boolean);
   if (!arg("--build-only")) {
-    log(`시작 ${runAt} (모델 ${MODEL}) · 누적 이슈 ${Object.keys(store.issues).length}건`);
+    log(`시작 ${runAt} (수집 모델 ${WEB_MODEL} · 분석 모델 ${MODEL}) · 누적 이슈 ${Object.keys(store.issues).length}건`);
     const found = await collect(store, manualKw);
     const analyzed = await pool(found, 3, async (it) => {
       const { passages } = await searchAny(it.keywords || []); if (remote()) log(`  [NEXUS 검색] ${it.title.slice(0, 30)} → 가져옴 ${lastSearch.fetched} · 사용 ${lastSearch.allowed} · 허용 목록 밖 제외 ${lastSearch.dropped}`);

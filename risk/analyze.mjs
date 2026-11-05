@@ -162,9 +162,9 @@ function applyRules(caseId, items) {
 // ───────────── Claude 호출 ─────────────
 let current = { runId: null, child: null };
 const cancelled = new Set();
-function callClaude({ system, user, tools = "", addDir = null, cwd, timeoutMs }) {
+function callClaude({ system, user, tools = "", addDir = null, cwd, timeoutMs, model }) {
   const stub = process.env.RISK_CLAUDE_STUB, cmd = stub ? process.execPath : process.env.CLAUDE_CLI_BIN || "claude";
-  const args = [...(stub ? [stub] : []), "-p", "--model", MODEL(), "--tools", tools];
+  const args = [...(stub ? [stub] : []), "-p", "--model", model || MODEL(), "--tools", tools];
   if (tools) args.push("--allowedTools", tools, "--add-dir", addDir);
   args.push("--settings", '{"disableAllHooks":true}', "--exclude-dynamic-system-prompt-sections", "--output-format", "json", "--system-prompt", system);
   return new Promise((resolve, reject) => {
@@ -325,11 +325,15 @@ ${stageDefs}
 6) 이미지 판독문에서 새로 확인된 사실(기관 조사결과, 근거 법령, 접수 일시, 리콜·환불 현황 등)은 timeline/legal_issues/figures/stage_actions 에 반영하고, 이미지에서만 알 수 있었던 사실은 case_card.filled_from_embedded_images 에 {item, fact, src} 로도 적어라. 판독이 불확실한 숫자·조항은 사실로 단정하지 말고 review_flags 에 올려라.
 7) 여전히 문서에 없는 항목(종결일, 원인 규명, 재발방지 대책 등)은 not_in_documents 에 적어라. 개인정보는 쓰지 마라.
 8) **근거(src)**: 모든 근거는 위 파일 목록에 붙은 ID([F12] 같은 대괄호 안의 값, 문서 속 그림은 [E1])로만 가리킨다(src.file). 목록에 없는 ID나 파일명을 만들어 쓰지 말고, 근거 파일을 특정할 수 없으면 src 를 null 로 둔다. src.quote 는 그 파일 본문에 실제로 있는 문장 일부를 그대로 옮기고(요약·번역 금지), src.loc 은 쪽([쪽 N] 표시)·슬라이드([슬라이드 N])·시트([시트 …])·표/문단 위치를 알 수 있을 때만 적어라. review_flags·uncertainties 의 항목은 문자열이거나 {"text": "", "src": …} 형태다.
+9) **카드 제목 구성요소(title_parts)**: place 는 사건의 주체(점포명·협력사명·상품명 등. 예: "GS25 ○○점"), keyword 는 사건 내용 키워드 2개(많아야 3개)를 가운데점(·)으로 이어 전체 14자 이내(예: "이물질·환불", "표기오류·회수", "점주분쟁·보상"). place 에는 괄호·부연 설명·쉼표를 넣지 않는다. 문서에 근거한 말만 쓰고 날짜는 쓰지 않는다(날짜는 시작일로 따로 붙는다).
+10) **최초 인지 경로(first_detected_via)**: 회사(당사)가 이 일을 처음 알게 된 경로. channel 은 고객VOC|점주|언론|기관|내부|기타|문서에 없음 중 하나이며, note 에 누가 언제 어떤 경로로 알렸는지 문서에 적힌 대로 쓴다. 문서에 없으면 channel 은 "문서에 없음".
 
 아래 JSON 스키마로 출력하라.
 {
  "case_card": {
   "title": "",
+  "title_parts": {"place": "사건의 주체(점포명·협력사명·상품명)", "keyword": "사건 내용 키워드(12자 이내)"},
+  "first_detected_via": {"channel": "고객VOC|점주|언론|기관|내부|기타|문서에 없음", "note": "처음 알게 된 경로 설명"},
   "issue_type": {"primary": "<유형 id | hold>", "confidence": 0.0, "secondary_tags": ["<유형 id>"], "reasoning": ""},
   "business_unit": {"value": "<사업부문 id 또는 null>", "reasoning": ""},
   "start_date": {"value": "YYYY-MM-DD|null", "basis": "최초 민원 접수일 기준 설명", "is_estimate": false, "conflict": false, "candidates": [{"date": "", "src": {"file": "F12 또는 E1", "loc": "쪽 3 | 슬라이드 2 | 시트명 | 표·문단 위치(알 수 있을 때만, 모르면 빈 문자열)", "quote": "근거가 되는 원문 일부(40자 안팎, 원문 그대로)"}}]},
@@ -421,6 +425,11 @@ function finalizeCard(raw, ctx) {
   const arr = (x) => (Array.isArray(x) ? x : []);
   for (const k of ["timeline", "legal_issues", "figures", "inconsistencies", "review_flags", "not_in_documents", "uncertainties", "notes", "filled_from_embedded_images"]) card[k] = arr(card[k]);
   card.parties = { internal_departments: arr(card.parties?.internal_departments), partners_and_third_parties: arr(card.parties?.partners_and_third_parties), agencies: arr(card.parties?.agencies) };
+  // 카드 제목 구성요소·최초 인지 경로 정리(허용 값만 남긴다)
+  const cleanPart = (s, n) => String(s || "").split(String.fromCharCode(92)).join("").replace(/[,，、]/g, "·").replace(/[/:*?"<>|_]/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
+  card.title_parts = { place: cleanPart(card.title_parts?.place, 24), keyword: cleanPart(card.title_parts?.keyword, 18) };
+  const FD = ["고객VOC", "점주", "언론", "기관", "내부", "기타", "문서에 없음"], fd0 = card.first_detected_via || {};
+  card.first_detected_via = { channel: FD.includes(fd0.channel) ? fd0.channel : "문서에 없음", note: String(fd0.note || "").slice(0, 300) };
   card.stage_actions = card.stage_actions && typeof card.stage_actions === "object" ? card.stage_actions : {};
   // 유형·사업부문 제안 정리
   const typeIds = new Set(tax.issueTypes.map((t) => t.id)), buIds = new Set(tax.businessUnits.map((b) => b.id));
@@ -584,6 +593,8 @@ async function execute(id) {
     if (adopt) { result.card._meta.startDateAdopted = { from: cc.startDate || `${cc.startYear}-미상`, to: sdv.value }; result.card.review_flags.push(`사건 시작일이 임시값(${cc.startDate ? cc.startDate.slice(0, 7) : cc.startYear + "년"})이었는데 문서에서 찾은 최초 민원 접수일(${sdv.value})로 바꾸었습니다. 담당자가 확인하세요.`); }
     applyResult(caseId, result, ins, vis);
     if (adopt) { try { CF.setStartDate(caseId, sdv.value); } catch { /* 날짜를 바꾸지 못해도 분석 결과는 유지 */ } }
+    // 카드 제목 자동 생성: '점포명_사건내용키워드'(앞의 시작연월은 폴더 이름이 자동으로 붙인다). 담당자가 직접 고친 제목은 덮어쓰지 않는다.
+    try { const tp = result.card.title_parts || {}; if (tp.place && tp.keyword && S.getCase(caseId).titleSource !== "manual") CF.setCaseTitle(caseId, `${tp.place}_${tp.keyword}`, "auto"); } catch { /* 제목을 못 바꿔도 분석 결과는 유지 */ }
     setRun(id, { status: "완료", step: 5, step_label: STEPS[4], progress_done: 1, progress_total: 1, message: "분석 완료 — 초안으로 저장했습니다. 담당자가 확인한 뒤 확정하세요.", finished_at: nowIso() });
   } catch (e) {
     if (e instanceof Cancelled) setRun(id, { status: "취소", message: "취소됨", finished_at: nowIso() });
@@ -600,8 +611,8 @@ export function recover() {
 if (process.env.RISK_WORKER !== "0") recover();
 
 // 사건 대응 탭 등 다른 모듈이 한 번짜리 질의를 할 때 쓴다(도구 없음, 버튼으로만 호출).
-export async function askClaude({ system, user, timeoutMs = 180000 }) {
-  const { result, meta } = await callClaude({ system, user, cwd: tmpdir(), timeoutMs });
+export async function askClaude({ system, user, timeoutMs = 180000, model }) {
+  const { result, meta } = await callClaude({ system, user, cwd: tmpdir(), timeoutMs, model });
   return { result, cost: Number(meta?.total_cost_usd || 0) };
 }
 export { lastJson };

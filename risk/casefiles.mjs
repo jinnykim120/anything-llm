@@ -359,3 +359,20 @@ export function setStartDate(caseId, date) {
   writeManifest(caseId);
   return getCase(caseId);
 }
+
+// 사건 제목을 바꾸고 폴더 이름을 맞춘다. source: 'auto'(카드 자동 제목) | 'manual'(담당자가 직접 고침 — 이후 자동 제목이 덮어쓰지 않는다).
+export function setCaseTitle(caseId, title, source = "auto") {
+  const t = String(title || "").trim().slice(0, 200); if (!t) throw new HttpError(400, "제목을 입력하세요");
+  const row = q1("SELECT folder FROM cases WHERE id=?", caseId); if (!row) throw new HttpError(404, "사건을 찾을 수 없습니다");
+  run("UPDATE cases SET title=?, title_source=?, updated_at=? WHERE id=?", t, source === "manual" ? "manual" : "auto", nowIso(), caseId);
+  const c = getCase(caseId), want = caseFolderName({ title: c.title, startDate: c.startDate, startYear: c.startYear });
+  if (row.folder && row.folder !== want) {
+    let name = want, n = 2;
+    while (q1("SELECT id FROM cases WHERE folder=? AND id<>?", name, caseId) || existsSync(join(CASES, name))) name = `${want}(${n++})`;
+    const from = join(CASES, row.folder), to = join(CASES, name);
+    if (existsSync(from)) { try { renameSync(from, to); run("UPDATE cases SET folder=? WHERE id=?", name, caseId); } catch { /* 이름 변경 실패 시 기존 폴더 유지 */ } }
+    else run("UPDATE cases SET folder=? WHERE id=?", name, caseId);
+  }
+  writeManifest(caseId);
+  return getCase(caseId);
+}

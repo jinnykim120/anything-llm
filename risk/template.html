@@ -129,7 +129,7 @@ function card(i){
   var c=el("article","is l-"+i.level),h=el("div","hd"),b=el("div","badges");
   b.appendChild(el("span","b lv","위험도 "+i.level));b.appendChild(el("span","b",i.area));b.appendChild(el("span","b st-"+(i.status==="종결"?"종결":"진행"),i.status));
   if(isNew(i))b.appendChild(el("span","b new","오늘 신규"));else if(isToday(i.lastUpdated))b.appendChild(el("span","b up","오늘 업데이트"));
-  var seenO={};(i.origin||[]).forEach(function(o){var k=o.type+o.keyword;if(seenO[k])return;seenO[k]=1;b.appendChild(el("span","b org",(o.type==="manual"?"수동 검색: ":"관심 키워드: ")+o.keyword))});
+  var seenO={};(i.origin||[]).forEach(function(o){var k=o.type+o.keyword;if(seenO[k])return;seenO[k]=1;b.appendChild(el("span","b org",({manual:"수동 검색: ",partner:"협력사 목록: ",product:"품목 목록: "}[o.type]||"관심 키워드: ")+o.keyword))});
   h.appendChild(b);h.appendChild(el("h3",null,i.title));h.appendChild(el("p","sm",i.summary.length>150?i.summary.slice(0,150)+"…":i.summary));
   h.appendChild(el("div","meta","발생 "+i.occurredAt+" · 최근 갱신 "+fmtT(i.lastUpdated)+" · 출처 "+i.sources.length+"건"));
   var bd=el("div","bd");bd.hidden=true;

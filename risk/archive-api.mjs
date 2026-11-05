@@ -30,6 +30,9 @@ import * as I from "./importer.mjs";
 import * as R from "./respond.mjs";
 import * as NX from "./nexussync.mjs";
 import * as CD from "./casedelete.mjs";
+import * as RT from "./retitle.mjs";
+import * as SC from "./sensing-scope.mjs";
+import * as TI from "./termimport.mjs";
 CF.hooks.onAdded = (caseId, fileId) => NX.enqueue(caseId, fileId);
 
 const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf" };
@@ -45,6 +48,30 @@ export async function handleArchive(req, res, p, url, { body, json }) {
     if (p === "/api/settings/confirm-password") {
       if (m === "GET") return json(res, 200, confirmPwInfo()), true;
       if (m === "POST") { const b = await bodyJson(); return json(res, 200, b.reset ? resetConfirmPassword(b.current, ip) : setConfirmPassword(b.current, b.next, ip)), true; }
+      return false;
+    }
+    // ── 센싱 범위·협력사/품목 목록·내부 신호 등록
+    if (p.startsWith("/api/sensing")) {
+      const readRaw = (r, max) => new Promise((ok, bad) => { const ch = []; let n = 0; r.on("data", (d) => { n += d.length; if (n > max) { bad(new S.HttpError(413, "파일이 너무 큽니다(최대 15MB)")); r.destroy(); return; } ch.push(d); }); r.on("end", () => ok(Buffer.concat(ch))); r.on("error", bad); });
+      const jsonBody = async () => { try { const t = (await readRaw(req, 3_000_000)).toString("utf8"); return t ? JSON.parse(t) : {}; } catch (e) { if (e instanceof S.HttpError) throw e; throw new S.HttpError(400, "JSON 형식이 맞지 않습니다"); } };
+      try {
+        if (p === "/api/sensing/config" && m === "GET") {
+          const c = SC.scope();
+          json(res, 200, { company: c.company, channels: c.channels, areas: c.areas, exclude: c.exclude, limits: SC.limits(), partners: SC.allTerms("partner"), products: SC.allTerms("product"), cycle: { partner: SC.cycleRuns("partner"), product: SC.cycleRuns("product") }, signals: ["고객VOC", "점주", "언론", "기관", "내부", "기타"] }); return true;
+        }
+        if (p === "/api/sensing/terms" && m === "POST") {
+          const b = await jsonBody(); if (!Array.isArray(b.names) || !b.names.length) throw new S.HttpError(400, "추가할 이름이 없습니다");
+          if (b.names.length > 3000) throw new S.HttpError(400, "한 번에 3000개까지 추가할 수 있습니다");
+          json(res, 200, SC.addTerms(b.kind, b.names, { channel: b.channel, note: b.note, source: b.source || "수동" })); return true;
+        }
+        if (p === "/api/sensing/terms/remove" && m === "POST") { const b = await jsonBody(); json(res, 200, SC.removeTerm(b.kind, String(b.name || ""))); return true; }
+        if (p === "/api/sensing/terms/preview" && m === "POST") {
+          const buf = await readRaw(req, 15 * 1024 * 1024);
+          try { json(res, 200, TI.previewFile(buf, url.searchParams.get("name") || "")); } catch (e) { if (e.code === 400) throw new S.HttpError(400, e.message); throw new S.HttpError(400, "파일을 읽지 못했습니다: " + String(e.message).slice(0, 80)); }
+          return true;
+        }
+        if (p === "/api/sensing/internal" && m === "POST") { json(res, 200, { issue: S.createInternalIssue(await jsonBody()) }); return true; }
+      } catch (e) { if (e instanceof S.HttpError) { json(res, e.code, { error: e.message }); return true; } throw e; }
       return false;
     }
     // ── 사건 대응(Incident Response)
@@ -92,6 +119,8 @@ export async function handleArchive(req, res, p, url, { body, json }) {
       res.writeHead(200, { ...base, "content-type": inline ? MIME[ext] : "application/octet-stream", "content-length": size, "content-disposition": dispo(name, inline) });
       createReadStream(abs).pipe(res); return true;
     }
+    if (sub === "/retitle" && m === "POST") { const b = await bodyJson(); json(res, 200, await RT.retitle(id, { force: !!b.force })); return true; }
+    if (sub === "/title" && m === "POST") { const t = String((await bodyJson()).title || ""); if (A.activeRun(id)) throw new S.HttpError(409, "AI 분석이 진행 중이라 지금은 바꿀 수 없습니다"); json(res, 200, { case: CF.setCaseTitle(id, t, "manual") }); return true; }
     if (sub === "/delete" && m === "POST") { json(res, 200, await CD.deleteCase(id, await bodyJson())); return true; }
     if (sub === "/nexus-sync" && m === "POST") { S.getCase(id); json(res, 200, NX.syncCase(id)); return true; }
     if (sub === "/status" && m === "POST") { const st = String((await bodyJson()).status || ""); S.setCaseStatus(id, st); CF.writeManifest(id); json(res, 200, CF.caseDetail(id)); return true; }
