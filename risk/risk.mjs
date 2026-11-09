@@ -7,12 +7,14 @@
 // 이 페이지는 리스크 담당자용 별도 페이지다. 제외 기준 없이 전부 싣는다(당사가 직접 당사자인 이슈 포함).
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { get as httpsGet } from "node:https";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { MODEL, claude, lastJson, usage, noteUsage, spawnClaude } from "./lib.mjs";
 import * as NX from "./nexus.mjs";
 import * as SCOPE from "./sensing-scope.mjs";
+import { matchTerms } from "./company-terms.mjs";
 import { searchAny, remote, lastSearch, unknownNumbers, cleanRefs } from "./archive.mjs";
 import { typeGuide, SCHEMA_FRAGMENT, normalizeAi } from "./classify.mjs";
 
@@ -51,13 +53,28 @@ function claudeWeb(prompt, timeoutMs = 25 * 60e3) {
   });
 }
 // 출처 링크가 실제로 있는 주소인지 확인한다. 404·410·없는 도메인이면 버리고, 서버가 확인 요청 자체를 거부·지연하는 경우(큰 헤더·시간 초과·5xx·429)는 확인 불가로 보고 살린다.
-async function alive(url) {
-  try { const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" }, redirect: "follow", signal: AbortSignal.timeout(20000) }); return !(r.status === 404 || r.status === 410); }
-  catch (e) { const c = e.cause?.code || e.code || ""; return !/ENOTFOUND|ECONNREFUSED|CERT|ERR_TLS/.test(c); }
+async function checkUrl(url) {
+  try { const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" }, redirect: "follow", signal: AbortSignal.timeout(20000) }); return { ok: !(r.status === 404 || r.status === 410), why: `HTTP ${r.status}` }; }
+  catch (e) {
+    const c = e.cause?.code || e.code || "";
+    // 사내 보안 장비가 HTTPS 를 가로채 인증서 오류가 나는 네트워크: 주소가 실제로 열리는지(상태 코드)만 인증서 검증 없이 확인한다. 응답 내용은 읽지 않는다.
+    if (/CERT|ERR_TLS/.test(c) && /^https:/.test(url)) { const st = await insecureStatus(url); if (typeof st === "number") return { ok: !(st === 404 || st === 410), why: `HTTP ${st} (인증서 오류 ${c}, 접속만 확인)` }; }
+    return { ok: !/ENOTFOUND|ECONNREFUSED|CERT|ERR_TLS/.test(c), why: c || String(e.message).slice(0, 60) };
+  }
+}
+function insecureStatus(url) {
+  return new Promise((resolve) => {
+    try { const q = httpsGet(url, { rejectUnauthorized: false, headers: { "user-agent": "Mozilla/5.0" }, timeout: 20000 }, (r) => { resolve(r.statusCode); r.resume(); }); q.on("error", (e) => resolve(e.code || "error")); q.on("timeout", () => { q.destroy(); resolve("timeout"); }); }
+    catch { resolve("error"); }
+  });
+}
+// 제외된 후보는 나중에 검증이 너무 엄격했는지 판단할 수 있도록 제목·출처 주소·주소별 확인 결과를 logs/sensing-excluded.jsonl 에 남긴다(이슈 저장소에는 넣지 않는다).
+function noteExcluded(label, it, checks, reason) {
+  try { appendFileSync(join(here, "logs", "sensing-excluded.jsonl"), JSON.stringify({ at: runAt, label, area: it.area || null, title: it.title || null, summary: it.summary || null, reason, sources: checks }) + "\n"); } catch {}
 }
 
 // ── 1단계: 이슈 수집
-async function collectBy(store, label, focusText, tag) {
+async function collectBy(store, label, focusText, tag, noVerify) {
   const recent = Object.values(store.issues).filter((i) => i.status !== "종결" || (Date.now() - Date.parse(i.lastUpdated)) < 5 * 864e5).sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated)).slice(0, 40);
   const prompt = `지금은 ${runAt} (KST) 입니다. 웹 검색·열람으로 최근 24시간(없으면 48시간) 안에 보도·발표된 리스크 이슈를 찾으세요.
 ${SCOPE.promptText()}
@@ -70,7 +87,11 @@ sources 는 이슈마다 2건 이상(가능하면 공식 자료 1건 포함)이�
   let items = [];
   // 호출이 실패했을 때만 한 번 더 한다. 결과가 적은 것(0~1건)은 정상이므로 다시 호출하지 않고, 상한(max_turns·max_budget)에 걸린 경우도 같은 결과라 다시 하지 않는다.
   for (let k = 1; k <= 2; k++) { try { items = lastJson(await claudeWeb(prompt), (o) => Array.isArray(o?.issues)).issues; break; } catch (e) { log(`수집 시도 ${k}: ${e.message}`); if (/max_turns|max_budget/.test(e.message)) break; } }
-  const ok = await Promise.all(items.map(async (it) => { const s = []; for (const x of it.sources || []) if (/^https?:\/\//.test(x.url || "") && (await alive(x.url))) s.push(x); const n0 = (it.sources || []).length; it.sources = s; const good = s.length >= 1 && it.title && it.summary && [...AREAS, "기타"].includes(it.area); if (!good) log(`    제외: ${String(it.title).slice(0, 40)} | 분야=${it.area} | 출처 ${s.length}/${n0}건 확인`); return good; }));
+  if (noVerify) { // 지정 이슈 키워드 검색: 담당자가 직접 지정한 주제라 출처 주소 열림 확인·분야 누락 제외를 하지 않는다(제목·요약만 있으면 담는다)
+    items = items.filter((it) => it && it.title && it.summary).map((it) => { it.sources = (it.sources || []).filter((x) => /^https?:[/][/]/.test(x.url || "")); if (![...AREAS, "기타"].includes(it.area)) it.area = "기타"; return it; });
+    log(`  [${label}] 수집 ${items.length}건 (지정 검색 — 출처 검증 생략)`); return items;
+  }
+  const ok = await Promise.all(items.map(async (it) => { const s = [], checks = []; for (const x of it.sources || []) { if (!/^https?:\/\//.test(x.url || "")) { checks.push({ url: x.url || null, title: x.title || null, publisher: x.publisher || null, ok: false, why: "주소 형식 아님" }); continue; } const r = await checkUrl(x.url); checks.push({ url: x.url, title: x.title || null, publisher: x.publisher || null, ok: r.ok, why: r.why }); if (r.ok) s.push(x); } const n0 = (it.sources || []).length; it.sources = s; const good = s.length >= 1 && it.title && it.summary && [...AREAS, "기타"].includes(it.area); if (!good) { log(`    제외: ${String(it.title).slice(0, 40)} | 분야=${it.area} | 출처 ${s.length}/${n0}건 확인 (${checks.map((c) => c.why).join(", ") || "출처 없음"}) → logs/sensing-excluded.jsonl`); noteExcluded(label, it, checks, s.length < 1 ? "출처 주소 확인 실패" : "제목·요약·분야 누락"); } return good; }));
   const kept = items.filter((_, i) => ok[i]);
   kept.forEach((it) => { if (tag) it.origin = tag; });
   log(`  [${label}] 수집 ${items.length}건 → 출처 확인된 ${kept.length}건`);
@@ -79,7 +100,7 @@ sources 는 이슈마다 2건 이상(가능하면 공식 자료 1건 포함)이�
 const collectArea = (store, a) => collectBy(store, a, `이번 호출에서는 "${a}" 분야에 집중해 검색어를 바꿔 가며 여러 번 찾고, 3~7개를 담습니다(그 분야 이슈가 더 없으면 적게).`, null);
 // 키워드는 3개씩 묶어 한 번에 검색한다(키워드가 많아져도 시간이 크게 늘지 않게). 이슈마다 어느 키워드로 찾았는지 keyword 에 적게 한다.
 const collectKeywords = async (store, kws, type) => {
-  const out = await collectBy(store, kws.join(", "), `이번 호출에서는 사용자가 지정한 키워드 ${kws.map((k) => `"${k}"`).join(", ")} 각각과 관련된 이슈를 찾습니다(키워드마다 따로 검색). 최근 24~48시간 보도가 없으면 최근 1~2주 안의 관련 보도까지 넓히고, 키워드와 직접 관련된 이슈만 키워드당 1~5개 담으며, 각 이슈의 keyword 에 해당 키워드를 그대로 적습니다. 분야는 가장 가까운 것으로 고르고 해당 없으면 "기타"로 합니다.`, null);
+  const out = await collectBy(store, kws.join(", "), `이번 호출에서는 사용자가 지정한 키워드 ${kws.map((k) => `"${k}"`).join(", ")} 각각과 관련된 이슈를 찾습니다(키워드마다 따로 검색). 최근 24~48시간 보도가 없으면 최근 1~2주 안의 관련 보도까지 넓히고, 키워드와 직접 관련된 이슈만 키워드당 1~5개 담으며, 각 이슈의 keyword 에 해당 키워드를 그대로 적습니다. 분야는 가장 가까운 것으로 고르고 해당 없으면 "기타"로 합니다.`, null, type === "designated");
   out.forEach((it) => { it.origin = { type, keyword: kws.includes(it.keyword) ? it.keyword : kws.find((k) => String(it.keyword || "").includes(k)) || kws[0] }; });
   return out;
 };
@@ -110,7 +131,7 @@ function printPlan() {
 async function collect(store, manualKw) {
   const lists = [], fail = (a) => (e) => (log(`  [${a}] 수집 실패: ${e.message}`), []);
   if (manualKw && manualKw.length) { // 사용자가 직접 입력한 키워드만 검색한다
-    lists.push(...(await collectKeywords(store, manualKw.slice(0, 3), "manual").catch(fail(manualKw.join(", ")))));
+    lists.push(...(await collectKeywords(store, manualKw.slice(0, 3), "designated").catch(fail(manualKw.join(", ")))));
   } else {
     for (let i = 0; i < AREAS.length; i += 2) lists.push(...(await Promise.all(AREAS.slice(i, i + 2).map((a) => collectArea(store, a).catch(fail(a))))));
     const groups = chunk(readWatch(), 3); // 관심 키워드: 등록한 전부를 매 회차에 같이 검색(3개씩 묶어 2묶음 병렬)
@@ -131,7 +152,10 @@ const SYS_REL = "당신은 GS리테일 리스크 관리 담당입니다. 이슈 
 // 유형 안내(9개 유형 + 과거 사례 예시)는 한 번만 만들어 모든 이슈 분석 프롬프트에 붙인다 — 별도 LLM 호출 없이 기존 분석 호출에 '유형·사업부문 제안' 필드만 추가한다.
 const TYPE_GUIDE = typeGuide();
 async function analyze(it, passages) {
-  const prompt = `[이슈] (${it.area}) ${it.title}\n상태: ${it.status}\n사태: ${it.summary}\n관계부처 대응: ${(it.agencies || []).map((a) => `${a.name}: ${a.action}`).join(" / ") || "(확인된 대응 없음)"}\n관련 상품·업태: ${(it.products || []).join(", ")}\n\n[사내 아카이브 발췌]\n${passages.map((p) => `${p.id} | ${p.title}\n${p.text}`).join("\n\n") || "(관련 발췌를 찾지 못함)"}\n
+  // 당사 협력사·품목 목록(검색 대상 아님)과 이름이 겹치는지 본다. 협력사 일치는 접점 '확인'의 근거가 되고, 품목 일치는 AI 에게 참고로만 알린다.
+  const lm = matchTerms(it.title, it.summary, (it.products || []).join(" "), (it.agencies || []).map((a) => a.name).join(" "));
+  const listNote = lm.partners.length || lm.products.length ? `\n\n[당사 협력사·취급 품목 목록과 이름이 일치함 — 사실로 취급하되 이름이 같을 뿐일 수 있어 기사 내용과 맞는지 확인]\n협력사: ${lm.partners.join(", ") || "(없음)"}\n품목: ${lm.products.join(", ") || "(없음)"}` : "";
+  const prompt =`[이슈] (${it.area}) ${it.title}\n상태: ${it.status}\n사태: ${it.summary}\n관계부처 대응: ${(it.agencies || []).map((a) => `${a.name}: ${a.action}`).join(" / ") || "(확인된 대응 없음)"}\n관련 상품·업태: ${(it.products || []).join(", ")}${listNote}\n\n[사내 아카이브 발췌]\n${passages.map((p) => `${p.id} | ${p.title}\n${p.text}`).join("\n\n") || "(관련 발췌를 찾지 못함)"}\n
 ${TYPE_GUIDE}\n
 JSON: {"relation":"당사와의 관계: 이 이슈가 우리 사업·취급 상품·가맹·협력사 거래와 어떻게 닿는지 3~5문장. 당사 사실은 발췌에서만, 근거가 약하면 '가설'로","exposure":["우리 쪽 노출 지점 2~4개(상품군·업태·거래·규정 이름 등)"],"contact":"확인|불명 — 확인: 당사·당사 브랜드·협력사·취급 상품·점포가 거론되거나 연결 근거가 기사·사내 아카이브 발췌에 있음, 또는 편의점·슈퍼·홈쇼핑 업태 전체를 직접 대상으로 한 조치·점검·소송이라 당사도 대상에 포함될 수 있음. 불명: 그 밖(타 업종·일반 시장·물가 같은 거시 지표·타사 개별 사고)","level":"높음|중간|낮음","levelWhy":"위험도 근거 1~2문장(높음=당사 취급 상품·거래에 직접 영향이거나 당사가 거론됨/제재 가능성 큼, 중간=업계 전반·간접 영향, 낮음=참고)","responses":["확인할 점·대응 제안 3~5개: 무엇을 누가(담당 부서 예시) 언제까지 확인할지"],"cites":["근거로 쓴 발췌 번호(A1 등), 없으면 빈 배열"],${SCHEMA_FRAGMENT}}
 본문에는 A1 같은 번호를 쓰지 말고 문서 이름으로 부르세요(번호는 cites 에만).`;
@@ -149,6 +173,8 @@ JSON: {"relation":"당사와의 관계: 이 이슈가 우리 사업·취급 상�
   if (!out) throw new Error("관계 분석 실패");
   for (const k of ["relation", "levelWhy"]) out[k] = cleanRefs(out[k] || "");
   out.exposure = (out.exposure || []).map(cleanRefs); out.responses = (out.responses || []).map(cleanRefs);
+  if (it.origin && it.origin.type === "designated") out.contact = "확인";   // 담당자가 지정한 주제는 접점을 따지지 않고 보여 준다
+  if (lm.partners.length) { out.contact = "확인"; out.exposure.unshift(`당사 협력사 목록 일치: ${lm.partners.join(", ")}`); }   // 협력사 이름이 기사에 나오면 AI 가 불명이라 해도 접점 확인으로 둔다(숨기지 않음)
   out.ai = normalizeAi(out); // 유형·사업부문 제안(잘못된 값이면 제안 없음으로 처리 — 분석 자체는 실패시키지 않음)
   out.cites = (out.cites || []).filter((c) => passages.some((p) => p.id === c));
   const seen = new Set(); out.archive = out.cites.map((c) => passages.find((p) => p.id === c)).filter((p) => p && !seen.has(p.title) && seen.add(p.title)).map((p) => ({ title: p.title, date: p.date || "" }));

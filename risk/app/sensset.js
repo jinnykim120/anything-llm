@@ -29,8 +29,8 @@ function lab(t, n) { return h("label", { text: t }, [n]); }
 /* ───────── 내부 신호 등록 ───────── */
 function internalDlg(S) {
   openDlg(function (f) {
-    f.appendChild(h("h3", { text: "내부 신호 직접 등록" }));
-    f.appendChild(h("div", { class: "hint", text: "웹 센싱으로는 안 잡히는 VOC·점포·시스템·인사 이슈를 담당자가 직접 올립니다. 등록하면 센싱 목록에 나타나고, 다른 이슈와 같이 사건으로 올리거나 보류할 수 있습니다." }));
+    f.appendChild(h("h3", { text: "직접 이슈 등록" }));
+    f.appendChild(h("div", { class: "hint", text: "웹 센싱으로는 안 잡히는 VOC·점포·시스템·인사 이슈를 담당자가 직접 올립니다. 등록하면 ‘오늘의 이슈’에 나타나고, 다른 이슈와 같이 사건으로 올리거나 추적관찰·관련도 낮음으로 표시할 수 있습니다." }));
     var ti = h("input", { type: "text", maxlength: "200", placeholder: "예: 동일 상품 이물 민원 3회째 접수" }), sm = h("textarea", { maxlength: "4000", placeholder: "무슨 일인지(언제·어디서·누가·어떤 규모) 적어 주세요" });
     var dt = h("input", { type: "date" }), sg = opts(h("select"), S.signals, null);
     var ty = opts(h("select"), C.cfg.issueTypes, "유형 선택(선택)"), bu = opts(h("select"), C.cfg.businessUnits, "사업부문(선택)"), lv = opts(h("select"), ["높음", "중간", "낮음"], "위험도(선택)");
@@ -42,6 +42,47 @@ function internalDlg(S) {
       e.preventDefault(); if (!ti.value.trim()) { er.textContent = "제목을 입력하세요"; return; } ok.disabled = true;
       post("/api/sensing/internal", { title: ti.value, summary: sm.value, occurredAt: dt.value || undefined, signal: sg.value, typeId: ty.value || undefined, buId: bu.value || undefined, level: lv.value || undefined })
         .then(function () { closeDlg(); if (C.onChange) { try { C.onChange(); } catch (x) {} } }).catch(function (x) { er.textContent = x.message; ok.disabled = false; });
+    };
+  });
+}
+
+/* ───────── 지정 이슈 키워드 검색 ───────── */
+var poll = null, wasActive = [];
+function banner(msg, kind) { var b = document.getElementById("sBanner"); if (!b) return; b.hidden = !msg; b.textContent = msg || ""; b.className = "sban" + (kind ? " " + kind : ""); b.onclick = kind ? function () { banner(""); } : null; b.title = kind ? "누르면 닫힙니다" : ""; }
+function watchJobs() {
+  if (poll) return;
+  var tick = function () {
+    req("/api/jobs").then(function (d) {
+      var jobs = d.jobs || [], act = jobs.filter(function (j) { return j.status === "대기" || j.status === "진행 중"; });
+      if (act.length) {
+        wasActive = act.map(function (j) { return j.id; });
+        banner("지정 이슈 검색 중 — " + act.map(function (j) { return "‘" + j.keywords.join(", ") + "’ " + j.status; }).join(" · ") + ". 몇 분 걸리며, 끝나면 ‘오늘의 이슈’에 키워드별로 나타납니다.");
+        poll = setTimeout(tick, 5000);
+      } else {
+        poll = null;
+        var done = jobs.filter(function (j) { return wasActive.indexOf(j.id) >= 0; }); wasActive = [];
+        if (done.length) {
+          var bad = done.filter(function (j) { return j.status === "실패"; });
+          banner(bad.length ? "지정 이슈 검색 실패: " + (bad[0].error || "원인 불명") : "지정 이슈 검색 완료 — " + done.map(function (j) { return "‘" + j.keywords.join(", ") + "’ " + (j.result ? "신규 " + j.result.added + "건 · 갱신 " + j.result.updated + "건" : "결과 없음"); }).join(" / ") + " (누르면 닫힙니다)", bad.length ? "bad" : "ok");
+          if (C.onChange) { try { C.onChange(); } catch (x) {} }
+        } else banner("");
+      }
+    }).catch(function () { poll = setTimeout(tick, 8000); });
+  };
+  tick();
+}
+function keywordDlg() {
+  openDlg(function (f) {
+    f.appendChild(h("h3", { text: "지정 이슈 키워드 검색" }));
+    f.appendChild(h("div", { class: "hint", text: "찾고 싶은 이슈의 키워드를 직접 적으면, 온라인에서 관련 자료를 찾아 ‘오늘의 이슈’에 키워드별로 보여 줍니다. 평소 센싱과 달리 출처 검증과 당사 접점 판정을 하지 않고 그대로 보여 주니, 내용은 직접 확인하세요." }));
+    var ta = h("input", { type: "text", maxlength: "120", placeholder: "예: 식품 회수, 개인정보 유출 (쉼표로 최대 3개)" });
+    f.appendChild(lab("키워드 (필수)", ta));
+    f.appendChild(h("div", { class: "hint", text: "검색에는 몇 분이 걸리고 AI 사용 비용이 듭니다(추정: 1회 약 0.3~0.6달러 — 기존 센싱 호출 실측 0.14~0.23달러 기준). 이미 검색 중이면 순서대로 처리합니다." }));
+    var er = h("div", { class: "er" }), ok = h("button", { class: "btn", type: "submit", text: "검색 시작" });
+    f.appendChild(er); f.appendChild(h("div", { class: "ft" }, [h("button", { class: "btn sec", type: "button", text: "취소", onclick: closeDlg }), ok]));
+    f.onsubmit = function (e) {
+      e.preventDefault(); var v = ta.value.trim(); if (!v) { er.textContent = "키워드를 입력하세요"; return; } ok.disabled = true;
+      post("/api/search", { keywords: v }).then(function (r) { closeDlg(); banner("지정 이슈 검색을 접수했습니다 — ‘" + r.job.keywords.join(", ") + "’"); watchJobs(); }).catch(function (x) { er.textContent = x.message; ok.disabled = false; });
     };
   });
 }
@@ -128,7 +169,7 @@ function limitsBox(data, reload) {
 }
 function panel(root, data, reload) {
   root.textContent = "";
-  root.appendChild(h("div", { class: "rs" }, [h("span", { class: "no", text: "03" }), h("div", { class: "hd" }, [h("h2", { text: "센싱 범위 · 목록" }), h("small", { text: "우리 회사에 직접 이슈나 문제가 될 수 있는 것만 찾습니다. 협력사·품목 목록을 채울수록 해당 업체·품목의 이슈를 더 자주 확인합니다." })])]));
+  root.appendChild(h("div", { class: "rs" }, [h("span", { class: "no", text: "05" }), h("div", { class: "hd" }, [h("h2", { text: "센싱 범위 · 목록" }), h("small", { text: "우리 회사에 직접 이슈나 문제가 될 수 있는 것만 찾습니다. 협력사·품목 목록을 채울수록 해당 업체·품목의 이슈를 더 자주 확인합니다." })])]));
   var areas = h("div", { class: "tchips" }, data.areas.map(function (a) {
     var b = h("button", { type: "button", class: "tchip tgl" + (a.on === false ? " off" : ""), title: a.desc + (a.on === false ? " (꺼져 있음 — 눌러서 켜기)" : " (켜져 있음 — 눌러서 끄기)"), "aria-pressed": String(a.on !== false), text: a.name });
     b.onclick = function () { post("/api/sensing/config", { areas: [{ id: a.id, on: a.on === false }] }).then(reload).catch(function (e) { alert(e.message); }); };
@@ -146,10 +187,13 @@ window.RiskSensSet = {
     var root = document.getElementById("sSet"); if (!root) { root = h("div", { id: "sSet" }); pane.appendChild(root); }
     function reload() { return req("/api/sensing/config").then(function (d) { d.channels = d.channels || []; window.__sensData = d; panel(root, d, reload); }).catch(function (e) { root.textContent = ""; root.appendChild(h("div", { class: "empty", text: "센싱 범위를 불러오지 못했습니다: " + e.message })); }); }
     var bar = pane.querySelector(".ptitle"); if (bar && !document.getElementById("sRegBtn")) {
-      var b = h("button", { class: "btn", type: "button", id: "sRegBtn", text: "내부 신호 직접 등록", title: "웹으로는 안 잡히는 VOC·점포·시스템·인사 이슈를 직접 올립니다", onclick: function () { req("/api/sensing/config").then(function (d) { internalDlg(d); }).catch(function (e) { alert(e.message); }); } });
-      if (window.RiskUI) window.RiskUI.ic(b, "plus"); bar.appendChild(b);
+      var b = h("button", { class: "btn", type: "button", id: "sRegBtn", text: "직접 이슈 등록", title: "웹으로는 안 잡히는 VOC·점포·시스템·인사 이슈를 직접 올립니다", onclick: function () { req("/api/sensing/config").then(function (d) { internalDlg(d); }).catch(function (e) { alert(e.message); }); } });
+      if (window.RiskUI) window.RiskUI.ic(b, "plus");
+      var k = h("button", { class: "btn", type: "button", id: "sKwBtn", text: "지정 이슈 키워드 검색", title: "키워드를 직접 지정해 온라인에서 관련 이슈를 찾아 오늘의 이슈에 올립니다", onclick: keywordDlg });
+      if (window.RiskUI) window.RiskUI.ic(k, "pulse");
+      var wrap = h("div", { class: "pbtns" }, [k, b]); bar.appendChild(wrap);
     }
-    reload();
+    reload(); watchJobs();
   }
 };
 })();

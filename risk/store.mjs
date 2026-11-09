@@ -159,6 +159,8 @@ export function syncSensing(force = false) {
       else { run("INSERT INTO issues (id,title,summary,area,level,start_date,first_seen,last_seen,sources_count,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         i.id, i.title, i.summary || "", i.area || "", i.level || null, start, i.firstSeen || null, i.lastUpdated || null, (i.sources || []).length, nowIso()); n++; }
       run("UPDATE issues SET archive_ok=?, contact=? WHERE id=?", i.archiveCheck ? (i.archiveCheck.ok === false ? 0 : 1) : null, i.contact === "불명" || i.contact === "확인" ? i.contact : null, i.id);
+      { const dz = (Array.isArray(i.origin) ? i.origin : []).filter((o) => o && o.type === "designated").pop();   // 지정 이슈 키워드 검색으로 찾은 이슈: 키워드와 검색한 날을 signal 칸에 '지정:키워드|날짜'로 남긴다
+        if (dz) run("UPDATE issues SET signal=? WHERE id=? AND (origin IS NULL OR origin<>'internal')", `지정:${String(dz.keyword || "").slice(0, 60)}|${String(dz.at || "").slice(0, 10)}`, i.id); }
       if (i.aiType || i.aiBu) applyAiSuggestion(i.id, i.aiType, i.aiBu); // 센싱 분석이 남긴 AI 제안(risk.mjs → issues.json)
     }
   });
@@ -217,8 +219,9 @@ function checkClass({ typeId, buId, tags, level }, { typeRequired = true } = {})
 // ── 이슈 조회·상태 변경
 // 유형: typeId(현재 값) + typeSource(manual|document|ai|null) + aiType(제안 원본). typeConfirmed = 담당자·문서가 확정한 값인가.
 // 사업부문: buId 는 담당자가 고른 확정값만. aiBu 는 힌트일 뿐 buId 를 미리 채우지 않는다.
+const designatedOf = (r) => { const m = r.origin !== "internal" && /^지정:(.*)[|]([0-9]{4}-[0-9]{2}-[0-9]{2})?$/.exec(r.signal || ""); return m ? { keyword: m[1], day: m[2] || null } : null; };
 const issueRow = (r, caseNames = {}) => ({ id: r.id, title: r.title, summary: r.summary, area: r.area, level: r.level, typeId: r.type_id, buId: r.bu_id,
-  contact: r.contact || null, watchNote: r.watch_note || null, watchedAt: r.watched_at || null, origin: r.origin || null, signal: r.signal || null, archiveOk: r.archive_ok === 0 ? false : r.archive_ok === 1 ? true : null, typeSource: r.type_source || null, typeConfirmed: r.type_source === "manual" || r.type_source === "document",
+  contact: r.contact || null, watchNote: r.watch_note || null, watchedAt: r.watched_at || null, origin: r.origin || null, signal: r.origin === "internal" ? r.signal || null : null, designated: designatedOf(r), archiveOk: r.archive_ok === 0 ? false : r.archive_ok === 1 ? true : null, typeSource: r.type_source || null, typeConfirmed: r.type_source === "manual" || r.type_source === "document",
   aiType: r.ai_type_status ? { status: r.ai_type_status, id: r.ai_type_id, confidence: r.ai_type_conf, why: r.ai_type_why } : null,
   aiBu: r.ai_bu_id ? { id: r.ai_bu_id, why: r.ai_bu_why } : null,
   startDate: r.start_date, firstSeen: r.first_seen, lastSeen: r.last_seen, sourcesCount: r.sources_count, state: r.state, holdReason: r.hold_reason, heldAt: r.held_at, caseId: r.case_id, caseName: caseNames[r.case_id] || null,

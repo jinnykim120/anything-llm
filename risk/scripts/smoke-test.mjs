@@ -93,6 +93,12 @@ async function main() {
   });
   await check("센싱 로그에 NEXUS 연결 안 됨 안내", () => /NEXUS\] 연결 안 됨/.test(run.stdout || ""));
 
+  await check("지정 이슈 키워드 검색: 검증 없이 이슈에 '지정' 출처가 붙고 접점은 확인으로 둔다", async () => {
+    const r3 = await runAsync(process.execPath, ["risk.mjs", "--keywords", "스모크키워드", "--no-publish"], { cwd: tmp, env, timeout: 120000 });
+    const all = Object.values(JSON.parse(readFileSync(issuesPath, "utf8")).issues || {}), it = all.find((i) => (i.origin || []).some((o) => o.type === "designated" && o.keyword === "스모크키워드"));
+    return r3.status === 0 && !!it && it.contact === "확인" || (console.log("    종료코드", r3.status, "이슈", all.length, (r3.stdout || "").slice(-300)), false);
+  });
+
   // ── 서버
   const port = await freePort(), B = `http://127.0.0.1:${port}`;
   server = spawn(process.execPath, ["server.mjs"], { cwd: tmp, env: { ...env, RISK_PORT: String(port) }, stdio: "ignore" });
@@ -105,6 +111,7 @@ async function main() {
   await check("로그인", () => !!ck);
   await check("로그인 없이 API 는 401", async () => (await fetch(B + "/api/dashboard")).status === 401);
   await check("대시보드", async () => (await api("/api/dashboard")).s === 200);
+  await check("지정 검색으로 찾은 이슈는 목록에 키워드·검색한 날(designated)이 실린다", async () => { const l = await api("/api/issues"); const it = (l.issues || []).find((i) => i.designated); return !!it && it.designated.keyword === "스모크키워드" && it.designated.day === l.today; });
 
   console.log("\n[센싱 범위·목록]");
   let cfg;
@@ -183,6 +190,13 @@ async function main() {
 
   console.log("\n[모듈 단위]");
   await check("NEXUS 재시도 분류: 연결 오류만 재시도, NEXUS 거부(500·403)는 제외", async () => { const m = await import(pathToFileURL(join(tmp, "nexussync.mjs")).href); return m.networkErr("fetch failed") && !m.networkErr("NEXUS 500: fetch failed") && m.networkErr("NEXUS 503: x") && !m.networkErr("NEXUS 403: locked"); });
+  await check("협력사·품목 목록 일치: 협력사 이름 일치, 2글자 이름·일반 단어는 오판 방지", async () => {
+    mkdirSync(join(tmp, "data"), { recursive: true });
+    writeFileSync(join(tmp, "data", "company-terms.json"), JSON.stringify({ partners: [{ name: "㈜시험식품" }, { name: "대상(주)" }, { name: "값없음" }], products: [{ name: "즉석밥" }, { name: "시가" }] }));
+    const m = await import(pathToFileURL(join(tmp, "company-terms.mjs")).href);
+    const a = m.matchTerms("시험식품(주) 제품 회수", "즉석밥 포함"), b = m.matchTerms("조사 대상 업체", "시가총액");
+    return a.partners.length === 1 && a.partners[0] === "㈜시험식품" && a.products[0] === "즉석밥" && b.partners.length === 0 && b.products.length === 0;
+  });
   await check("CSV 파서: 따옴표·쉼표·줄바꿈", async () => { const { parseCsv } = await import(pathToFileURL(join(tmp, "termimport.mjs")).href); const r = parseCsv(Buffer.from('a,"b,c"\n"d\ne",f\n')); return r.length === 2 && r[0][1] === "b,c" && r[1][0] === "d\ne"; });
 }
 

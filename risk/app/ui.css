@@ -322,3 +322,28 @@ a.src:hover{color:var(--ink);text-decoration-style:solid}
 .hint.warn{color:var(--home)}.hint.ok{color:var(--super);font-weight:800}
 @media(max-width:900px){.rstep{grid-template-columns:repeat(2,minmax(0,1fr))}.rform{grid-template-columns:1fr}}
 .rclose>.btn{justify-self:start}
+/* 센싱 탭: 과거 센싱 이슈 보관함(평소엔 닫힘) */
+.vault{border:1px solid var(--line);border-radius:14px;padding:4px 16px;background:var(--surface)}
+.vault>summary{cursor:pointer;font-weight:800;padding:12px 0;list-style:revert}
+.vault .vgroup{border-top:1px solid var(--line);padding:2px 0}
+.vault .vgroup>summary{cursor:pointer;font-weight:700;padding:10px 0}
+.vault .vgroup .list{padding:4px 0 14px}
+/* 센싱 탭: 상단 버튼 묶음 · 진행 안내 · 지정 검색 묶음 · 리스크 점검 대시보드 */
+.pbtns{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.sban{margin:0 0 14px;padding:12px 16px;border-radius:14px;background:var(--conv-s);color:var(--conv);font-weight:700;font-size:14px}
+.sban.ok{background:var(--super-s);color:var(--super);cursor:pointer}.sban.bad{background:var(--hi-s);color:var(--hi);cursor:pointer}
+.kwgrp{border:1px dashed var(--line);border-radius:16px;padding:12px 14px;margin-bottom:14px;background:var(--surface)}
+.kwgrp>h4{margin:0 0 2px;font-size:15px}.kwgrp>small{display:block;color:var(--mute);margin-bottom:10px}
+.rkd{margin-bottom:6px}
+.rkt{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.rt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px 16px;border:0;border-radius:16px;background:var(--surface);box-shadow:var(--shadow);cursor:pointer;text-align:left;color:var(--ink);font:inherit}
+.rt b{font:800 28px "Outfit","Pretendard Variable",sans-serif;line-height:1.1}
+.rt span{font-weight:700;font-size:14px}.rt small{color:var(--mute);font-size:12px}
+.rt.hot b{color:var(--hi)}.rt:hover{box-shadow:inset 0 0 0 1.5px var(--conv),var(--shadow)}
+.rkg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.rkc{background:var(--surface);border-radius:16px;box-shadow:var(--shadow);padding:14px 16px}
+.rkc>h4{margin:0 0 10px;font-size:15px}
+.rkb{display:grid;grid-template-columns:minmax(90px,150px) 1fr 28px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.rkb .tr{height:10px;border-radius:6px;background:var(--line);overflow:hidden}.rkb .tr i{display:block;height:100%;border-radius:6px}
+.rkb .v{text-align:right;font-weight:800}
+.rka{display:flex;gap:8px;align-items:baseline;margin:7px 0;font-size:13px}.rka .t{flex:1;min-width:0}

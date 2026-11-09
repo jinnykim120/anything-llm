@@ -174,8 +174,10 @@ function finDlg() {
 }
 
 window.RiskRespond = {
+  openCase: function (id) { root = document.getElementById("respRoot"); if (!root || !id) return; return open(id); },   // 센싱 탭에서 사건화한 직후·'사건 대응에서 보기' 에서 해당 사건 상세로 바로 간다
   mount: function (ctx) {
     C = ctx; root = document.getElementById("respRoot");
+
     if (S.view === "detail" && S.id) { load().catch(fail); return; }
     loadList().then(renderList).catch(fail);
   }

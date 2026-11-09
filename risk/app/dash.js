@@ -295,12 +295,12 @@ function funnelData(ys) {
 function funnel(body, ys) {
   var f = funnelData(ys), other = f.manual + f.past + f.pilot;
   if (!f.available) { body.appendChild(h("div", "tempty", "센싱 집계 없음 — 센싱 시작(" + (D.coverageStartYear || "-") + "년) 이전입니다.")); body.appendChild(h("p", "tnote", "센싱 외 사건(수동·과거이력·시범): " + other + "건")); return; }
-  var steps = [["센싱", f.sensed, "수집된 이슈"], ["검토 완료", f.sensed - f.pending, "분류 대기를 벗어난 이슈(사건화 + 추적관찰 + 보류)"], ["사건화", f.promoted, "사건으로 올린 건"], ["종결", f.closed, "종결된 사건"]], base = Math.max(1, f.sensed);
+  var steps = [["센싱", f.sensed, "수집된 이슈"], ["검토 완료", f.sensed - f.pending, "분류 대기를 벗어난 이슈(사건화 + 추적관찰 + 관련도 낮음)"], ["사건화", f.promoted, "사건으로 올린 건"], ["종결", f.closed, "종결된 사건"]], base = Math.max(1, f.sensed);
   var wrap = h("div", "fn"); steps.forEach(function (s, i) { var row = h("div", "fr"); row.appendChild(h("span", "fl", s[0])); var tr = h("div", "ftr"), fill = h("div", "ff f" + i); fill.style.width = Math.max(s[1] ? 2 : 0, s[1] / base * 100) + "%"; fill.style.setProperty("--d", i * 100); tr.appendChild(fill); row.appendChild(tr); row.appendChild(h("span", "fv", String(s[1]))); hit(row, s[0] + " " + s[1] + "건", s[0] + " " + s[1] + "건\n" + s[2]); wrap.appendChild(row); }); body.appendChild(wrap);
   var rt = h("div", "frate"); rt.appendChild(h("b", null, pctTxt(f.rate))); rt.appendChild(h("span", null, "전환율 (센싱 → 사건화)")); body.appendChild(rt);
-  body.appendChild(h("p", "tnote", "추적관찰 " + f.watching + "건 · 보류 " + f.held + "건(사유 기록) · 센싱 외 사건 " + other + "건(수동 " + f.manual + " · 과거이력 " + f.past + (f.pilot ? " · 시범 " + f.pilot + " 초안" : "") + ")"));
+  body.appendChild(h("p", "tnote", "추적관찰 " + f.watching + "건 · 관련도 낮음 " + f.held + "건(사유 기록) · 센싱 외 사건 " + other + "건(수동 " + f.manual + " · 과거이력 " + f.past + (f.pilot ? " · 시범 " + f.pilot + " 초안" : "") + ")"));
 }
-function tblFunnel(ys) { var f = funnelData(ys); return { head: ["단계", "건수"], rows: f.available ? [["센싱", f.sensed], ["분류 대기", f.pending], ["추적관찰", f.watching], ["보류", f.held], ["사건화", f.promoted], ["종결", f.closed], ["전환율", pctTxt(f.rate)]] : [["센싱", null]] }; }
+function tblFunnel(ys) { var f = funnelData(ys); return { head: ["단계", "건수"], rows: f.available ? [["센싱", f.sensed], ["분류 대기", f.pending], ["추적관찰", f.watching], ["관련도 낮음", f.held], ["사건화", f.promoted], ["종결", f.closed], ["전환율", pctTxt(f.rate)]] : [["센싱", null]] }; }
 
 /* ── AI 제안 현황(건수는 선택 연도, 일치율은 전체 기간 누적) */
 function aiData(ys) { var fi = rows("issue", ys); return { unc: fi.filter(function (r) { return r.unc; }).length, hold: fi.filter(function (r) { return r.t === "hold"; }).length }; }
