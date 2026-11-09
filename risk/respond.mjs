@@ -160,10 +160,17 @@ export function reportModel(caseId) {
     sections: [["1. 사건 개요", s.overview, "text"], ["2. 대응 경과", s.timeline, "table"], ["3. 주요 대응 내용", s.actions, "text"], ["4. 원인 및 재발방지", s.prevention, "text"], [closed ? "5. 시사점" : "5. 남은 과제·시사점", s.lessons, "text"]],
     footer: `작성: NEXUS Risk Monitor · ${S.todayKst()}${closed && s.status === "확정" ? "" : " · AI 초안, 담당자 검토 필요"}` };
 }
+// 줄마다 "- "로 시작하는 내용은 글머리표(•)와 내어쓰기로, 아니면 일반 문단으로 쓴다.
+const bulletParas = (t) => {
+  const lines = String(t || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return para("기록 없음");
+  if (lines.every((l) => l.startsWith("- "))) return lines.map((l) => '<w:p><w:pPr><w:ind w:left="360" w:hanging="260"/><w:spacing w:after="60"/></w:pPr>' + run_("•  " + l.slice(2).trim()) + "</w:p>").join("");
+  return para(t);
+};
 export function buildDocx(caseId) {
   const m = reportModel(caseId);
   const body = [para(m.title, { style: "Title" }), para(m.caseTitle, { bold: true, size: 26, after: 160 }), tbl(m.meta, [2000, 7000], false),
-    ...m.sections.flatMap(([h, v, kind]) => [para(h, { style: "Heading1" }), kind === "table" ? (v?.length ? tbl([["단계", "내용"], ...v.map((t) => [t.stage, t.text])], [2200, 6800], true) : para("기록 없음")) : para(v || "기록 없음")]),
+    ...m.sections.flatMap(([h, v, kind]) => [para(h, { style: "Heading1" }), kind === "table" ? (v?.length ? tbl([["단계", "내용"], ...v.map((t) => [t.stage, t.text])], [2200, 6800], true) : para("기록 없음")) : bulletParas(v)]),
     para(m.footer, { size: 17, color: "5A6A86", after: 0 })].join("");
   const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1300" w:right="1300" w:bottom="1300" w:left="1300" w:header="700" w:footer="700" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   return zipParts([

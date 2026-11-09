@@ -22,6 +22,8 @@ const DB_PATH = join(ROOT, "server", "storage", "anythingllm.db");
 export const DATA = join(here, "data");
 export const MODEL = process.env.INSIGHTS_MODEL || "claude-sonnet-5-5";
 const BIN = process.env.CLAUDE_CLI_BIN || "claude";
+// 시험용: RISK_CLAUDE_STUB 가 있으면 가짜 실행기(.mjs)로 대신 실행한다(AI 호출 없이 흐름 점검).
+export const spawnClaude = (args, opts) => (process.env.RISK_CLAUDE_STUB ? spawn(process.execPath, [process.env.RISK_CLAUDE_STUB, ...args], opts) : spawn(BIN, args, opts));
 
 // 호출별 사용량(토큰·비용) 기록: 센싱이 끝날 때 risk.mjs 가 요약을 로그와 logs/sensing-cost.jsonl 에 남긴다.
 export const usage = [];
@@ -109,9 +111,7 @@ export function allGeneralDomains() {
 
 export function claude(system, prompt, timeoutMs = 600_000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      BIN,
-      [
+    const child = spawnClaude([
         "-p", "--model", MODEL, "--tools", "",
         "--settings", '{"disableAllHooks":true}',
         "--exclude-dynamic-system-prompt-sections",

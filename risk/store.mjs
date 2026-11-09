@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS issues (
   type_id TEXT, bu_id TEXT,
   start_date TEXT,            -- 기사 게재일(출처 중 가장 이른 날짜, 없으면 발생일)
   first_seen TEXT, last_seen TEXT, sources_count INTEGER DEFAULT 0,
-  state TEXT NOT NULL DEFAULT '센싱됨',   -- 센싱됨 | 보류 | 사건화
+  state TEXT NOT NULL DEFAULT '센싱됨',   -- 센싱됨 | 추적관찰 | 보류 | 사건화
   hold_reason TEXT, held_at TEXT, case_id INTEGER, synced_at TEXT
 );
 CREATE TABLE IF NOT EXISTS cases (
@@ -111,12 +111,12 @@ const nowIso = () => new Date().toISOString();
 
 // ── 스키마 마이그레이션(v2: 유형 출처·AI 제안 보관). 기존 데이터가 있으면 먼저 VACUUM INTO 로 백업 복사본을 만든다.
 //    컬럼은 존재 여부를 확인하고 추가하므로 여러 번 실행해도 안전하다(멱등).
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 10;
 const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((r) => r.name === c);
-const ISSUE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_type_status: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT", ai_type_at_confirm: "TEXT", type_confirmed_at: "TEXT", origin: "TEXT", signal: "TEXT" };
+const ISSUE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_type_status: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT", ai_type_at_confirm: "TEXT", type_confirmed_at: "TEXT", origin: "TEXT", signal: "TEXT" , archive_ok: "INTEGER" , watch_note: "TEXT", watched_at: "TEXT" , contact: "TEXT" };
 const CASE_COLS = { type_source: "TEXT", ai_type_id: "TEXT", ai_type_conf: "REAL", ai_type_why: "TEXT", ai_bu_id: "TEXT", ai_bu_why: "TEXT",
   folder: "TEXT", card_json: "TEXT", card_status: "TEXT", card_by: "TEXT", card_at: "TEXT",   // v3: 사건 폴더 이름·사건 카드(초안/확정)
-  start_provisional: "INTEGER" , title_source: "TEXT" };   // v4: 1 = 시작일의 '연월'만 임시값(최초 민원 접수일 미확정 — 서버 경로 가져오기)
+  start_provisional: "INTEGER" , title_source: "TEXT" , nexus_sub: "TEXT" };   // v4: 1 = 시작일의 '연월'만 임시값(최초 민원 접수일 미확정 — 서버 경로 가져오기)
 const FILE_COLS = { kind_source: "TEXT", pii_state: "TEXT", pii_note: "TEXT", nexus_state: "TEXT", nexus_loc: "TEXT", nexus_err: "TEXT", nexus_at: "TEXT" };   // v4: 종류를 누가 정했나(manual|auto) · 개인정보 의심(suspect|cleared)
 export let lastBackup = null;
 function migrate() {
@@ -158,6 +158,7 @@ export function syncSensing(force = false) {
         i.title, i.summary || "", i.area || "", i.level || null, start, i.lastUpdated || null, (i.sources || []).length, nowIso(), i.id);
       else { run("INSERT INTO issues (id,title,summary,area,level,start_date,first_seen,last_seen,sources_count,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         i.id, i.title, i.summary || "", i.area || "", i.level || null, start, i.firstSeen || null, i.lastUpdated || null, (i.sources || []).length, nowIso()); n++; }
+      run("UPDATE issues SET archive_ok=?, contact=? WHERE id=?", i.archiveCheck ? (i.archiveCheck.ok === false ? 0 : 1) : null, i.contact === "불명" || i.contact === "확인" ? i.contact : null, i.id);
       if (i.aiType || i.aiBu) applyAiSuggestion(i.id, i.aiType, i.aiBu); // 센싱 분석이 남긴 AI 제안(risk.mjs → issues.json)
     }
   });
@@ -217,7 +218,7 @@ function checkClass({ typeId, buId, tags, level }, { typeRequired = true } = {})
 // 유형: typeId(현재 값) + typeSource(manual|document|ai|null) + aiType(제안 원본). typeConfirmed = 담당자·문서가 확정한 값인가.
 // 사업부문: buId 는 담당자가 고른 확정값만. aiBu 는 힌트일 뿐 buId 를 미리 채우지 않는다.
 const issueRow = (r, caseNames = {}) => ({ id: r.id, title: r.title, summary: r.summary, area: r.area, level: r.level, typeId: r.type_id, buId: r.bu_id,
-  origin: r.origin || null, signal: r.signal || null, typeSource: r.type_source || null, typeConfirmed: r.type_source === "manual" || r.type_source === "document",
+  contact: r.contact || null, watchNote: r.watch_note || null, watchedAt: r.watched_at || null, origin: r.origin || null, signal: r.signal || null, archiveOk: r.archive_ok === 0 ? false : r.archive_ok === 1 ? true : null, typeSource: r.type_source || null, typeConfirmed: r.type_source === "manual" || r.type_source === "document",
   aiType: r.ai_type_status ? { status: r.ai_type_status, id: r.ai_type_id, confidence: r.ai_type_conf, why: r.ai_type_why } : null,
   aiBu: r.ai_bu_id ? { id: r.ai_bu_id, why: r.ai_bu_why } : null,
   startDate: r.start_date, firstSeen: r.first_seen, lastSeen: r.last_seen, sourcesCount: r.sources_count, state: r.state, holdReason: r.hold_reason, heldAt: r.held_at, caseId: r.case_id, caseName: caseNames[r.case_id] || null,
@@ -256,7 +257,7 @@ export function createInternalIssue(b = {}) {
   const title = String(b.title || "").trim().slice(0, 200); if (!title) throw new HttpError(400, "제목을 입력하세요");
   const summary = String(b.summary || "").trim().slice(0, 4000), signal = SIGNALS.includes(b.signal) ? b.signal : "내부";
   const day = isDate(b.occurredAt) ? b.occurredAt : todayKst(), level = ["높음", "중간", "낮음"].includes(b.level) ? b.level : null;
-  const id = "in" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const id = "f" + Date.now().toString(16) + Math.floor(Math.random() * 0xfffff).toString(16).padStart(5, "0");   // 이슈 처리 API 가 16진수 id 만 받으므로 16진수로 만든다
   const typeOk = b.typeId && config().issueTypes.some((t) => t.id === b.typeId), buOk = b.buId && config().businessUnits.some((x) => x.id === b.buId);
   run("INSERT INTO issues (id,title,summary,area,level,type_id,bu_id,type_source,type_confirmed_at,start_date,first_seen,last_seen,sources_count,state,synced_at,origin,signal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,'센싱됨',?,'internal',?)",
     id, title, summary, "내부 등록", level, typeOk ? b.typeId : null, buOk ? b.buId : null, typeOk ? "manual" : null, typeOk ? nowIso() : null, day, nowIso(), nowIso(), nowIso(), signal);
@@ -290,6 +291,22 @@ export function holdIssue(id, reason) {
   const r = String(reason || "").trim();
   if (r.length < 2) throw new HttpError(400, "보류 사유를 입력하세요");
   run("UPDATE issues SET state='보류', hold_reason=?, held_at=? WHERE id=?", r.slice(0, 500), nowIso(), id);
+  return issueRow(q1("SELECT * FROM issues WHERE id=?", id));
+}
+// 추적관찰: 사건으로 올릴 단계는 아니지만 계속 지켜볼 이슈. 센싱 목록에 남고, 이후 센싱에서 새 소식이 오면 '추적 중 새 소식'으로 표시된다.
+export function watchIssue(id, note) {
+  syncSensing();
+  const i = q1("SELECT * FROM issues WHERE id=?", id);
+  if (!i) throw new HttpError(404, "이슈를 찾을 수 없습니다");
+  if (i.state === "사건화") throw new HttpError(409, "사건화된 이슈는 추적관찰로 바꿀 수 없습니다");
+  run("UPDATE issues SET state='추적관찰', watch_note=?, watched_at=?, hold_reason=NULL, held_at=NULL WHERE id=?", String(note || "").trim().slice(0, 300) || null, nowIso(), id);
+  return issueRow(q1("SELECT * FROM issues WHERE id=?", id));
+}
+export function unwatchIssue(id) {
+  const i = q1("SELECT * FROM issues WHERE id=?", id);
+  if (!i) throw new HttpError(404, "이슈를 찾을 수 없습니다");
+  if (i.state !== "추적관찰") throw new HttpError(409, "추적관찰 상태가 아닙니다");
+  run("UPDATE issues SET state='센싱됨', watch_note=NULL, watched_at=NULL WHERE id=?", id);
   return issueRow(q1("SELECT * FROM issues WHERE id=?", id));
 }
 export function restoreIssue(id) {
@@ -439,12 +456,12 @@ export function stats(f = {}) {
   const fi = issues.filter((r) => (!fy || r.year === fy) && (!ft || r.type === ft) && (!fb || bk(r) === fb));
   const fc = cases.filter((r) => (!fy || r.year === fy) && (!ft || r.type === ft) && (!fb || bk(r) === fb));
   const promoted = fc.filter((c) => c.source === "센싱");
-  out.funnel = { sensed: fi.length, held: cnt0(fi, (r) => r.state === "보류"), promoted: promoted.length, promotedClosed: promoted.filter((c) => c.status === "종결").length, pending: cnt0(fi, (r) => r.state === "센싱됨"),
+  out.funnel = { sensed: fi.length, held: cnt0(fi, (r) => r.state === "보류"), watching: cnt0(fi, (r) => r.state === "추적관찰"), promoted: promoted.length, promotedClosed: promoted.filter((c) => c.status === "종결").length, pending: cnt0(fi, (r) => r.state === "센싱됨"),
     conversionRate: fi.length ? promoted.length / fi.length : null, manualCases: fc.filter((c) => c.source === "수동").length, pastCases: fc.filter((c) => c.source === "과거이력").length, pilotCases: fc.filter((c) => c.source === "시범").length,
     available: fy ? sensingAvail(fy) || fi.length > 0 : covStart != null };
   // 센싱 유형 확인 현황(연도·유형·사업부문 필터 적용): AI 제안이 아직 확인 전인 건, AI 가 보류한 건, 제안이 아직 없는 건
   out.sensingType = { total: fi.length, aiUnconfirmed: cnt0(fi, (r) => r.unconf), hold: cnt0(fi, (r) => r.type === HOLD), unclassified: cnt0(fi, (r) => r.type === UNCL), confirmed: cnt0(fi, (r) => !r.unconf && r.type !== HOLD && r.type !== UNCL) };
-  out.kpi = { todayNew: cnt0(issues, (r) => r.first === todayKst()), openCases: cnt0(cases, (c) => c.status === "진행"), held: cnt0(issues, (r) => r.state === "보류"), pending: cnt0(issues, (r) => r.state === "센싱됨") };
+  out.kpi = { todayNew: cnt0(issues, (r) => r.first === todayKst()), openCases: cnt0(cases, (c) => c.status === "진행"), held: cnt0(issues, (r) => r.state === "보류"), watching: cnt0(issues, (r) => r.state === "추적관찰"), pending: cnt0(issues, (r) => r.state === "센싱됨") };
   return out;
 }
 const cnt0 = (l, fn) => l.filter(fn).length;

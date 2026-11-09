@@ -123,3 +123,5 @@ select,input[type=text],input[type=date],input[type=month],input[type=password],
 .trow{display:grid;grid-template-columns:1fr;gap:8px}.trow textarea{width:100%;min-height:54px}.trow .btn{justify-self:start}
 .xlsel{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.xlt{overflow:auto;max-height:200px}.xlt table{font-size:12px}
 .xlb .ok{color:var(--super);font-weight:800}
+
+.tchip.tgl{border:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;color:inherit}.tchip.tgl.off{opacity:.45;text-decoration:line-through}

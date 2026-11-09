@@ -14,7 +14,7 @@ export function scope() {
 }
 export const areas = () => scope().areas.filter((a) => a.on !== false);
 export const areaNames = () => areas().map((a) => a.name);
-export const limits = () => ({ partnerNamesPerCall: 8, productNamesPerCall: 10, partnerCallsPerRun: 2, productCallsPerRun: 2, ...(scope().limits || {}) });
+export const limits = () => ({ partnerNamesPerCall: 8, productNamesPerCall: 10, partnerCallsPerRun: 2, productCallsPerRun: 2, webMaxToolUses: 18, webMaxTurns: 32, webMaxBudgetUsd: 0.6, defaultProductSweepDays: 7, ...(scope().limits || {}) });
 export const firstSignalChannels = () => scope().firstSignalChannels || ["고객VOC", "점주", "언론", "기관", "내부", "기타", "문서에 없음"];
 
 // 프롬프트에 넣는 범위 문구(분야 정의 + 제외 기준)
@@ -69,16 +69,50 @@ export function allTerms(kind) {
 export function nextBatches(kind) {
   const L = limits(), per = kind === "partner" ? L.partnerNamesPerCall : L.productNamesPerCall, calls = kind === "partner" ? L.partnerCallsPerRun : L.productCallsPerRun;
   const t = readTerms(), items = allTerms(kind).map((x, i) => ({ ...x, i, at: t.checked[key(kind, x.name)] || "" }));
-  items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.i - b.i));
-  const names = items.slice(0, per * calls).map((x) => x.name), out = [];
-  for (let i = 0; i < names.length; i += per) out.push(names.slice(i, i + per));
+  const byStale = (p, q) => (p.at < q.at ? -1 : p.at > q.at ? 1 : p.i - q.i);
+  const chunk = (names) => { const o = []; for (let i = 0; i < names.length; i += per) o.push(names.slice(i, i + per)); return o; };
+  if (kind === "partner") return chunk(items.sort(byStale).slice(0, per * calls).map((x) => x.name));
+  // 품목: 담당자가 직접 추가한 품목은 매 회차 한도만큼 돌려 가며, 기본 품목 범주는 defaultProductSweepDays 일마다 전부 한 번 훑는다.
+  const custom = items.filter((x) => x.custom).sort(byStale), defs = items.filter((x) => !x.custom).sort(byStale);
+  const out = chunk(custom.slice(0, per * calls).map((x) => x.name));
+  if (defaultSweepDue()) out.push(...chunk(defs.map((x) => x.name)));
   return out;
 }
+const SWEEP_KEY = "__default_sweep:product";
+export function defaultSweepDue() {
+  const days = Number(limits().defaultProductSweepDays || 0); if (!days) return true;
+  const st = readTerms().checked[SWEEP_KEY]; return !st || Date.now() - Date.parse(st) >= days * 86400e3;
+}
+export function sweepInfo() { const days = Number(limits().defaultProductSweepDays || 0), last = readTerms().checked[SWEEP_KEY] || null; return { days, last, due: defaultSweepDue() }; }
 export function markChecked(kind, names) {
-  const t = readTerms(), at = new Date().toISOString(); for (const n of names) t.checked[key(kind, n)] = at; writeTerms(t);
+  const t = readTerms(), at = new Date().toISOString(); for (const n of names) t.checked[key(kind, n)] = at;
+  if (kind === "product") { const defs = new Set((scope().defaultProducts || []).map((x) => x.toLowerCase())); if (names.some((n) => defs.has(String(n).toLowerCase()))) t.checked[SWEEP_KEY] = at; }
+  writeTerms(t);
 }
 // 한 바퀴 도는 데 걸리는 회차 수(안내용)
 export function cycleRuns(kind) {
   const L = limits(), per = kind === "partner" ? L.partnerNamesPerCall : L.productNamesPerCall, calls = kind === "partner" ? L.partnerCallsPerRun : L.productCallsPerRun;
   const total = allTerms(kind).length; return total ? Math.ceil(total / Math.max(1, per * calls)) : 0;
+}
+
+// 화면에서 바꾸는 설정 저장: 분야 켜기/끄기, 협력사·품목 검색 한도. 검증 후 임시 파일로 저장해 교체한다.
+const LIMIT_RANGE = { partnerNamesPerCall: [1, 20], productNamesPerCall: [1, 20], partnerCallsPerRun: [0, 6], productCallsPerRun: [0, 6] };
+export function saveSettings(b = {}) {
+  const c = JSON.parse(readFileSync(CFG, "utf8"));
+  if (Array.isArray(b.areas)) {
+    const on = new Map(b.areas.map((a) => [String(a.id), a.on !== false]));
+    for (const a of c.areas) if (on.has(a.id)) a.on = on.get(a.id);
+    if (!c.areas.some((a) => a.on !== false)) throw new Error("분야를 하나 이상 켜 두어야 합니다");
+  }
+  if (b.limits && typeof b.limits === "object") {
+    const lim = c.limits || (c.limits = {});
+    for (const [k, [lo, hi]] of Object.entries(LIMIT_RANGE)) {
+      if (b.limits[k] === undefined) continue;
+      const v = Math.round(Number(b.limits[k]));
+      if (!Number.isFinite(v) || v < lo || v > hi) throw new Error("검색 횟수·이름 수는 " + lo + "~" + hi + " 사이여야 합니다");
+      lim[k] = v;
+    }
+  }
+  const tmp = CFG + ".tmp-" + process.pid; writeFileSync(tmp, JSON.stringify(c, null, 2) + "\n"); renameSync(tmp, CFG);
+  return scope();
 }

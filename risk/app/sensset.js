@@ -116,13 +116,27 @@ function termBox(kind, title, desc, data, reload) {
   if (kind === "product") kids.push(h("details", {}, [h("summary", { text: "기본 품목 " + defs.length + "개 보기" }), chipList(defs, kind, reload)]));
   return h("div", { class: "tbox" }, kids);
 }
+function limitsBox(data, reload) {
+  var L = data.limits, fields = [["partnerCallsPerRun", "협력사 검색 횟수(회차당)"], ["partnerNamesPerCall", "협력사 이름 수(1회 호출당)"], ["productCallsPerRun", "품목 검색 횟수(회차당)"], ["productNamesPerCall", "품목 이름 수(1회 호출당)"]];
+  var inputs = {}, msg = h("span", { class: "hint" }), save = h("button", { class: "btn sm", type: "button", text: "저장" });
+  var row = h("div", { class: "xlsel" }, fields.map(function (f) { var i = h("input", { type: "number", min: "0", max: "20", value: String(L[f[0]]), "aria-label": f[1] }); inputs[f[0]] = i; return lab(f[1], i); }));
+  save.onclick = function () {
+    var b = {}; Object.keys(inputs).forEach(function (k) { b[k] = Number(inputs[k].value); }); save.disabled = true;
+    post("/api/sensing/config", { limits: b }).then(function () { msg.textContent = "저장했습니다 — 다음 센싱부터 적용됩니다"; save.disabled = false; reload(); }).catch(function (e) { msg.textContent = e.message; save.disabled = false; });
+  };
+  return h("details", {}, [h("summary", { text: "검색 횟수 조정 (토큰과 직결됩니다)" }), h("div", { class: "hint", text: "협력사·품목 목록은 한 번에 전부 검색하지 않고 회차마다 이 한도만큼 돌려 가며 검색합니다. 횟수를 올리면 더 자주 훑지만 토큰이 더 듭니다." }), row, h("div", { class: "trow" }, [save]), msg]);
+}
 function panel(root, data, reload) {
   root.textContent = "";
   root.appendChild(h("div", { class: "rs" }, [h("span", { class: "no", text: "03" }), h("div", { class: "hd" }, [h("h2", { text: "센싱 범위 · 목록" }), h("small", { text: "우리 회사에 직접 이슈나 문제가 될 수 있는 것만 찾습니다. 협력사·품목 목록을 채울수록 해당 업체·품목의 이슈를 더 자주 확인합니다." })])]));
-  var areas = h("div", { class: "tchips" }, data.areas.map(function (a) { return h("span", { class: "tchip def" + (a.on === false ? " off" : ""), title: a.desc, text: a.name }); }));
+  var areas = h("div", { class: "tchips" }, data.areas.map(function (a) {
+    var b = h("button", { type: "button", class: "tchip tgl" + (a.on === false ? " off" : ""), title: a.desc + (a.on === false ? " (꺼져 있음 — 눌러서 켜기)" : " (켜져 있음 — 눌러서 끄기)"), "aria-pressed": String(a.on !== false), text: a.name });
+    b.onclick = function () { post("/api/sensing/config", { areas: [{ id: a.id, on: a.on === false }] }).then(reload).catch(function (e) { alert(e.message); }); };
+    return b;
+  }));
   var scopeBox = h("div", { class: "tbox" }, [h("h4", { text: "찾는 분야 " + data.areas.filter(function (a) { return a.on !== false; }).length + "개" }), areas,
     h("details", {}, [h("summary", { text: "각 분야 설명·제외 기준 보기" }), h("ul", {}, data.areas.map(function (a) { return h("li", {}, [h("b", { text: a.name + ": " }), a.desc]); })), h("p", { class: "hint", text: "제외: " + data.exclude.join(" / ") })]),
-    h("div", { class: "hint", text: "분야·제외 기준은 설정 파일(config/sensing.json)에서 바꿉니다. 판매 채널: " + data.channels.map(function (c) { return c.name; }).join(" · ") + "." })]);
+    limitsBox(data, reload), h("div", { class: "hint", text: "분야 이름을 누르면 켜고 끌 수 있습니다. 분야 설명·제외 기준은 설정 파일(config/sensing.json)에서 바꿉니다. 판매 채널: " + data.channels.map(function (c) { return c.name; }).join(" · ") + "." })]);
   root.appendChild(h("div", { class: "tgrid" }, [scopeBox, termBox("partner", "협력사·제조사", "우리와 거래하는 업체. 위생·분쟁·사고·행정처분 소식을 업체 이름으로 찾습니다.", data, reload), termBox("product", "취급 품목", "홈쇼핑·편의점·슈퍼에서 파는 품목. 회수·표시 오류 같은 안전 소식을 품목 이름으로 찾습니다.", data, reload)]));
 }
 

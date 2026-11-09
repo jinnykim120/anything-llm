@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { MODEL, claude, lastJson, usage, noteUsage } from "./lib.mjs";
+import { MODEL, claude, lastJson, usage, noteUsage, spawnClaude } from "./lib.mjs";
+import * as NX from "./nexus.mjs";
 import * as SCOPE from "./sensing-scope.mjs";
 import { searchAny, remote, lastSearch, unknownNumbers, cleanRefs } from "./archive.mjs";
 import { typeGuide, SCHEMA_FRAGMENT, normalizeAi } from "./classify.mjs";
@@ -23,7 +24,7 @@ const arg = (k) => process.argv.includes(k), argVal = (k) => (arg(k) ? process.a
 const log = (...a) => { const s = `[${new Date().toISOString()}] ${a.join(" ")}`; console.log(s); appendFileSync(join(here, "logs", "risk.log"), s + "\n"); };
 
 const kst = new Date(Date.now() + 9 * 3600e3), today = kst.toISOString().slice(0, 10);
-const slot = argVal("--slot") || (kst.getUTCHours() < 12 ? "am" : "pm"), slotLabel = slot === "am" ? "08:00" : "14:00";
+const slot = argVal("--slot") || (kst.getUTCHours() < 12 ? "am" : "pm"), slotLabel = slot === "am" ? "09:00" : "15:00";
 const runAt = `${today} ${slotLabel}`;
 const LV = { 높음: 0, 중간: 1, 낮음: 2 };
 const AREAS = SCOPE.areaNames();   // config/sensing.json 의 분야(켜진 것)
@@ -40,12 +41,12 @@ const WEB_MODEL = process.env.INSIGHTS_WEB_MODEL || "claude-haiku-5-5";
 const SYS_WEB = "당신은 GS리테일(편의점 GS25, 슈퍼 GS더프레시, 홈쇼핑 GS SHOP 등 운영)의 리스크 관리 담당 리서처입니다. 한국어로 쓰고, 열어본 자료에 있는 사실만 쓰며 확인 못 한 것은 쓰지 않습니다. 공식 출처(정부 부처·지자체·기관 보도자료)를 우선합니다. 최종 응답은 JSON 객체 하나만 출력합니다(설명·코드펜스 없이).";
 function claudeWeb(prompt, timeoutMs = 25 * 60e3) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.CLAUDE_CLI_BIN || "claude", ["-p", "--model", WEB_MODEL, "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch", "--settings", '{"disableAllHooks":true}', "--output-format", "json", "--system-prompt", SYS_WEB], { env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
+    const child = spawnClaude(["-p", "--model", WEB_MODEL, "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch", "--max-turns", String(SCOPE.limits().webMaxTurns), "--max-budget-usd", String(SCOPE.limits().webMaxBudgetUsd), "--settings", '{"disableAllHooks":true}', "--output-format", "json", "--system-prompt", SYS_WEB], { env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
     let out = "", err = "";
     const t = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("claude 시간 초과")); }, timeoutMs);
     child.stdout.on("data", (d) => (out += d)); child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => { clearTimeout(t); reject(e); });
-    child.on("close", (code) => { clearTimeout(t); if (code !== 0) return reject(new Error(`claude 종료 ${code}: ${(err || out).slice(0, 300)}`)); try { const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop()); if (o.is_error) return reject(new Error(String(o.result).slice(0, 300))); noteUsage("수집", o, WEB_MODEL); resolve(String(o.result || "")); } catch { reject(new Error("CLI 응답을 읽지 못함")); } });
+    child.on("close", (code) => { clearTimeout(t); if (code !== 0) return reject(new Error(`claude 종료 ${code}: ${(err || out).slice(0, 300)}`)); try { const o = JSON.parse(out.trim().split("\n").filter(Boolean).pop()); if (o.is_error) { noteUsage("수집", o, WEB_MODEL); return reject(new Error(`${o.subtype || "error"}: ${String(o.result || "").slice(0, 200)}`)); } noteUsage("수집", o, WEB_MODEL); resolve(String(o.result || "")); } catch { reject(new Error("CLI 응답을 읽지 못함")); } });
     child.stdin.write(prompt); child.stdin.end();
   });
 }
@@ -64,9 +65,11 @@ ${focusText} 같은 사건의 기사는 하나로 묶습니다. 이미 아래 �
 [이미 다룬 이슈]
 ${recent.map((i) => `- ${i.id} | ${i.title} | ${i.status}`).join("\n") || "(없음)"}
 JSON: {"issues":[{"updateOf":null,"keyword":"키워드 검색일 때만: 이 이슈를 찾은 키워드(아니면 빈 문자열)","area":"${[...AREAS, "기타"].join("|")}","title":"사실이 드러나는 한 줄 제목(60자 이내)","status":"발생|진행 중|종결","occurredAt":"YYYY-MM-DD","summary":"사태와 상황: 무슨 일이 언제 어떻게, 규모·피해·원인(확인된 것만) 3~5문장","agencies":[{"name":"관계부처·기관 이름","action":"그 기관이 한 대응·조치·예정","date":"YYYY-MM-DD 또는 빈 문자열"}],"products":["관련 상품·업태 이름"],"keywords":["사내 문서 검색용 용어 8~12개(법률명·제도명·상품군·사업부문 등)"],"sources":[{"title":"기사·공고 제목","publisher":"매체·기관","date":"YYYY-MM-DD","url":"https://..."}]}]}
-sources 는 이슈마다 2건 이상(가능하면 공식 자료 1건 포함)이고 열어본 URL 만 씁니다.`;
+sources 는 이슈마다 2건 이상(가능하면 공식 자료 1건 포함)이고 열어본 URL 만 씁니다.
+검색과 열람(도구 사용)은 합쳐서 최대 ${SCOPE.limits().webMaxToolUses}회까지만 하세요. 그 뒤에는 지금까지 확인한 내용으로 곧바로 JSON 을 출력합니다. 확인된 이슈가 없으면 {"issues":[]} 를 출력합니다.`;
   let items = [];
-  for (let k = 1; k <= 2 && items.length < 2; k++) { try { items = lastJson(await claudeWeb(prompt), (o) => Array.isArray(o?.issues)).issues; } catch (e) { log(`수집 시도 ${k}: ${e.message}`); } }
+  // 호출이 실패했을 때만 한 번 더 한다. 결과가 적은 것(0~1건)은 정상이므로 다시 호출하지 않고, 상한(max_turns·max_budget)에 걸린 경우도 같은 결과라 다시 하지 않는다.
+  for (let k = 1; k <= 2; k++) { try { items = lastJson(await claudeWeb(prompt), (o) => Array.isArray(o?.issues)).issues; break; } catch (e) { log(`수집 시도 ${k}: ${e.message}`); if (/max_turns|max_budget/.test(e.message)) break; } }
   const ok = await Promise.all(items.map(async (it) => { const s = []; for (const x of it.sources || []) if (/^https?:\/\//.test(x.url || "") && (await alive(x.url))) s.push(x); const n0 = (it.sources || []).length; it.sources = s; const good = s.length >= 1 && it.title && it.summary && [...AREAS, "기타"].includes(it.area); if (!good) log(`    제외: ${String(it.title).slice(0, 40)} | 분야=${it.area} | 출처 ${s.length}/${n0}건 확인`); return good; }));
   const kept = items.filter((_, i) => ok[i]);
   kept.forEach((it) => { if (tag) it.origin = tag; });
@@ -100,6 +103,7 @@ function printPlan() {
   log(`[계획] 관심 키워드 ${readWatch().length}개 → ${kw.length}회 호출`);
   log(`[계획] 협력사 목록 ${SCOPE.allTerms("partner").length}개 중 이번에 ${pb.flat().length}개 → ${pb.length}회 호출 (한 바퀴 약 ${SCOPE.cycleRuns("partner")}회차)${pb.length ? ": " + pb.flat().join(", ") : ""}`);
   log(`[계획] 품목 목록 ${SCOPE.allTerms("product").length}개 중 이번에 ${prb.flat().length}개 → ${prb.length}회 호출 (한 바퀴 약 ${SCOPE.cycleRuns("product")}회차): ${prb.flat().join(", ")}`);
+  { const sw = SCOPE.sweepInfo(); log(`[계획] 기본 품목 범주는 ${sw.days || 0}일마다 한 번 훑습니다(마지막 ${sw.last ? sw.last.slice(0, 10) : "없음"}, 이번 회차 ${sw.due ? "대상" : "건너뜀"})`); }
   log(`[계획] 웹 수집 호출 합계 ${AREAS.length + kw.length + pb.length + prb.length}회 (모델 ${WEB_MODEL}), 한도: 협력사 ${lim.partnerCallsPerRun}회·품목 ${lim.productCallsPerRun}회`);
 }
 // 분야마다 따로 검색해(2개씩 병렬) 빠지는 분야가 없게 한다. 같은 사건은 제목이 비슷하면 하나로 합친다.
@@ -129,7 +133,7 @@ const TYPE_GUIDE = typeGuide();
 async function analyze(it, passages) {
   const prompt = `[이슈] (${it.area}) ${it.title}\n상태: ${it.status}\n사태: ${it.summary}\n관계부처 대응: ${(it.agencies || []).map((a) => `${a.name}: ${a.action}`).join(" / ") || "(확인된 대응 없음)"}\n관련 상품·업태: ${(it.products || []).join(", ")}\n\n[사내 아카이브 발췌]\n${passages.map((p) => `${p.id} | ${p.title}\n${p.text}`).join("\n\n") || "(관련 발췌를 찾지 못함)"}\n
 ${TYPE_GUIDE}\n
-JSON: {"relation":"당사와의 관계: 이 이슈가 우리 사업·취급 상품·가맹·협력사 거래와 어떻게 닿는지 3~5문장. 당사 사실은 발췌에서만, 근거가 약하면 '가설'로","exposure":["우리 쪽 노출 지점 2~4개(상품군·업태·거래·규정 이름 등)"],"level":"높음|중간|낮음","levelWhy":"위험도 근거 1~2문장(높음=당사 취급 상품·거래에 직접 영향이거나 당사가 거론됨/제재 가능성 큼, 중간=업계 전반·간접 영향, 낮음=참고)","responses":["확인할 점·대응 제안 3~5개: 무엇을 누가(담당 부서 예시) 언제까지 확인할지"],"cites":["근거로 쓴 발췌 번호(A1 등), 없으면 빈 배열"],${SCHEMA_FRAGMENT}}
+JSON: {"relation":"당사와의 관계: 이 이슈가 우리 사업·취급 상품·가맹·협력사 거래와 어떻게 닿는지 3~5문장. 당사 사실은 발췌에서만, 근거가 약하면 '가설'로","exposure":["우리 쪽 노출 지점 2~4개(상품군·업태·거래·규정 이름 등)"],"contact":"확인|불명 — 확인: 당사·당사 브랜드·협력사·취급 상품·점포가 거론되거나 연결 근거가 기사·사내 아카이브 발췌에 있음, 또는 편의점·슈퍼·홈쇼핑 업태 전체를 직접 대상으로 한 조치·점검·소송이라 당사도 대상에 포함될 수 있음. 불명: 그 밖(타 업종·일반 시장·물가 같은 거시 지표·타사 개별 사고)","level":"높음|중간|낮음","levelWhy":"위험도 근거 1~2문장(높음=당사 취급 상품·거래에 직접 영향이거나 당사가 거론됨/제재 가능성 큼, 중간=업계 전반·간접 영향, 낮음=참고)","responses":["확인할 점·대응 제안 3~5개: 무엇을 누가(담당 부서 예시) 언제까지 확인할지"],"cites":["근거로 쓴 발췌 번호(A1 등), 없으면 빈 배열"],${SCHEMA_FRAGMENT}}
 본문에는 A1 같은 번호를 쓰지 말고 문서 이름으로 부르세요(번호는 cites 에만).`;
   let out, problems = [];
   for (let k = 1; k <= 3; k++) {
@@ -137,6 +141,7 @@ JSON: {"relation":"당사와의 관계: 이 이슈가 우리 사업·취급 상�
     problems = [];
     const ids = new Set(passages.map((p) => p.id));
     if (!["높음", "중간", "낮음"].includes(out.level)) problems.push("level 은 높음|중간|낮음");
+    out.contact = out.contact === "불명" ? "불명" : "확인";   // 빠뜨리면 숨기지 않도록 확인으로 본다
     for (const c of out.cites || []) if (!ids.has(c)) problems.push(`없는 발췌 번호 ${c}`);
     const u = unknownNumbers([out.relation, ...(out.exposure || [])].join(" "), remote() ? passages.map((p) => p.text).join(" ") + " " + [it.title, it.summary].join(" ") : undefined); if (u.length) problems.push(`아카이브·이슈에 없는 숫자: ${u.join(", ")}`);
     if (!problems.length) break;
@@ -172,10 +177,37 @@ async function run() {
   if (!arg("--build-only")) {
     log(`시작 ${runAt} (수집 모델 ${WEB_MODEL} · 분석 모델 ${MODEL}) · 누적 이슈 ${Object.keys(store.issues).length}건`);
     const found = await collect(store, manualKw);
+    // 사내 아카이브(NEXUS) 연결 확인: 안 되면 이번 회차는 대조 없이 분석하고(표시), 복구되면 다음 회차에 다시 대조한다.
+    let archiveUp = true;
+    if (remote()) { const pr = await NX.ping(); archiveUp = !!(pr && pr.online); if (!archiveUp) log("[NEXUS] 연결 안 됨 — 이번 회차는 사내 아카이브 대조 없이 분석합니다(복구되면 자동으로 다시 대조)"); }
+    const searchFor = async (it) => {
+      if (remote() && !archiveUp) return { passages: [], ok: false };
+      try {
+        const { passages } = await searchAny(it.keywords || []);
+        if (remote()) log(`  [NEXUS 검색] ${it.title.slice(0, 30)} → 가져옴 ${lastSearch.fetched} · 사용 ${lastSearch.allowed} · 허용 목록 밖 제외 ${lastSearch.dropped}`);
+        return { passages, ok: true };
+      } catch (e) { log(`  [NEXUS 검색 실패] ${it.title.slice(0, 30)}: ${String(e.message).slice(0, 80)}`); return { passages: [], ok: false }; }
+    };
     const analyzed = await pool(found, 3, async (it) => {
-      const { passages } = await searchAny(it.keywords || []); if (remote()) log(`  [NEXUS 검색] ${it.title.slice(0, 30)} → 가져옴 ${lastSearch.fetched} · 사용 ${lastSearch.allowed} · 허용 목록 밖 제외 ${lastSearch.dropped}`);
-      const a = await analyze(it, passages); log(`  ✓ [${a.level}] ${it.title}`); return { it, a };
+      const sr = await searchFor(it);
+      const a = await analyze(it, sr.passages); a.archiveOk = sr.ok;
+      log(`  ✓ [${a.level}] ${it.title}${sr.ok ? "" : " (사내 아카이브 대조 못 함)"}`); return { it, a };
     });
+    // 지난 회차에 대조하지 못한 이슈는 연결이 되면 다시 분석한다(회차당 3건까지)
+    if (archiveUp) {
+      const todo = Object.values(store.issues).filter((x) => x.archiveCheck && x.archiveCheck.ok === false).sort((p, q) => String(p.lastUpdated).localeCompare(String(q.lastUpdated))).slice(0, 3);
+      for (const x of todo) {
+        try {
+          const it2 = { area: x.area, title: x.title, status: x.status, summary: x.summary, agencies: x.agencies || [], products: x.products || [], keywords: x.keywords && x.keywords.length ? x.keywords : [...(x.products || []), ...String(x.title).split(" ").filter((w) => w.length >= 2).slice(0, 4)] };
+          const sr = await searchFor(it2); if (!sr.ok) continue;
+          const a = await analyze(it2, sr.passages);
+          x.relation = a.relation; x.exposure = a.exposure; x.responses = a.responses; x.archive = a.archive;
+          if ((LV[a.level] ?? 3) <= (LV[x.level] ?? 3)) { x.level = a.level; x.levelWhy = a.levelWhy; }
+          if (a.ai?.type) x.aiType = { ...a.ai.type, at: runAt }; if (a.ai?.bu) x.aiBu = { ...a.ai.bu, at: runAt };
+          x.archiveCheck = { ok: true, at: runAt }; x.contact = x.contact === "확인" || a.contact === "확인" ? "확인" : a.contact || x.contact || "확인"; log(`  ↻ 사내 아카이브 재대조 완료: ${x.title.slice(0, 40)}`);
+        } catch (e) { log(`  재대조 실패: ${String(x.title).slice(0, 30)}: ${String(e.message).slice(0, 80)}`); }
+      }
+    }
     for (const r of analyzed) {
       if (!r) continue; const { it, a } = r;
       let id = it.updateOf && store.issues[it.updateOf] ? it.updateOf : Object.values(store.issues).find((x) => jac(x.title, it.title) >= 0.55)?.id;
@@ -183,13 +215,13 @@ async function run() {
       if (id) { // 기존 이슈의 새 전개
         const x = store.issues[id];
         x.status = it.status || x.status; x.lastUpdated = new Date().toISOString(); if ((LV[a.level] ?? 3) <= (LV[x.level] ?? 3)) { x.level = a.level; x.levelWhy = a.levelWhy; } // 새 전개가 약해도 위험도를 낮추지 않는다(올라갈 때만 갱신)
-        x.relation = x.relation + " [" + runAt + " 업데이트] " + a.relation; x.exposure = a.exposure; x.responses = a.responses; x.archive = a.archive;
+        x.relation = x.relation + " [" + runAt + " 업데이트] " + a.relation; x.archiveCheck = { ok: a.archiveOk !== false, at: runAt }; x.contact = x.contact === "확인" || a.contact === "확인" ? "확인" : a.contact || x.contact || "확인"; if (!x.keywords || !x.keywords.length) x.keywords = it.keywords || []; x.exposure = a.exposure; x.responses = a.responses; x.archive = a.archive;
         if (a.ai?.type) x.aiType = { ...a.ai.type, at: runAt }; if (a.ai?.bu) x.aiBu = { ...a.ai.bu, at: runAt }; // 제안만 갱신 — 담당자가 확정한 값은 store.mjs 가 보호한다
         x.agencies = [...(x.agencies || []), ...(it.agencies || []).filter((n) => !(x.agencies || []).some((o) => o.name === n.name && o.action === n.action))];
         x.sources = [...x.sources, ...it.sources.filter((n) => !x.sources.some((o) => o.url === n.url))]; x.timeline.push(note); if (it.origin) x.origin = [...(x.origin || []), { ...it.origin, at: runAt }]; updated++;
       } else {
         id = idOf(it.title);
-        store.issues[id] = { id, area: it.area, title: it.title, status: it.status, occurredAt: it.occurredAt || today, firstSeen: new Date().toISOString(), lastUpdated: new Date().toISOString(), summary: it.summary, agencies: it.agencies || [], products: it.products || [], sources: it.sources, level: a.level, levelWhy: a.levelWhy, relation: a.relation, exposure: a.exposure, responses: a.responses, archive: a.archive, timeline: [note], origin: it.origin ? [{ ...it.origin, at: runAt }] : [],
+        store.issues[id] = { id, contact: a.contact || "확인", archiveCheck: { ok: a.archiveOk !== false, at: runAt }, keywords: it.keywords || [], area: it.area, title: it.title, status: it.status, occurredAt: it.occurredAt || today, firstSeen: new Date().toISOString(), lastUpdated: new Date().toISOString(), summary: it.summary, agencies: it.agencies || [], products: it.products || [], sources: it.sources, level: a.level, levelWhy: a.levelWhy, relation: a.relation, exposure: a.exposure, responses: a.responses, archive: a.archive, timeline: [note], origin: it.origin ? [{ ...it.origin, at: runAt }] : [],
           aiType: a.ai?.type ? { ...a.ai.type, at: runAt } : undefined, aiBu: a.ai?.bu ? { ...a.ai.bu, at: runAt } : undefined }; added++;
       }
     }
@@ -204,7 +236,7 @@ async function run() {
 function build(store) {
   const font = (f) => { const p = join(here, "assets", "fonts", f); return existsSync(p) ? "data:font/woff2;base64," + readFileSync(p).toString("base64") : ""; };
   const issues = Object.values(store.issues).sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated));
-  const data = { builtAt: new Date().toISOString(), runs: store.runs.slice(-12), issues };
+  const data = { builtAt: new Date().toISOString(), runs: store.runs.slice(-12), issues, areas: SCOPE.areaNames() };
   let h = readFileSync(join(here, "template.html"), "utf8");
   h = h.split("@@FP@@").join(font("PretendardVariable.woff2")).split("@@FO@@").join(font("Outfit-latin-wght.woff2")).replace("@@DATA@@", () => JSON.stringify(data).replace(/</g, "\\u003c"));
   writeFileSync(join(SITE, "index.html"), h);

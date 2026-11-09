@@ -175,7 +175,7 @@ function renderDetail() {
       ico(h("button", { class: "btn sec", type: "button", text: "종합 요약 보기", title: "사건의 결론 내용을 요약해 보고 HTML·Word·PDF 로 내려받습니다(근거 자료·출처 제외)", onclick: function () { window.RiskSummary.open(c.id, c.title); } }), "download"),
       d.card.card ? h("button", { class: "btn sec", type: "button", text: "제목 자동 만들기", title: "카드 내용으로 ‘점포명_사건내용 키워드’ 제목을 만듭니다", onclick: function () { retitleDlg(c); } }) : null,
       h("button", { class: "btn sec", type: "button", text: "제목 고치기", onclick: function () { editTitleDlg(c); } }),
-      d.nexus && d.nexus.enabled && d.nexus.pending ? ico(h("button", { class: "btn sec", type: "button", text: "Mac NEXUS에 올리기 (" + d.nexus.pending + ")", title: "이 사건의 파일 중 아직 Mac 에 없는 것을 Mac 의 잠금 폴더(리스크관리)로 올립니다. 올린 뒤 Mac 이 읽은 본문은 AI 분석에 쓰입니다.", onclick: function () { post("/api/archive/cases/" + c.id + "/nexus-sync").then(function (r) { alert(r.queued + "개를 Mac 으로 올리는 중입니다. 잠시 뒤 새로고침하면 상태가 보입니다."); setTimeout(function () { loadDetail(); }, 4000); }).catch(fail); } }), "upload") : null,
+      d.nexus && d.nexus.enabled && d.nexus.pending ? ico(h("button", { class: "btn sec", type: "button", text: "NEXUS에 올리기 (" + d.nexus.pending + ")", title: "이 사건의 파일 중 아직 NEXUS에 없는 것을 NEXUS의 잠금 폴더(리스크관리)로 올립니다. 올린 뒤 NEXUS가 읽은 본문은 AI 분석에 쓰입니다.", onclick: function () { post("/api/archive/cases/" + c.id + "/nexus-sync").then(function (r) { alert(r.queued + "개를 NEXUS로 올리는 중입니다. 잠시 뒤 새로고침하면 상태가 보입니다."); setTimeout(function () { loadDetail(); }, 4000); }).catch(fail); } }), "upload") : null,
       h("button", { class: "btn sec", type: "button", text: "사건 삭제", title: "잘못 올라온 사건을 지웁니다(복구용 백업·휴지통 폴더 보관)", onclick: function () { deleteCaseDlg(c); } }),
       h("button", { class: "btn sec", type: "button", text: c.status === "종결" ? "진행 중으로 되돌리기" : "종결 사건으로 표시", title: c.status === "종결" ? "사건 대응(Incident Response)의 진행 중 목록에 다시 나타납니다" : "이미 끝난 사건이면 종결로 표시합니다(종료일은 비워 둡니다)", onclick: function () { post("/api/archive/cases/" + c.id + "/status", { status: c.status === "종결" ? "진행" : "종결" }).then(function (x) { S.detail = x; reflect(); renderDetail(); }).catch(fail); } })])]);
   root.appendChild(hero);
@@ -297,7 +297,7 @@ function fileRow(f, d) {
     h("div", { class: "sub" }, [fmtSize(f.size), h("span", { class: "b kind", text: kindName(f.kind) }), f.kindSource === "auto" ? h("span", { class: "b ai", title: "파일 이름·형식 규칙으로 자동 분류했습니다. 종류를 바꾸면 담당자 지정이 됩니다.", text: "자동 분류" }) : null,
       f.piiState === "suspect" ? h("span", { class: "b warn", text: "개인정보 의심" }) : null,
       f.stage && f.stageSource === "ai" ? h("span", { class: "b ai", title: f.aiStage && f.aiStage.why || "", text: "단계 AI 제안" + aiPct }) : null,
-      f.nexusState === "ok" ? h("span", { class: "b conf", title: "Mac NEXUS 의 잠금 폴더(리스크관리)에도 보관되어 있습니다", text: "Mac 보관" }) : f.nexusState === "failed" ? h("span", { class: "b warn", title: f.nexusErr || "Mac 에 올리지 못했습니다", text: "Mac 실패" }) : null,
+      f.nexusState === "ok" ? h("span", { class: "b conf", title: "NEXUS 의 잠금 폴더(리스크관리)에도 보관되어 있습니다", text: "NEXUS 보관" }) : f.nexusState === "failed" ? h("span", { class: "b warn", title: f.nexusErr || "NEXUS에 올리지 못했습니다", text: "NEXUS 실패" }) : null,
       f.dupOf ? h("span", { class: "b hold", text: "중복" }) : null, f.note ? h("span", { text: f.note }) : null])]));
   var ed = h("div", { class: "ed" });
   ed.appendChild(selectBox("단계", d.stages.concat(d.stageExtras || []), f.stage || "", "단계 미지정", function (v) { patchFile(f, { stage: v || null }); }));
@@ -574,7 +574,7 @@ function fdText(card) { var fd = card && card.first_detected_via; if (!fd) retur
 function deleteCaseDlg(c) {
   openDlg(function (f) {
     f.appendChild(h("h3", { text: "사건 삭제" }));
-    f.appendChild(h("p", { text: "‘" + c.title + "’ 사건을 삭제합니다. 사건 카드·자료·단계 기록과 이 PC의 파일이 지워지고, Mac NEXUS에 올린 파일도 함께 지웁니다." }));
+    f.appendChild(h("p", { text: "‘" + c.title + "’ 사건을 삭제합니다. 사건 카드·자료·단계 기록과 이 PC의 파일이 지워지고, NEXUS에 올린 파일도 함께 지웁니다." }));
     f.appendChild(h("div", { class: "hint", text: "복구용으로 DB 백업이 만들어지고 이 PC의 파일은 data/.trash 폴더에 보관됩니다(영구 삭제 아님). 센싱에서 사건화한 사건이면 센싱 목록으로 돌아갑니다." }));
     var ci = h("input", { type: "text", placeholder: "삭제", autocomplete: "off", "aria-label": "확인 입력" }), er = h("div", { class: "er" }), ok = h("button", { class: "btn danger", type: "submit", text: "삭제", disabled: true });
     ci.oninput = function () { ok.disabled = ci.value.trim() !== "삭제"; };

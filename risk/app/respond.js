@@ -29,7 +29,7 @@ function sendToPast(id) { return post("/api/archive/cases/" + id + "/status", { 
 function deleteDlg(id, title, after) {
   openDlg(function (f) {
     f.appendChild(h("h3", { text: "사건 삭제" }));
-    f.appendChild(h("p", { text: "‘" + title + "’ 사건을 삭제합니다. 사건 카드·단계 기록·종결 요약과 이 PC의 파일이 지워지고, Mac NEXUS에 올린 파일도 함께 지웁니다." }));
+    f.appendChild(h("p", { text: "‘" + title + "’ 사건을 삭제합니다. 사건 카드·단계 기록·종결 요약과 이 PC의 파일이 지워지고, NEXUS에 올린 파일도 함께 지웁니다." }));
     f.appendChild(h("div", { class: "hint", text: "복구용으로 DB 백업이 만들어지고 이 PC의 파일은 data/.trash 폴더에 보관됩니다(영구 삭제 아님). 센싱에서 사건화한 사건이면 센싱 목록으로 돌아갑니다. 이미 끝난 사건이 잘못 올라온 것이라면 삭제 대신 ‘과거 사건으로 보내기’를 쓰는 편이 안전합니다." }));
     var ci = h("input", { type: "text", placeholder: "삭제", autocomplete: "off", "aria-label": "확인 입력" }), er = h("div", { class: "er" }), ok = h("button", { class: "btn danger", type: "submit", text: "삭제", disabled: true });
     ci.oninput = function () { ok.disabled = ci.value.trim() !== "삭제"; };

@@ -59,6 +59,7 @@ export async function handleArchive(req, res, p, url, { body, json }) {
           const c = SC.scope();
           json(res, 200, { company: c.company, channels: c.channels, areas: c.areas, exclude: c.exclude, limits: SC.limits(), partners: SC.allTerms("partner"), products: SC.allTerms("product"), cycle: { partner: SC.cycleRuns("partner"), product: SC.cycleRuns("product") }, signals: ["고객VOC", "점주", "언론", "기관", "내부", "기타"] }); return true;
         }
+        if (p === "/api/sensing/config" && m === "POST") { try { SC.saveSettings(await jsonBody()); } catch (e) { if (e instanceof S.HttpError) throw e; throw new S.HttpError(400, e.message); } json(res, 200, { ok: true }); return true; }
         if (p === "/api/sensing/terms" && m === "POST") {
           const b = await jsonBody(); if (!Array.isArray(b.names) || !b.names.length) throw new S.HttpError(400, "추가할 이름이 없습니다");
           if (b.names.length > 3000) throw new S.HttpError(400, "한 번에 3000개까지 추가할 수 있습니다");

@@ -159,13 +159,13 @@ function apply(){
 }
 function chips(id,items,key){var box=document.getElementById(id);items.forEach(function(it){var b=el("button","chip");b.type="button";b.setAttribute("aria-pressed",it[0]===S[key]);b.appendChild(document.createTextNode(it[1]));if(it[2]!=null)b.appendChild(el("em",null,String(it[2])));b.onclick=function(){S[key]=it[0];[].forEach.call(box.querySelectorAll(".chip"),function(x){x.setAttribute("aria-pressed",x===b)});apply()};box.appendChild(b)})}
 var cnt=function(f){return I.filter(f).length};
-chips("fa",[["","전체",I.length]].concat(["식품안전","가맹업","유통규제","소비자·사회","기타"].filter(function(a){return a!=="기타"||cnt(function(i){return i.area==="기타"})}).map(function(a){return [a,a,cnt(function(i){return i.area===a})]})),"area");
+var AR=(D.areas||[]).slice();I.forEach(function(i){if(i.area&&AR.indexOf(i.area)<0)AR.push(i.area)});chips("fa",[["","전체",I.length]].concat(AR.map(function(a){return [a,a,cnt(function(i){return i.area===a})]})),"area");
 chips("fl",[["","전체"],["높음","높음",cnt(function(i){return i.level==="높음"})],["중간","중간",cnt(function(i){return i.level==="중간"})],["낮음","낮음",cnt(function(i){return i.level==="낮음"})]],"lv");
 chips("fs",[["","전체"],["open","진행 중"],["today","오늘 갱신"],["done","종결"]],"st");
 var so=document.getElementById("fs"),sb=el("button","chip","정렬: 위험도순");sb.type="button";sb.onclick=function(){S.sort=S.sort==="risk"?"new":"risk";sb.textContent=S.sort==="risk"?"정렬: 위험도순":"정렬: 최신순";apply()};so.appendChild(sb);
 document.getElementById("q").addEventListener("input",function(e){S.q=e.target.value.trim();apply()});
 if(!I.length){list.appendChild(el("div","empty","아직 수집된 이슈가 없습니다. 다음 수집은 08:00 / 14:00 입니다."))}
-document.getElementById("foot").textContent="수집 범위: 식품안전·가맹업·유통규제·소비자·사회. 제외 기준 없이 모두 싣습니다(당사가 직접 거론된 이슈 포함). 위험도는 당사 취급 상품·거래와의 관련성으로 AI가 매긴 참고 값입니다.";
+document.getElementById("foot").textContent="수집 범위: 우리 회사에 직접 이슈나 문제가 될 수 있는 것("+(D.areas||[]).join("·")+"). 물가 같은 거시 지표·산업 동향·법령 개정 동향은 제외합니다. 위험도는 당사 취급 상품·거래와의 관련성으로 AI가 매긴 참고 값입니다."
 apply();
 
 /* ── 서버가 있을 때만: 키워드 직접 검색 · 관심 키워드 ── */

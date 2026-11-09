@@ -1,6 +1,6 @@
 // 리스크 시스템 API(데이터 기반, LLM·웹 호출 없음). server.mjs 가 로그인 확인 뒤에 호출한다.
 //   GET  /api/config                 분류 체계(유형·사업부문·단계·위험도·보류 사유 제안)
-//   GET  /api/issues                 센싱 이슈 + 분류 상태(센싱됨/보류/사건화)
+//   GET  /api/issues                 센싱 이슈 + 분류 상태(센싱됨/추적관찰/보류/사건화)
 //   GET  /api/issues/states          {이슈id: {state, holdReason, caseId}}  (센싱 페이지 버튼 표시용)
 //   POST /api/issues/:id/classify    담당자가 유형·사업부문 선택(출처=manual) {typeId?, buId?}  buId ""/null = 미지정
 //   POST /api/issues/:id/promote     사건화  {typeId(필수), buId, tags[], level, title, typeConfirmed}  유형이 AI 제안 상태면 typeConfirmed:true 필요(없으면 409)
@@ -26,11 +26,13 @@ export async function handleApi(req, res, p, url, { body, json }) {
     if (p === "/api/config" && m === "GET") r = S.publicConfig();
     else if (p === "/api/issues" && m === "GET") r = { issues: S.listIssues(), today: S.todayKst() };
     else if (p === "/api/issues/states" && m === "GET") r = S.issueStates();
-    else if ((mm = p.match(/^\/api\/issues\/([0-9a-f]+)\/(promote|hold|restore|classify)$/)) && m === "POST") {
+    else if ((mm = p.match(/^\/api\/issues\/([0-9a-f]+)\/(promote|hold|restore|classify|watch|unwatch)$/)) && m === "POST") {
       const [, id, act] = mm;
       if (act === "classify") r = { issue: S.classifyIssue(id, await bodyJson()) };
       else if (act === "promote") r = { case: S.promoteIssue(id, await bodyJson()) };
       else if (act === "hold") r = { issue: S.holdIssue(id, (await bodyJson()).reason) };
+      else if (act === "watch") r = { issue: S.watchIssue(id, (await bodyJson()).note) };
+      else if (act === "unwatch") r = { issue: S.unwatchIssue(id) };
       else r = { issue: S.restoreIssue(id) };
     }
     else if (p === "/api/cases" && m === "GET") r = { cases: S.listCases(Object.fromEntries(url.searchParams)) };

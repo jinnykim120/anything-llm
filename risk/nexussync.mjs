@@ -15,6 +15,13 @@ export const enabled = () => N.configured() && !!N.caseFolder();
 const msg = (e) => String(e?.message || e).replace(/\s+/g, " ").slice(0, 200);
 const MIME = { pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", txt: "text/plain", md: "text/markdown", csv: "text/csv", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg" };
 
+// 사건 제목이 바뀌어도 NEXUS 의 사건 하위 폴더는 처음 정한 이름을 계속 쓴다(한 사건이 폴더 둘로 갈라지지 않게).
+function pinSub(caseId) {
+  const row = q1("SELECT nexus_sub FROM cases WHERE id=?", caseId); if (row && row.nexus_sub) return row.nexus_sub;
+  const prev = q1("SELECT nexus_loc FROM case_files WHERE case_id=? AND nexus_loc IS NOT NULL LIMIT 1", caseId);
+  const sub = prev ? String(prev.nexus_loc).split("/")[1] || S.getCase(caseId).folderName : S.getCase(caseId).folderName;
+  run("UPDATE cases SET nexus_sub=? WHERE id=?", sub, caseId); return sub;
+}
 export function enqueue(caseId, fileId) { if (!enabled()) return; queue.push({ caseId, fileId }); kick(); }
 async function kick() {
   if (working) return; working = true;
@@ -29,7 +36,7 @@ async function pushOne({ caseId, fileId }) {
     if (!existsSync(abs)) throw new Error("PC 에 파일이 없습니다");
     const buf = readFileSync(abs); if (buf.length > MAX_BYTES) throw new Error("파일이 너무 큽니다(80MB 초과)");
     const ext = f.name.split(".").pop().toLowerCase();
-    const up = await N.uploadCaseDoc(f.rel_path.replace(/\//g, "__"), buf, { sub: S.getCase(caseId).folderName, mime: MIME[ext] || "application/octet-stream" });
+    const up = await N.uploadCaseDoc(f.rel_path.replace(/\//g, "__"), buf, { sub: pinSub(caseId), mime: MIME[ext] || "application/octet-stream" });
     if (up.text.trim()) { mkdirSync(join(dir, ".nexus"), { recursive: true }); writeFileSync(join(dir, ".nexus", `${f.sha256}.txt`), up.text); }
     run("UPDATE case_files SET nexus_state='ok', nexus_loc=?, nexus_err=NULL, nexus_at=? WHERE id=?", up.location, nowIso(), fileId);
   } catch (e) { fail(e); }
@@ -37,7 +44,7 @@ async function pushOne({ caseId, fileId }) {
 
 // 사건의 아직 못 올린 파일(없음·실패)을 줄 세운다. 올리는 중이거나 이미 올린 파일은 건너뛴다.
 export function syncCase(caseId) {
-  if (!enabled()) throw new S.HttpError(409, "Mac NEXUS 연결 설정(config/nexus.json, secrets/)이 없습니다");
+  if (!enabled()) throw new S.HttpError(409, "NEXUS 연결 설정(config/nexus.json, secrets/)이 없습니다");
   const rows = q("SELECT id FROM case_files WHERE case_id=? AND kind!='ignore' AND (nexus_state IS NULL OR nexus_state!='ok')", caseId);
   const inQ = new Set(queue.map((j) => j.fileId)); let n = 0;
   for (const r of rows) if (!inQ.has(r.id)) { queue.push({ caseId, fileId: r.id }); n++; }
@@ -50,7 +57,7 @@ export function parsedText(dir, sha256) { const p = join(dir, ".nexus", `${sha25
 
 // Mac 가 꺼졌다 켜졌을 때를 위한 자동 재시도: '연결 문제'로 실패한 파일만 다시 줄 세운다.
 // (NEXUS 가 직접 거부한 파일 — 예: 음성 파일 500 — 은 다시 해도 같으므로 제외. 한 번도 안 올린 기존 사건 파일도 자동으로 올리지 않는다.)
-const networkErr = (e) => !e || !/^NEXUS [0-9]/.test(e) || /^NEXUS 50[234]/.test(e);
+export const networkErr = (e) => !e || !/^NEXUS [0-9]/.test(e) || /^NEXUS 50[234]/.test(e);
 export async function retryNetworkFailures() {
   if (!enabled()) return { skipped: "연결 설정 없음" };
   const rows = q("SELECT id, case_id, nexus_err FROM case_files WHERE nexus_state='failed' AND kind!='ignore'").filter((r) => networkErr(r.nexus_err));
