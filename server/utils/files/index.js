@@ -209,6 +209,17 @@ function normalizePagination({ offset, limit } = {}) {
  * @param {{offset?: number|string, limit?: number|string}} pagination - `limit: "all"` returns every document.
  * @returns {Promise<{folder: string, documents: any[], totalCount: number, hasMore: boolean, code: number, error: string}>}
  */
+/** 폴더와 그 아래 모든 하위 폴더의 json 문서 수. */
+function countJsonRecursive(dir) {
+  let count = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory())
+      count += countJsonRecursive(path.join(dir, entry.name));
+    else if (path.extname(entry.name) === ".json") count += 1;
+  }
+  return count;
+}
+
 async function getDocumentsByFolder(folderName = "", pagination = {}) {
   const { offset, limit } = normalizePagination(pagination);
   if (!folderName) {
@@ -291,10 +302,25 @@ async function getDocumentsByFolder(folderName = "", pagination = {}) {
     );
   }
 
+  // [NEXUS 폴더 잠금] 하위 폴더(사건별 묶음 등)를 함께 내려준다. 하위 폴더 문서는
+  // 최상위 잠금 폴더의 권한을 그대로 따른다 (folderOfDocpath 는 첫 번째 경로만 본다).
+  const subfolders = fs
+    .readdirSync(folderPath, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => ({
+      name: d.name.normalize("NFC"),
+      fileCount: countJsonRecursive(path.join(folderPath, d.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  const recursiveCount =
+    totalCount + subfolders.reduce((sum, f) => sum + f.fileCount, 0);
+
   return {
     folder: folderName,
     documents,
     totalCount,
+    subfolders,
+    recursiveCount,
     hasMore: offset + limit < totalCount,
     code: 200,
     error: null,
